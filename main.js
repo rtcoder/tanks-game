@@ -1,164 +1,26 @@
-const keys = {
-    w: false,
-    s: false,
-    a: false,
-    d: false,
-}
-const userTank = {
-    x: 60,
-    y: 70,
-    speed: 4,
-    angle: 0,
-    mod: 1,
-    tracksShift: [0, 0],
-    width: 50,
-    height: 40
-}
-const wrapper = document.querySelector(".wrapper");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-const canvasWalls = document.getElementById("canvas-walls");
-const ctxWalls = canvasWalls.getContext("2d");
-const maxGameWidth = 900;
-const maxGameHeight = 800;
-const canvasShift = {
-    x: 0,
-    y: 0
-}
-
-const walls = [
-    {
-        x: 0,
-        y: 0,
-        get width() {
-            return maxGameWidth || 200
-        },
-        height: 20,
-        color: 'brown',
-        path: new Path2D()
-    },
-    {
-        x: 0,
-        get y() {
-            return maxGameHeight - 20 || 200
-        },
-        get width() {
-            return maxGameWidth || 200
-        },
-        height: 20,
-        color: 'brown',
-        path: new Path2D()
-    },
-    {
-        get x() {
-            return maxGameWidth - 20 || 200
-        },
-        y: 0,
-        width: 20,
-        get height() {
-            return maxGameHeight || 200
-        },
-        color: 'brown',
-        path: new Path2D()
-    },
-    {
-        x: 0,
-        y: 0,
-        width: 20,
-        get height() {
-            return maxGameHeight || 200
-        },
-        color: 'brown',
-        path: new Path2D()
-    },
-
-    {
-        x: 100,
-        y: 0,
-        width: 20,
-        height: 300,
-        color: 'brown',
-        path: new Path2D()
-    },
-    {
-        x: 100,
-        y: 300,
-        width: 200,
-        height: 30,
-        color: 'brown',
-        path: new Path2D()
-    }
-]
-
 window.onload = function () {
     window.addEventListener("keydown", keypress_handler, false);
     window.addEventListener("keyup", keyup_handler, false);
     window.addEventListener("resize", resize, false);
 
-    drawWalls();
-    loop();
-    resize();
+    const imagesToLoad = 2;
+    let loaded = 0;
+
+    PATTERNS.BLOCK_1.src = 'block1.png';
+    PATTERNS.BLOCK_2.src = 'block2.png';
+    const loadFn = () => {
+        loaded++;
+
+        if (loaded === imagesToLoad) {
+
+            drawWalls();
+            loop();
+            resize();
+        }
+    }
+    PATTERNS.BLOCK_1.onload = loadFn
+    PATTERNS.BLOCK_2.onload = loadFn
 };
-
-function resize() {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-
-    const canvasWidth = 800;
-    const canvasHeight = 600;
-
-    let xScale = 1;
-    let yScale = 1;
-    let scale = 1;
-
-    if (canvasWidth > width || canvasHeight > height) {
-        xScale = width / canvasWidth;
-        yScale = height / canvasHeight;
-        scale = yScale < xScale ? yScale : xScale;
-    }
-console.log({wrapper,scale})
-        wrapper.style.transform = 'scale(' + scale + ') translate(-50%,-50%)'
-}
-
-function radians_to_degrees(radians) {
-    return radians * (180 / Math.PI);
-}
-
-function degrees_to_radians(degrees) {
-    return degrees / 180 * Math.PI;
-}
-
-function getRectangleCornerPointsAfterRotate(tank) {
-    const {x, y, width, height, angle} = tank;
-
-    const R = Math.sqrt(
-        ((width / 2) ** 2) + ((height / 2) ** 2)
-    );
-
-    const beta = radians_to_degrees(
-        Math.atan2(height, width)
-    );
-
-    const gammas = [
-        degrees_to_radians(beta + angle),
-        degrees_to_radians(beta + angle + radians_to_degrees(Math.PI)),
-        degrees_to_radians(-beta + angle + radians_to_degrees(Math.PI)),
-        degrees_to_radians(-beta + angle),
-    ]
-    const points = [];
-    for (let i = 0; i < 4; i++) {
-        const gamma = gammas[i];
-        const Px = x + R * Math.cos(gamma);
-        const Py = y + R * Math.sin(gamma);
-        points.push({
-            x: Px,
-            y: Py,
-            gamma: (radians_to_degrees(gamma) + 720) % 360
-        })
-    }
-
-    return points;
-}
 
 function update() {
     const {w, s, a, d} = keys;
@@ -285,49 +147,27 @@ function update() {
     })
 }
 
-function roundRect(context, x, y, width, height, radius = 5, fillColor, strokeColor) {
-    if (typeof radius === "number") {
-        radius = {tl: radius, tr: radius, br: radius, bl: radius};
-    } else {
-        const defaultRadius = {tl: 0, tr: 0, br: 0, bl: 0};
-        for (let side in defaultRadius) {
-            radius[side] = radius[side] || defaultRadius[side];
-        }
-    }
-
-    context.beginPath();
-    context.moveTo(x + radius.tl, y);
-    context.lineTo(x + width - radius.tr, y);
-    context.quadraticCurveTo(x + width, y, x + width, y + radius.tr);
-    context.lineTo(x + width, y + height - radius.br);
-    context.quadraticCurveTo(x + width, y + height, x + width - radius.br, y + height);
-    context.lineTo(x + radius.bl, y + height);
-    context.quadraticCurveTo(x, y + height, x, y + height - radius.bl);
-    context.lineTo(x, y + radius.tl);
-    context.quadraticCurveTo(x, y, x + radius.tl, y);
-    context.closePath();
-
-    if (fillColor) {
-        context.fillStyle = fillColor;
-        context.fill();
-    }
-
-    if (strokeColor) {
-        context.strokeStyle = strokeColor;
-        context.stroke()
-    }
-}
-
 function drawTank(tank) {
-    const {x, y, width, height, angle} = tank;
+    const {x, y, width, height, angle, color, tracksShift} = tank;
+
+    const drawDotTankVal = shouldDrawDotTank(tank);
+    if (drawDotTankVal) {
+        const {newX, newY} = drawDotTankVal;
+        drawDotTank(newX, newY, color);
+        return;
+    }
+
+    const tankColor = darker_color(color, 30);
+    const barrelColor = lighter_color(color, 10);
+
     ctx.save();
     ctx.translate(x + canvasShift.x, y + canvasShift.y);
     ctx.rotate(Math.PI / 180 * angle);
     ctx.beginPath();
-    ctx.fillStyle = '#1063d0';
+    ctx.fillStyle = tankColor;
     ctx.fillRect(5 - (width / 2), 0 - (height / 2), 40, 40);
     ctx.fill();
-    roundRect(ctx, 30 - (width / 2), 15 - (height / 2), 30, 10, {tl: 3, tr: 3, bl: 5, br: 5}, '#09f', '#9dbed5')
+    roundRect(ctx, 30 - (width / 2), 15 - (height / 2), 30, 10, {tl: 3, tr: 3, bl: 5, br: 5}, barrelColor, '#9dbed5')
 
     // -- TRACKS --
     roundRect(ctx, 0 - (width / 2), 0 - (height / 2), 50, 10, 5, '#363636');
@@ -335,8 +175,8 @@ function drawTank(tank) {
 
     ctx.beginPath();
     ctx.fillStyle = '#676767';
-    const track1Shift = userTank.tracksShift[0] % 10;
-    const track2Shift = userTank.tracksShift[1] % 10;
+    const track1Shift = tracksShift[0] % 10;
+    const track2Shift = tracksShift[1] % 10;
 
     const from = 0 - (width / 2);
     const to = 0 - (width / 2) + 50;
@@ -354,12 +194,52 @@ function drawTank(tank) {
     ctx.restore();
 }
 
+function shouldDrawDotTank(tank) {
+    const {x, y, width, height} = tank;
+    let newX = x + canvasShift.x;
+    let newY = y + canvasShift.y;
+    if (y !== userTank.y) {
+        if (!(y + canvasShift.y < -height / 2 || x + canvasShift.x < -width / 2)) {
+            tank.drawDot = false;
+        }
+        if (y + canvasShift.y < -height / 2
+            || (tank.drawDot && y + canvasShift.y < 0)) {
+            if (userTank.y > y) {
+                newY = 5;
+            } else {
+                newY = canvas.height - 5;
+            }
+            tank.drawDot = true;
+        }
+        if (x + canvasShift.x < -width / 2
+            || (tank.drawDot && x + canvasShift.x < 0)) {
+            if (userTank.x > x) {
+                newX = 5;
+            } else {
+                newX = canvas.width - 5;
+            }
+            tank.drawDot = true;
+        }
+        return tank.drawDot ? {newX, newY} : null;
+    }
+}
+
+function drawDotTank(newX, newY, color) {
+    ctx.beginPath();
+    ctx.fillStyle = darker_color(color, 30);
+    ctx.strokeStyle = lighter_color(color, 30);
+    ctx.arc(newX, newY, 5, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+}
+
 function drawWalls() {
     ctxWalls.clearRect(0, 0, 800, 800);
     ctxWalls.save();
     ctxWalls.translate(canvasShift.x, canvasShift.y);
     walls.forEach(wall => {
-        ctxWalls.fillStyle = wall.color;
+        ctxWalls.fillStyle = ctx.createPattern(PATTERNS.BLOCK_2, 'repeat');
+        // ctxWalls.fillStyle = wall.color;
         wall.path.rect(
             wall.x,
             wall.y,
@@ -372,12 +252,13 @@ function drawWalls() {
 }
 
 function translateWalls() {
-    canvasWalls.style.transform=`translate(${canvasShift.x}px,${canvasShift.y}px)`
+    canvasWalls.style.transform = `translate(${canvasShift.x}px,${canvasShift.y}px)`
 }
 
 function draw() {
     ctx.clearRect(0, 0, 800, 800);
-    drawTank(userTank)
+    TANKS.forEach(tank => drawTank(tank));
+    drawTank(userTank);
 }
 
 function loop() {
@@ -386,30 +267,5 @@ function loop() {
     setTimeout(() => {
         requestAnimationFrame(loop)
     }, 30)
-}
-
-function keyup_handler(event) {
-    switchKey(event, false)
-}
-
-function keypress_handler(event) {
-    switchKey(event, true)
-}
-
-function switchKey(e, value) {
-    switch (e.keyCode) {
-        case 87:
-            keys.w = value;
-            break;
-        case 83:
-            keys.s = value;
-            break;
-        case 65:
-            keys.a = value;
-            break;
-        case 68:
-            keys.d = value;
-            break;
-    }
 }
 

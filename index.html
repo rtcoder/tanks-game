@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <title>hello world</title>
     <meta charset="UTF-8">
     <style>
         canvas {
             position: absolute;
-            top: 0%;
-            left: 0%;
+            top: 0;
+            left: 0;
         }
         #canvas-walls{
-            background: #fff;
+            background: #fff url("grass.png");
         }
         body{
             background: #000;
@@ -30,9 +30,11 @@
 <body>
 <div class="wrapper">
 
-    <canvas id="canvas-walls" width="900" height="800"></canvas>
+    <canvas id="canvas-walls" width="1300" height="1200"></canvas>
     <canvas id="canvas" width="800" height="600"></canvas>
 </div>
+<script type="text/javascript" src="globals.js"></script>
+<script type="text/javascript" src="utils.js"></script>
 <script type="text/javascript" src="main.js"></script>
 </body>
 </html>
