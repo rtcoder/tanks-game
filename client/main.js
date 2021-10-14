@@ -2,8 +2,11 @@ window.onload = function () {
     window.addEventListener("keydown", keypress_handler, false);
     window.addEventListener("keyup", keyup_handler, false);
     window.addEventListener("resize", resize, false);
-    window.addEventListener("beforeunload", function (e) {
+    window.addEventListener("beforeunload", () => {
         sendMessage({type: 'REMOVE_TANK', payload: {uid: userTank.uid}});
+    });
+    window.addEventListener("blur", () => {
+        Object.keys(keys).forEach(key => keys[key] = false)
     });
     const imagesToLoad = 2;
     let loaded = 0;
@@ -31,6 +34,7 @@ window.onload = function () {
 function update() {
     const {w, s, a, d} = keys;
     const oldAngle = userTank.angle;
+    const oldTraces = userTank.traces;
     if (w) {
         userTank.mod = 1;
         userTank.tracksShift[0]++;
@@ -106,6 +110,7 @@ function update() {
 
     const points = getRectangleCornerPointsAfterRotate(userTank);
 
+
     const now = Date.now();
     userTank.traces = userTank.traces.filter(({time}) => now - time < 5000);
 
@@ -166,6 +171,7 @@ function update() {
             }
         })
     })
+    let sendNewTankData = false;
     if (round(oldX) !== round(userTank.x)
         || round(oldY) !== round(userTank.y)
         || round(oldAngle) !== round(userTank.angle)) {
@@ -176,9 +182,27 @@ function update() {
             angle: oldAngle,
             time: Date.now()
         });
-
+        sendNewTankData = true;
+    }
+    if (sendNewTankData || oldTraces.length !== userTank.traces.length) {
         sendMessage({type: 'UPDATE_TANK', payload: {tank: userTank}});
     }
+}
+
+function drawTankTraces(tank) {
+    const {width, height, traces} = tank;
+
+    traces.forEach(trace => {
+
+        ctx.save();
+        ctx.translate(trace.x + canvasShift.x, trace.y + canvasShift.y);
+        ctx.rotate(Math.PI / 180 * trace.angle);
+
+        roundRect(ctx, 0 - (width / 2), 0 - (height / 2), 25, 10, 5, 'rgba(54, 54, 54, 0.2)');
+        roundRect(ctx, 0 - (width / 2), 30 - (height / 2), 25, 10, 5, 'rgba(54, 54, 54, 0.2)');
+
+        ctx.restore();
+    })
 }
 
 function drawTank(tank) {
@@ -193,20 +217,6 @@ function drawTank(tank) {
 
     const tankColor = darker_color(color, 30);
     const barrelColor = lighter_color(color, 10);
-
-
-    traces.forEach(trace => {
-
-        ctx.save();
-        ctx.translate(trace.x + canvasShift.x, trace.y + canvasShift.y);
-        ctx.rotate(Math.PI / 180 * trace.angle);
-
-        roundRect(ctx, 0 - (width / 2), 0 - (height / 2), 25, 10, 5, 'rgba(54, 54, 54, 0.1)');
-        roundRect(ctx, 0 - (width / 2), 30 - (height / 2), 25, 10, 5, 'rgba(54, 54, 54, 0.1)');
-
-        ctx.restore();
-    })
-
 
     ctx.save();
     ctx.translate(x + canvasShift.x, y + canvasShift.y);
@@ -305,6 +315,8 @@ function translateWalls() {
 
 function draw() {
     ctx.clearRect(0, 0, 800, 800);
+    TANKS.map(tank => drawTankTraces(tank));
+    drawTankTraces(userTank);
     TANKS.forEach(tank => drawTank(tank));
     drawTank(userTank);
 }
