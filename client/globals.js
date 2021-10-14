@@ -5,15 +5,20 @@ const keys = {
     d: false,
 }
 const userTank = {
+    uid: null,
     x: 60,
     y: 70,
     speed: 4,
-    angle: 0,
+    angle: 90,
     mod: 1,
     tracksShift: [0, 0],
     width: 50,
     height: 40,
-    color: [0, 153, 221]
+    color: [0, 153, 221],
+    velocity: {
+        x: 0,
+        y: 0
+    }
 }
 
 const TANKS = [
@@ -131,12 +136,3 @@ const walls = [
     }
 ]
 
-window.onload = function () {
-    window.addEventListener("keydown", keypress_handler, false);
-    window.addEventListener("keyup", keyup_handler, false);
-    window.addEventListener("resize", resize, false);
-
-    drawWalls();
-    loop();
-    resize();
-};

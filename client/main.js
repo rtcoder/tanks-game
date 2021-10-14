@@ -16,6 +16,10 @@ window.onload = function () {
             drawWalls();
             loop();
             resize();
+
+
+            runWsConnection();
+
         }
     }
     PATTERNS.BLOCK_1.onload = loadFn
@@ -55,8 +59,20 @@ function update() {
 
     const oldX = userTank.x;
     const oldY = userTank.y;
-    userTank.x += (userTank.speed * userTank.mod) * Math.cos(Math.PI / 180 * userTank.angle);
-    userTank.y += (userTank.speed * userTank.mod) * Math.sin(Math.PI / 180 * userTank.angle);
+
+    const force = 100;
+
+    const aX = (userTank.speed * userTank.mod) * Math.cos(Math.PI / 180 * userTank.angle) * force;
+    const aY = (userTank.speed * userTank.mod) * Math.sin(Math.PI / 180 * userTank.angle) * force;
+
+    userTank.velocity.x *= 0.85;
+    userTank.velocity.y *= 0.85;
+    const delta = (60 / 1000);
+    userTank.velocity.x += aX * delta;
+    userTank.velocity.y += aY * delta;
+
+    userTank.x += userTank.velocity.x * delta
+    userTank.y += userTank.velocity.y * delta
 
     let redrawWalls = false;
 
@@ -145,6 +161,11 @@ function update() {
             }
         })
     })
+    if (round(oldX) !== round(userTank.x)
+        || round(oldY) !== round(userTank.y)
+        || round(oldAngle) !== round(userTank.angle)) {
+        sendMessage({type: 'UPDATE_TANK', payload: {tank: userTank}});
+    }
 }
 
 function drawTank(tank) {
@@ -239,7 +260,6 @@ function drawWalls() {
     ctxWalls.translate(canvasShift.x, canvasShift.y);
     walls.forEach(wall => {
         ctxWalls.fillStyle = ctx.createPattern(PATTERNS.BLOCK_2, 'repeat');
-        // ctxWalls.fillStyle = wall.color;
         wall.path.rect(
             wall.x,
             wall.y,
@@ -268,4 +288,3 @@ function loop() {
         requestAnimationFrame(loop)
     }, 30)
 }
-

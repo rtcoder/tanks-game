@@ -1,3 +1,8 @@
+function round(num, decimalPlaces = 0) {
+    const value = 10 ** decimalPlaces;
+    return Math.round((num + Number.EPSILON) * value) / value;
+}
+
 function radians_to_degrees(radians) {
     return radians * (180 / Math.PI);
 }
