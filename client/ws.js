@@ -57,6 +57,10 @@ function runWsConnection() {
                     TANKS.length = 0;
                     TANKS.push(...payload.tanks.filter(tank => tank.uid !== userTank.uid));
                     break;
+                case 'MINES_DATA':
+                    MINES.length = 0;
+                    MINES.push(...payload.mines);
+                    break;
             }
         };
 

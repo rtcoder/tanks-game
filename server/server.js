@@ -48,6 +48,10 @@ function updateTank(tank) {
   }
 }
 
+function updateMines(mines) {
+  sendMessageWS(wsServer, {type: 'MINES_DATA', payload: {mines}});
+}
+
 const wsServer = new WebSocket.Server({
   port: webSocketsServerPort
 });
@@ -73,6 +77,9 @@ wsServer.on('connection', ws => {
           break;
         case 'UPDATE_TANK':
           updateTank(messageJson.payload.tank);
+          break;
+        case 'UPDATE_MINES':
+          updateMines(messageJson.payload.mines);
           break;
       }
     });

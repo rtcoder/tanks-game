@@ -31,7 +31,12 @@ window.onload = function () {
     PATTERNS.BLOCK_2.onload = loadFn
 };
 
+function canPutMine() {
+    return Date.now() - LAST_MINE_TIME > 2000;
+}
+
 function update() {
+    const now = Date.now();
     const {w, s, a, d} = keys;
     const oldAngle = userTank.angle;
     const oldTraces = userTank.traces;
@@ -57,6 +62,18 @@ function update() {
         userTank.angle += 5;
         userTank.tracksShift[0]++;
         userTank.tracksShift[1]--;
+    }
+    if (keys.shift) {
+        if (canPutMine()) {
+            MINES.push({
+                x: userTank.x,
+                y: userTank.y,
+                size: 15,
+                time: Date.now()
+            })
+            LAST_MINE_TIME = Date.now();
+            sendMessage({type: 'UPDATE_MINES', payload: {mines: MINES}});
+        }
     }
 
     if (userTank.angle > 360) {
@@ -111,8 +128,7 @@ function update() {
     const points = getRectangleCornerPointsAfterRotate(userTank);
 
 
-    const now = Date.now();
-    userTank.traces = userTank.traces.filter(({time}) => now - time < 5000);
+    userTank.traces = userTank.traces.filter(({time}) => now - time < 3000);
 
     walls.forEach((wall) => {
         points.forEach((point, i) => {
@@ -205,8 +221,24 @@ function drawTankTraces(tank) {
     })
 }
 
+function drawMines() {
+    MINES.forEach(mine => {
+        const {x, y, size} = mine;
+        const isArmed = isMineArmored(mine);
+        ctx.save();
+        ctx.translate(x + canvasShift.x, y + canvasShift.y);
+        ctx.fillStyle = isArmed ? '#850000' : '#067200';
+        ctx.beginPath();
+        ctx.strokeStyle = '#a2a2a2';
+        ctx.arc(0, 0, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+    })
+}
+
 function drawTank(tank) {
-    const {x, y, width, height, angle, color, tracksShift, traces} = tank;
+    const {x, y, width, height, angle, color, tracksShift, lives} = tank;
 
     const drawDotTankVal = shouldDrawDotTank(tank);
     if (drawDotTankVal) {
@@ -251,6 +283,60 @@ function drawTank(tank) {
     ctx.fill();
     // -- END TRACKS --
     ctx.restore();
+
+
+    ctx.save();
+    ctx.translate(x + canvasShift.x, y + canvasShift.y);
+
+    roundRect(ctx, 0 - (width / 2), 0 - (height / 2) - 20, 50, 10, 5, '#363636', '#fff');
+    roundRect(ctx, 0 - (width / 2), 0 - (height / 2) - 19, 50 * (lives / 100), 8, 5, '#679d37');
+
+
+    ctx.restore();
+}
+
+function isMineArmored({time}) {
+    const now = Date.now();
+    return now - time > 1500;
+}
+
+function detectTankMineCollision() {
+    MINES.filter(isMineArmored)
+        .forEach((mine, i) => {
+            const collidingWithTank = circleRectColliding(mine, userTank);
+            const collidingWithAnyCornerPoint = getRectangleCornerPointsAfterRotate(userTank)
+                .some(point => circleRectColliding(mine, point));
+            if (collidingWithTank || collidingWithAnyCornerPoint) {
+                userTank.lives -= 10;
+                MINES.splice(i, 1)
+                sendMessage({type: 'UPDATE_TANK', payload: {tank: userTank}});
+                sendMessage({type: 'UPDATE_MINES', payload: {mines: MINES}});
+            }
+        })
+}
+
+function circleRectColliding(circle, rect) {
+    const {width = 1, height = 1} = rect;
+    const distX = Math.abs(circle.x - rect.x - width / 2);
+    const distY = Math.abs(circle.y - rect.y - height / 2);
+
+    if (distX > (width / 2 + circle.size)) {
+        return false;
+    }
+    if (distY > (height / 2 + circle.size)) {
+        return false;
+    }
+
+    if (distX <= (width / 2)) {
+        return true;
+    }
+    if (distY <= (height / 2)) {
+        return true;
+    }
+
+    const dx = distX - width / 2;
+    const dy = distY - height / 2;
+    return (dx * dx + dy * dy <= (circle.size * circle.size));
 }
 
 function shouldDrawDotTank(tank) {
@@ -315,10 +401,13 @@ function translateWalls() {
 
 function draw() {
     ctx.clearRect(0, 0, 800, 800);
+    drawMines();
     TANKS.map(tank => drawTankTraces(tank));
     drawTankTraces(userTank);
     TANKS.forEach(tank => drawTank(tank));
     drawTank(userTank);
+
+    detectTankMineCollision();
 }
 
 function loop() {

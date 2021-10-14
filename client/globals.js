@@ -3,9 +3,11 @@ const keys = {
     s: false,
     a: false,
     d: false,
+    shift: false,
 }
 const userTank = {
     uid: null,
+    lives: 100,
     x: 60,
     y: 70,
     speed: 4,
@@ -22,7 +24,9 @@ const userTank = {
     }
 }
 
-const TANKS = []
+const TANKS = [];
+const MINES = [];
+let LAST_MINE_TIME = 0;
 
 const wrapper = document.querySelector(".wrapper");
 const canvas = document.getElementById("canvas");

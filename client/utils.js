@@ -98,6 +98,9 @@ function switchKey(e, value) {
         case 68:
             keys.d = value;
             break;
+        case 16:
+            keys.shift = value;
+            break;
     }
 }
 
