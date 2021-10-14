@@ -12,6 +12,7 @@ const userTank = {
     angle: 90,
     mod: 1,
     tracksShift: [0, 0],
+    traces: [],
     width: 50,
     height: 40,
     color: [0, 153, 221],
@@ -21,41 +22,7 @@ const userTank = {
     }
 }
 
-const TANKS = [
-    {
-        x: 180,
-        y: 90,
-        speed: 4,
-        angle: 32,
-        mod: 1,
-        tracksShift: [0, 0],
-        width: 50,
-        height: 40,
-        color: [186, 22, 22]
-    },
-    {
-        x: 480,
-        y: 290,
-        speed: 4,
-        angle: 32,
-        mod: 1,
-        tracksShift: [0, 0],
-        width: 50,
-        height: 40,
-        color: [103, 157, 40]
-    },
-    {
-        x: 500,
-        y: 600,
-        speed: 4,
-        angle: 32,
-        mod: 1,
-        tracksShift: [0, 0],
-        width: 50,
-        height: 40,
-        color: [189, 216, 42]
-    },
-]
+const TANKS = []
 
 const wrapper = document.querySelector(".wrapper");
 const canvas = document.getElementById("canvas");

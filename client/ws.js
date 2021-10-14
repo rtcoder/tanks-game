@@ -36,6 +36,7 @@ function runWsConnection() {
     function startWs() {
         webSocket = new WebSocket('ws://127.0.0.1:8001');
         webSocket.onopen = () => {
+            restartAttempts = 0;
             console.info('WS connection opened');
             document.querySelector('.message.error-connection').classList.remove('opened');
             document.querySelector('.message.connected').classList.add('opened');
@@ -70,7 +71,7 @@ function runWsConnection() {
 }
 
 function sendMessage(data) {
-    if (!webSocket || WebSocket.OPEN !== webSocket.readyState) {
+    if (!canSendMessage()) {
         return;
     }
     webSocket.send(encodeMessage(data))

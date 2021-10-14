@@ -1,23 +1,85 @@
-require('dotenv').config();
-const express = require('express');
-const app = express();
-const cors = require('cors');
 const webSocketsServerPort = 8001;
-const webSocketServer = require('websocket').server;
-const http = require('http');
-const {onRequest} = require("./ws/wsMethods");
+const WebSocket = require('ws');
+
+const TANKS = [];
 
 
-app.use(cors());
-app.use(express.json({limit: '100mb'}));
+const decodeMessage = message => {
+  return JSON.parse(
+    decodeURIComponent(
+      escape(message)
+    )
+  );
+};
+const encodeMessage = message => {
+  return unescape(
+    encodeURIComponent(
+      JSON.stringify(message)
+    )
+  );
+};
 
-// Websocket server
-const server = http.createServer(app);
-server.listen(webSocketsServerPort);
-const wsServer = new webSocketServer({
-  httpServer: server
+const sendMessageWS = (server, data) => {
+  server.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(encodeMessage(data));
+    }
+  });
+};
+
+function addTank(tank) {
+  TANKS.push(tank);
+  sendMessageWS(wsServer, {type: 'TANKS_DATA', payload: {tanks: TANKS}});
+}
+
+function removeTank(uId) {
+  const index = TANKS.findIndex(({uid}) => uid === uId);
+  if (index > -1) {
+    TANKS.splice(index, 1);
+    sendMessageWS(wsServer, {type: 'TANKS_DATA', payload: {tanks: TANKS}});
+  }
+}
+
+function updateTank(tank) {
+  const index = TANKS.findIndex(({uid}) => uid === tank.uid);
+  if (index > -1) {
+    TANKS[index] = tank;
+    sendMessageWS(wsServer, {type: 'TANKS_DATA', payload: {tanks: TANKS}});
+  }
+}
+
+const wsServer = new WebSocket.Server({
+  port: webSocketsServerPort
 });
-wsServer.on('request', onRequest);
 
-app.listen(8000, () =>
-  console.info("Server started and is listening on port 8000"));
+wsServer.on('connection', ws => {
+  try {
+    const rndID = Math.random().toString(32);
+
+    ws.send(encodeMessage({
+      type: 'SET_ID',
+      payload: {id: rndID}
+    }));
+
+    ws.on('message', data => {
+      const messageJson = decodeMessage(data);
+
+      switch (messageJson.type) {
+        case 'ADD_TANK':
+          addTank(messageJson.payload.tank);
+          break;
+        case 'REMOVE_TANK':
+          removeTank(messageJson.payload.uid);
+          break;
+        case 'UPDATE_TANK':
+          updateTank(messageJson.payload.tank);
+          break;
+      }
+    });
+
+    ws.on('close', () => {
+    });
+  } catch (e) {
+    console.error(e);
+  }
+});

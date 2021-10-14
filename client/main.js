@@ -2,7 +2,9 @@ window.onload = function () {
     window.addEventListener("keydown", keypress_handler, false);
     window.addEventListener("keyup", keyup_handler, false);
     window.addEventListener("resize", resize, false);
-
+    window.addEventListener("beforeunload", function (e) {
+        sendMessage({type: 'REMOVE_TANK', payload: {uid: userTank.uid}});
+    });
     const imagesToLoad = 2;
     let loaded = 0;
 
@@ -104,6 +106,9 @@ function update() {
 
     const points = getRectangleCornerPointsAfterRotate(userTank);
 
+    const now = Date.now();
+    userTank.traces = userTank.traces.filter(({time}) => now - time < 5000);
+
     walls.forEach((wall) => {
         points.forEach((point, i) => {
 
@@ -164,12 +169,20 @@ function update() {
     if (round(oldX) !== round(userTank.x)
         || round(oldY) !== round(userTank.y)
         || round(oldAngle) !== round(userTank.angle)) {
+
+        userTank.traces.push({
+            x: oldX,
+            y: oldY,
+            angle: oldAngle,
+            time: Date.now()
+        });
+
         sendMessage({type: 'UPDATE_TANK', payload: {tank: userTank}});
     }
 }
 
 function drawTank(tank) {
-    const {x, y, width, height, angle, color, tracksShift} = tank;
+    const {x, y, width, height, angle, color, tracksShift, traces} = tank;
 
     const drawDotTankVal = shouldDrawDotTank(tank);
     if (drawDotTankVal) {
@@ -181,6 +194,20 @@ function drawTank(tank) {
     const tankColor = darker_color(color, 30);
     const barrelColor = lighter_color(color, 10);
 
+
+    traces.forEach(trace => {
+
+        ctx.save();
+        ctx.translate(trace.x + canvasShift.x, trace.y + canvasShift.y);
+        ctx.rotate(Math.PI / 180 * trace.angle);
+
+        roundRect(ctx, 0 - (width / 2), 0 - (height / 2), 25, 10, 5, 'rgba(54, 54, 54, 0.1)');
+        roundRect(ctx, 0 - (width / 2), 30 - (height / 2), 25, 10, 5, 'rgba(54, 54, 54, 0.1)');
+
+        ctx.restore();
+    })
+
+
     ctx.save();
     ctx.translate(x + canvasShift.x, y + canvasShift.y);
     ctx.rotate(Math.PI / 180 * angle);
@@ -188,6 +215,7 @@ function drawTank(tank) {
     ctx.fillStyle = tankColor;
     ctx.fillRect(5 - (width / 2), 0 - (height / 2), 40, 40);
     ctx.fill();
+
     roundRect(ctx, 30 - (width / 2), 15 - (height / 2), 30, 10, {tl: 3, tr: 3, bl: 5, br: 5}, barrelColor, '#9dbed5')
 
     // -- TRACKS --
