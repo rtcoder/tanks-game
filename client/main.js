@@ -8,11 +8,14 @@ window.onload = function () {
     window.addEventListener("blur", () => {
         Object.keys(keys).forEach(key => keys[key] = false)
     });
-    const imagesToLoad = 2;
+    canvasWalls.width = maxGameWidth;
+    canvasWalls.height = maxGameHeight;
+    const imagesToLoad = 3;
     let loaded = 0;
 
     PATTERNS.BLOCK_1.src = 'block1.png';
     PATTERNS.BLOCK_2.src = 'block2.png';
+    PATTERNS.WATER.src = 'water.png';
     const loadFn = () => {
         loaded++;
 
@@ -29,6 +32,7 @@ window.onload = function () {
     }
     PATTERNS.BLOCK_1.onload = loadFn
     PATTERNS.BLOCK_2.onload = loadFn
+    PATTERNS.WATER.onload = loadFn
 };
 
 function canPutMine() {
@@ -82,14 +86,14 @@ function update() {
 
     const oldX = userTank.x;
     const oldY = userTank.y;
-
-    const force = 100;
-
+    const isOnWater = isPointInWater(getRectangleCornerPointsAfterRotate(userTank));
+    const friction = isOnWater ? userTank.friction + 0.05 : userTank.friction;
+    const force = isOnWater ? userTank.force - 90 : userTank.force;
     const aX = (userTank.speed * userTank.mod) * Math.cos(Math.PI / 180 * userTank.angle) * force;
     const aY = (userTank.speed * userTank.mod) * Math.sin(Math.PI / 180 * userTank.angle) * force;
 
-    userTank.velocity.x *= 0.85;
-    userTank.velocity.y *= 0.85;
+    userTank.velocity.x *= friction;
+    userTank.velocity.y *= friction;
     const delta = (60 / 1000);
     userTank.velocity.x += aX * delta;
     userTank.velocity.y += aY * delta;
@@ -205,17 +209,37 @@ function update() {
     }
 }
 
+function isPointInWater(points) {
+    for (const waterField of WATER_FIELDS) {
+        for (const point of points) {
+            if (ctx.isPointInPath(waterField.getPath(), point.x, point.y)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 function drawTankTraces(tank) {
     const {width, height, traces} = tank;
-
+    const now = Date.now();
     traces.forEach(trace => {
-
+        let color;
+        if (now - trace.time < 1000) {
+            color = 'rgba(54, 54, 54, 0.2)';
+        } else if (now - trace.time < 1500) {
+            color = 'rgba(54, 54, 54, 0.15)';
+        } else if (now - trace.time < 2000) {
+            color = 'rgba(54, 54, 54, 0.1)';
+        } else {
+            color = 'rgba(54, 54, 54, 0.05)';
+        }
         ctx.save();
         ctx.translate(trace.x + canvasShift.x, trace.y + canvasShift.y);
         ctx.rotate(Math.PI / 180 * trace.angle);
 
-        roundRect(ctx, 0 - (width / 2), 0 - (height / 2), 25, 10, 5, 'rgba(54, 54, 54, 0.2)');
-        roundRect(ctx, 0 - (width / 2), 30 - (height / 2), 25, 10, 5, 'rgba(54, 54, 54, 0.2)');
+        roundRect(ctx, 0 - (width / 2), 0 - (height / 2), 25, 10, 5, color);
+        roundRect(ctx, 0 - (width / 2), 30 - (height / 2), 25, 10, 5, color);
 
         ctx.restore();
     })
@@ -383,7 +407,7 @@ function drawWalls() {
     ctxWalls.save();
     ctxWalls.translate(canvasShift.x, canvasShift.y);
     walls.forEach(wall => {
-        ctxWalls.fillStyle = ctx.createPattern(PATTERNS.BLOCK_2, 'repeat');
+        ctxWalls.fillStyle = ctxWalls.createPattern(PATTERNS.BLOCK_2, 'repeat');
         wall.path.rect(
             wall.x,
             wall.y,
@@ -392,6 +416,12 @@ function drawWalls() {
         );
         ctxWalls.fill(wall.path);
     })
+
+    ctxWalls.fillStyle = ctxWalls.createPattern(PATTERNS.WATER, 'repeat');
+    WATER_FIELDS.forEach(water => {
+        ctxWalls.fill(water.getPath());
+    })
+
     ctxWalls.restore();
 }
 

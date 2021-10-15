@@ -101,6 +101,9 @@ function switchKey(e, value) {
         case 16:
             keys.shift = value;
             break;
+        case 32:
+            keys.space = value;
+            break;
     }
 }
 
