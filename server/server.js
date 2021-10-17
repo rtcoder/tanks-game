@@ -6,16 +6,16 @@ const TANKS = [];
 
 const decodeMessage = message => {
   return JSON.parse(
-    decodeURIComponent(
-      escape(message)
-    )
+      decodeURIComponent(
+          escape(message)
+      )
   );
 };
 const encodeMessage = message => {
   return unescape(
-    encodeURIComponent(
-      JSON.stringify(message)
-    )
+      encodeURIComponent(
+          JSON.stringify(message)
+      )
   );
 };
 
@@ -72,7 +72,7 @@ wsServer.on('connection', ws => {
         case 'ADD_TANK':
           addTank(messageJson.payload.tank);
           break;
-        case 'REMOVE_TANK':
+        case 'LEFT_GAME':
           removeTank(messageJson.payload.uid);
           break;
         case 'UPDATE_TANK':

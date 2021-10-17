@@ -1,0 +1,129 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+#canvas-walls {
+  background: #fff url("img/grass.png");
+}
+
+body {
+  background: #000;
+}
+
+.wrapper {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 800px;
+  height: 600px;
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+  transform-origin: top left;
+}
+
+#info {
+  position: absolute;
+  font-size: 20px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  top: 0;
+}
+
+#info .message {
+  background: rgba(61, 61, 61, 0.9);
+  padding: 15px 15px 15px 50px;
+  border-radius: 30px;
+  font-family: system-ui;
+  position: absolute;
+  margin-top: -60px;
+  transition: margin-top 0.3s ease-in-out;
+}
+
+#info .message.opened {
+  margin-top: 0;
+}
+
+#info .message.connected {
+  color: #43fa33;
+}
+
+.message.connected::before {
+  content: " ";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  border-radius: 20px;
+  background: #fff;
+  transform: translateY(-50%);
+}
+
+.message.connected::after {
+  content: " ";
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  width: 5px;
+  height: 10px;
+  border: 5px solid;
+  border-top: none;
+  border-left: none;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.message.error-connection {
+  color: #ff0000;
+}
+
+.message.error-connection::before {
+  content: " ";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  border-radius: 20px;
+  background: #fff;
+  transform: translateY(-50%);
+}
+
+.message.error-connection::after {
+  content: "!";
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-weight: bold;
+  font-size: 30px;
+}
+
+.minimap {
+  position: absolute;
+  width: 800px;
+  height: 600px;
+  background: rgba(48, 48, 48, 0.95);
+  display: none;
+}
+
+.minimap > div {
+  position: absolute;
+  width: 800px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.minimap canvas {
+  transform-origin: top left;
+}
