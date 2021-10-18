@@ -12,11 +12,14 @@ canvas {
 }
 
 #canvas-walls {
-  background: #fff url("img/grass.png");
+  background: #fff url("assets/img/grass.png");
 }
 
 body {
   background: #000;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .wrapper {
@@ -28,6 +31,7 @@ body {
   transform: translate(-50%, -50%);
   overflow: hidden;
   transform-origin: top left;
+  display: none;
 }
 
 #info {
@@ -126,4 +130,33 @@ body {
 
 .minimap canvas {
   transform-origin: top left;
+}
+
+.touch-controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 150px;
+}
+
+.joystick {
+  width: 150px;
+  height: 150px;
+  border-radius: 150px;
+  background: rgba(153,153,153,.5);
+  position: absolute;
+  overflow: hidden
+}
+
+.dot {
+  width: 40px;
+  height: 40px;
+  border-radius: 40px;
+  background: rgba(0, 0, 0, 0.5);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+
 }

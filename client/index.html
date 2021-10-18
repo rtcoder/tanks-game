@@ -6,6 +6,14 @@
   <link href="style.css" rel="stylesheet">
 </head>
 <body>
+
+<div class="menu-board">
+  <button onclick="newGame()">New game</button>
+  <button>Controls</button>
+</div>
+<div class="controls">
+
+</div>
 <div class="wrapper">
 
   <canvas id="canvas-walls"></canvas>
@@ -24,11 +32,24 @@
     </div>
 
   </div>
+
+  <div class="touch-controls">
+    <canvas id="joystick" height="300" width="300"></canvas>
+    <div class="joystick">
+      <div class="dot"></div>
+    </div>
+
+    <div class="actions">
+      <div class="mine"></div>
+      <div class="fire"></div>
+    </div>
+  </div>
 </div>
 
-<script src="globals.js"></script>
-<script src="ws.js"></script>
-<script src="utils.js"></script>
-<script src="main.js"></script>
+<script src="js/assets.js"></script>
+<script src="js/globals.js"></script>
+<script src="js/ws.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/main.js"></script>
 </body>
 </html>

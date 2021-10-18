@@ -31,6 +31,8 @@ const TANKS = [];
 const MINES = [];
 let LAST_MINE_TIME = 0;
 
+const joyStick = document.querySelector('.joystick');
+const joyStickDot = document.querySelector('.joystick .dot');
 const wrapper = document.querySelector('.wrapper');
 const minimapContainer = document.querySelector('.minimap');
 const canvas = document.getElementById('canvas');
@@ -48,12 +50,6 @@ const minimapHeight = minimapWidth * (maxGameHeight / maxGameWidth);
 const canvasShift = {
   x: 0,
   y: 0
-};
-const PATTERNS = {
-  BLOCK_1: new Image(),
-  BLOCK_2: new Image(),
-  WATER: new Image(),
-  MUD: new Image(),
 };
 const walls = [
   {
@@ -188,3 +184,5 @@ const WATER_FIELDS = [
 
 let IS_TANK_ON_WATER = false;
 let IS_GAME_IN_ANOTHER_TAB = false;
+
+let IS_GAME_STARTED = false;

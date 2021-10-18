@@ -49,9 +49,9 @@ function runWsConnection() {
       const {type, payload} = decodedMessage;
       switch (type) {
         case 'SET_ID':
-          if (IS_GAME_IN_ANOTHER_TAB) {
-            return;
-          }
+          // if (IS_GAME_IN_ANOTHER_TAB) {
+          //   return;
+          // }
           userTank.uid = payload.id;
 
           sendMessage({type: 'ADD_TANK', payload: {tank: userTank}});

@@ -1,11 +1,40 @@
+const IMAGES = {};
+
+function newGame() {
+  if (IS_GAME_STARTED) {
+    return;
+  }
+  loadAssets().then(({images}) => {
+    Object.assign(IMAGES, images);
+
+    loop();
+    resize();
+    drawWallsMinimap();
+    drawWalls();
+
+    runWsConnection();
+
+    IS_GAME_STARTED = true;
+    wrapper.style.display = 'block';
+
+  });
+
+}
+
 window.onload = function () {
   window.addEventListener('keydown', e => {
+    if (!IS_GAME_STARTED) {
+      return;
+    }
     keypress_handler(e);
     if (e.code === 'KeyM') {
       minimapContainer.style.display = 'flex';
     }
   }, false);
   window.addEventListener('keyup', e => {
+    if (!IS_GAME_STARTED) {
+      return;
+    }
     keyup_handler(e);
 
     if (e.code === 'KeyM') {
@@ -14,10 +43,41 @@ window.onload = function () {
   }, false);
   window.addEventListener('resize', resize, false);
   window.addEventListener('beforeunload', () => {
+    if (!IS_GAME_STARTED) {
+      return;
+    }
     sendMessage({type: 'LEFT_GAME', payload: {uid: userTank.uid}});
   });
   window.addEventListener('blur', () => {
+    if (!IS_GAME_STARTED) {
+      return;
+    }
     Object.keys(keys).forEach(key => keys[key] = false);
+  });
+
+  function touchEventHandler(e) {
+    const {clientX, clientY} = e.touches[0];
+    const rect = joyStick.getBoundingClientRect();
+    let posX = clientX - rect.x;
+    let posY = clientY - rect.y;
+    const radius = 75;
+    const angleRadians = Math.atan2(posX - radius, radius - posY);
+    const angle = (radians_to_degrees(angleRadians) + 360.0) % 360.0;
+    userTank.angle = angle - 90;
+    keys.w = true;
+    joyStickDot.style.left = `${posX}px`;
+    joyStickDot.style.top = `${posY}px`;
+  }
+
+  joyStick.addEventListener('touchstart', touchEventHandler);
+  joyStick.addEventListener('contextmenu', e => {
+    e.preventDefault();
+  });
+  joyStick.addEventListener('touchmove', touchEventHandler);
+  joyStick.addEventListener('touchend', e => {
+    keys.w = false;
+    joyStickDot.style.left = '50%';
+    joyStickDot.style.top = '50%';
   });
   // window.addEventListener('focus', () => {
   //   const tank = getFromLs('TANK');
@@ -39,42 +99,20 @@ window.onload = function () {
   //   }
   // }, false);
 
-  localStorage.openpages = Date.now();
-  canvasWalls.width = maxGameWidth;
-  canvasWalls.height = maxGameHeight;
-  canvasWallsMinimap.width = maxGameWidth;
-  canvasWallsMinimap.height = maxGameHeight;
-  canvasMinimap.width = maxGameWidth;
-  canvasMinimap.height = maxGameHeight;
-  const minimapScale = `scale(calc(1 / (${maxGameWidth} / ${minimapWidth})), calc(1 / (${maxGameHeight} / ${minimapHeight})))`;
-  canvasWallsMinimap.style.transform = minimapScale;
-  canvasMinimap.style.transform = minimapScale;
-  minimapContainer.querySelector('div').style.height = `${minimapHeight}px`;
-  const imagesToLoad = Object.keys(PATTERNS).length;
-  let loaded = 0;
-
-  PATTERNS.BLOCK_1.src = 'img/block1.png';
-  PATTERNS.BLOCK_2.src = 'img/block2.png';
-  PATTERNS.WATER.src = 'img/water.png';
-  PATTERNS.MUD.src = 'img/mud.png';
-  const loadFn = () => {
-    loaded++;
-
-    if (loaded === imagesToLoad) {
-
-      loop();
-      resize();
-      drawWallsMinimap();
-      drawWalls();
-
-      runWsConnection();
-
-    }
-  };
-  PATTERNS.BLOCK_1.onload = loadFn;
-  PATTERNS.BLOCK_2.onload = loadFn;
-  PATTERNS.WATER.onload = loadFn;
-  PATTERNS.MUD.onload = loadFn;
+  // localStorage.openpages = Date.now();
+  (function setupCanvas() {
+    canvasWalls.width = maxGameWidth;
+    canvasWalls.height = maxGameHeight;
+    canvasWallsMinimap.width = maxGameWidth;
+    canvasWallsMinimap.height = maxGameHeight;
+    canvasMinimap.width = maxGameWidth;
+    canvasMinimap.height = maxGameHeight;
+    const minimapScale = `scale(calc(1 / (${maxGameWidth} / ${minimapWidth})), calc(1 / (${maxGameHeight} / ${minimapHeight})))`;
+    canvasWallsMinimap.style.transform = minimapScale;
+    canvasMinimap.style.transform = minimapScale;
+    minimapContainer.querySelector('div').style.height = `${minimapHeight}px`;
+  })();
+  newGame();
 };
 
 function canPutMine() {
@@ -457,7 +495,7 @@ function drawWalls() {
   ctxWalls.save();
   ctxWalls.translate(canvasShift.x, canvasShift.y);
   walls.forEach(wall => {
-    ctxWalls.fillStyle = ctxWalls.createPattern(PATTERNS.BLOCK_2, 'repeat');
+    ctxWalls.fillStyle = ctxWalls.createPattern(IMAGES.BLOCK_2, 'repeat');
     wall.path.rect(
         wall.x,
         wall.y,
@@ -467,7 +505,7 @@ function drawWalls() {
     ctxWalls.fill(wall.path);
   });
 
-  ctxWalls.fillStyle = ctxWalls.createPattern(PATTERNS.WATER, 'repeat');
+  ctxWalls.fillStyle = ctxWalls.createPattern(IMAGES.WATER, 'repeat');
   WATER_FIELDS.forEach(water => {
     ctxWalls.fill(water.getPath());
   });
@@ -478,7 +516,7 @@ function drawWalls() {
 function drawWallsMinimap() {
   ctxWallsMinimap.clearRect(0, 0, 800, 800);
   walls.forEach(wall => {
-    ctxWallsMinimap.fillStyle = ctxWallsMinimap.createPattern(PATTERNS.BLOCK_2, 'repeat');
+    ctxWallsMinimap.fillStyle = ctxWallsMinimap.createPattern(IMAGES.BLOCK_2, 'repeat');
     wall.path.rect(
         wall.x,
         wall.y,
@@ -488,7 +526,7 @@ function drawWallsMinimap() {
     ctxWallsMinimap.fill(wall.path);
   });
 
-  ctxWallsMinimap.fillStyle = ctxWallsMinimap.createPattern(PATTERNS.WATER, 'repeat');
+  ctxWallsMinimap.fillStyle = ctxWallsMinimap.createPattern(IMAGES.WATER, 'repeat');
   WATER_FIELDS.forEach(water => {
     ctxWallsMinimap.fill(water.getPath());
   });
