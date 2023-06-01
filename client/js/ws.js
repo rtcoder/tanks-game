@@ -53,7 +53,7 @@ function runWsConnection() {
           //   return;
           // }
           userTank.uid = payload.id;
-
+          userTank.color = getRandomColor();
           sendMessage({type: 'ADD_TANK', payload: {tank: userTank}});
           break;
         case 'TANKS_DATA':

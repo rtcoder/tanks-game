@@ -43,6 +43,21 @@ function getRectangleCornerPointsAfterRotate(tank) {
   return points;
 }
 
+/**
+ *
+ * @param {CanvasRenderingContext2D} context
+ * @param {number} x
+ * @param {number} y
+ * @param {number} width
+ * @param {number} height
+ * @param {string} fillColor
+ * @param {string} strokeColor
+ * @param {number|object} radius
+ * @param {number} radius.tr
+ * @param {number} radius.tl
+ * @param {number} radius.br
+ * @param {number} radius.bl
+ */
 function roundRect(context, x, y, width, height, radius = 5, fillColor, strokeColor) {
   if (typeof radius === 'number') {
     radius = {tl: radius, tr: radius, br: radius, bl: radius};
@@ -85,18 +100,22 @@ function keypress_handler(event) {
 }
 
 function switchKey(e, value) {
-  console.log(e.code)
+  console.log(e.code);
   switch (e.code) {
     case 'KeyW':
+    case 'ArrowUp':
       keys.w = value;
       break;
     case 'KeyS':
+    case 'ArrowDown':
       keys.s = value;
       break;
     case 'KeyA':
+    case 'ArrowLeft':
       keys.a = value;
       break;
     case 'KeyD':
+    case 'ArrowRight':
       keys.d = value;
       break;
     case 'ShiftLeft':
@@ -143,10 +162,18 @@ function darker_color([r, g, b], percent) {
   return shift_color([r, g, b], 1, percent);
 }
 
+function hexToRgb(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? [
+    parseInt(result[1], 16), // R
+    parseInt(result[2], 16), // G
+    parseInt(result[3], 16) // B
+  ] : null;
+}
+
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
 }
-
 
 function getFromLs(key) {
   return localStorage.getItem(key);
@@ -154,4 +181,8 @@ function getFromLs(key) {
 
 function setInLs(key, value) {
   localStorage.setItem(key, value);
+}
+
+function getRandomColor() {
+  return `#${Math.floor(Math.random() * 16777215).toString(16)}`;
 }

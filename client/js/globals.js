@@ -18,7 +18,7 @@ const userTank = {
   traces: [],
   width: 50,
   height: 40,
-  color: [0, 153, 221],
+  color: '#000',
   velocity: {
     x: 0,
     y: 0

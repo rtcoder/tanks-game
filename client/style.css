@@ -138,13 +138,21 @@ body {
   left: 0;
   width: 100%;
   height: 150px;
+  display: none;
+}
+
+/*Touch devices*/
+@media (hover: none) {
+  .touch-controls {
+    display: block;
+  }
 }
 
 .joystick {
   width: 150px;
   height: 150px;
   border-radius: 150px;
-  background: rgba(153,153,153,.5);
+  background: rgba(153, 153, 153, .5);
   position: absolute;
   overflow: hidden
 }
