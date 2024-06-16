@@ -192,7 +192,7 @@ function translateWalls() {
 }
 
 function draw() {
-  ctx.clearRect(0, 0, 800, 800);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctxMinimap.clearRect(0, 0, canvasMinimap.width, canvasMinimap.height);
   drawMines();
   TANKS.map(tank => drawTankTraces(tank));
