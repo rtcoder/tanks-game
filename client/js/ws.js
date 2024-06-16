@@ -34,6 +34,8 @@ function runWsConnection() {
   }
 
   function startWs() {
+    // webSocket = new WebSocket('ws://tanks-game-ten.vercel.app:8001');
+
     webSocket = new WebSocket('ws://127.0.0.1:8001');
     webSocket.onopen = () => {
       restartAttempts = 0;
@@ -72,6 +74,9 @@ function runWsConnection() {
       document.querySelector('.message.error-connection').classList.add('opened');
       setTimeout(restartWs, 1000);
     };
+    webSocket.onerror=e=>{
+      console.log(e)
+    }
   }
 
   startWs();
