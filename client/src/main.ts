@@ -92,6 +92,11 @@ const MAX_GAME_WIDTH = 3000;
 const MAX_GAME_HEIGHT = 2200;
 const MINIMAP_WIDTH = 800;
 const MINIMAP_HEIGHT = MINIMAP_WIDTH * (MAX_GAME_HEIGHT / MAX_GAME_WIDTH);
+const PLAYER_SPAWN = {
+  x: 700,
+  y: 700,
+  angle: 0,
+};
 
 const keys: KeysState = {
   w: false,
@@ -105,10 +110,10 @@ const keys: KeysState = {
 const userTank: Tank = {
   uid: null,
   lives: 100,
-  x: 180,
-  y: 170,
-  speed: 4,
-  angle: 90,
+  x: PLAYER_SPAWN.x,
+  y: PLAYER_SPAWN.y,
+  speed: 7,
+  angle: PLAYER_SPAWN.angle,
   mod: 0,
   tracksShift: [0, 0],
   traces: [],
@@ -595,8 +600,6 @@ const drawTankOnMinimap = (tank: Tank): void => {
 
 const drawWalls = (): void => {
   ctxWalls.clearRect(0, 0, MAX_GAME_WIDTH, MAX_GAME_HEIGHT);
-  ctxWalls.save();
-  ctxWalls.translate(canvasShift.x, canvasShift.y);
   walls.forEach((wall) => {
     ctxWalls.fillStyle = getPattern(ctxWalls, 'BLOCK_2');
     wall.path = new Path2D();
@@ -608,8 +611,6 @@ const drawWalls = (): void => {
   waterFields.forEach((water) => {
     ctxWalls.fill(water.getPath());
   });
-
-  ctxWalls.restore();
 };
 
 const drawWallsMinimap = (): void => {
@@ -629,6 +630,20 @@ const drawWallsMinimap = (): void => {
 
 const translateWalls = (): void => {
   canvasWalls.style.transform = `translate(${canvasShift.x}px, ${canvasShift.y}px)`;
+};
+
+const syncCameraToTank = (): void => {
+  canvasShift.x = 0;
+  canvasShift.y = 0;
+
+  if (userTank.x > canvas.width / 2 && userTank.x < MAX_GAME_WIDTH - canvas.width / 2) {
+    canvasShift.x = canvas.width / 2 - userTank.x;
+  }
+  if (userTank.y > canvas.height / 2 && userTank.y < MAX_GAME_HEIGHT - canvas.height / 2) {
+    canvasShift.y = canvas.height / 2 - userTank.y;
+  }
+
+  translateWalls();
 };
 
 const draw = (): void => {
@@ -672,23 +687,21 @@ const updateHud = (): void => {
 
 const resetTankState = (): void => {
   userTank.lives = 100;
-  userTank.x = 180;
-  userTank.y = 170;
-  userTank.angle = 90;
+  userTank.x = PLAYER_SPAWN.x;
+  userTank.y = PLAYER_SPAWN.y;
+  userTank.angle = PLAYER_SPAWN.angle;
   userTank.mod = 0;
   userTank.tracksShift = [0, 0];
   userTank.traces = [];
   userTank.velocity.x = 0;
   userTank.velocity.y = 0;
-  canvasShift.x = 0;
-  canvasShift.y = 0;
   Object.keys(keys).forEach((key) => {
     keys[key as keyof KeysState] = false;
   });
   lastMineTime = 0;
   isGameOver = false;
   gameOverPanel.classList.remove('opened');
-  translateWalls();
+  syncCameraToTank();
 };
 
 const encodeMessage = (message: ClientMessage): string => JSON.stringify(message);
