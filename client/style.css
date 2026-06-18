@@ -5,6 +5,16 @@
   user-select: none;
 }
 
+:root {
+  --ui-bg: rgba(18, 22, 18, 0.86);
+  --ui-border: rgba(216, 227, 183, 0.22);
+  --ui-text: #f5f4e6;
+  --ui-muted: #b8c1a4;
+  --accent: #d0f05f;
+  --danger: #ff5d4a;
+  --steel: #8fa49b;
+}
+
 canvas {
   position: absolute;
   top: 0;
@@ -16,10 +26,98 @@ canvas {
 }
 
 body {
-  background: #000;
+  background: #070908;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--ui-text);
+}
+
+button {
+  border: 1px solid var(--ui-border);
+  background: rgba(24, 31, 24, 0.9);
+  color: var(--ui-text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  min-height: 42px;
+  padding: 0 18px;
+}
+
+button:hover {
+  border-color: rgba(208, 240, 95, 0.65);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #17200d;
+}
+
+.menu-board {
+  align-items: center;
+  background: linear-gradient(rgba(4, 5, 4, 0.58), rgba(4, 5, 4, 0.84)), url("assets/img/grass.png");
+  background-size: auto;
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 20;
+}
+
+.menu-board.hidden {
+  display: none;
+}
+
+.menu-panel {
+  background: var(--ui-bg);
+  border: 1px solid var(--ui-border);
+  max-width: 460px;
+  padding: 28px;
+  width: min(100%, 460px);
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.menu-panel h1 {
+  font-size: 42px;
+  line-height: 1.05;
+  margin-top: 8px;
+}
+
+.menu-copy {
+  color: var(--ui-muted);
+  line-height: 1.45;
+  margin-top: 12px;
+}
+
+.menu-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.controls {
+  border-top: 1px solid var(--ui-border);
+  color: var(--ui-muted);
+  display: none;
+  gap: 8px;
+  grid-template-columns: 1fr;
+  line-height: 1.35;
+  margin-top: 18px;
+  padding-top: 16px;
+}
+
+.controls.opened {
+  display: grid;
 }
 
 .wrapper {
@@ -30,8 +128,77 @@ body {
   height: 900px;
   transform: translate(-50%, -50%);
   overflow: hidden;
-  transform-origin: top left;
+  transform-origin: center center;
   display: none;
+}
+
+.hud {
+  display: flex;
+  gap: 8px;
+  left: 14px;
+  position: absolute;
+  top: 14px;
+  z-index: 5;
+}
+
+.hud-panel {
+  align-items: center;
+  background: var(--ui-bg);
+  border: 1px solid var(--ui-border);
+  display: flex;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 10px;
+}
+
+.hud-panel span {
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.hud-panel strong {
+  font-size: 14px;
+}
+
+.hp-meter {
+  background: rgba(0, 0, 0, 0.38);
+  height: 8px;
+  overflow: hidden;
+  width: 110px;
+}
+
+#hp-fill {
+  background: var(--accent);
+  height: 100%;
+  width: 100%;
+}
+
+.game-over {
+  align-items: center;
+  background: rgba(3, 4, 3, 0.68);
+  display: none;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+  z-index: 12;
+}
+
+.game-over.opened {
+  display: flex;
+}
+
+.game-over-panel {
+  background: var(--ui-bg);
+  border: 1px solid var(--ui-border);
+  padding: 24px;
+  text-align: center;
+}
+
+.game-over-panel h2 {
+  font-size: 26px;
+  margin-bottom: 14px;
 }
 
 #info {
@@ -114,10 +281,14 @@ body {
 
 .minimap {
   position: absolute;
-  width: 800px;
-  height: 600px;
+  width: 420px;
+  height: 320px;
   background: rgba(48, 48, 48, 0.95);
   display: none;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 8;
 }
 
 .minimap > div {
@@ -134,15 +305,17 @@ body {
 
 .touch-controls {
   position: absolute;
-  bottom: 0;
-  left: 0;
+  bottom: 18px;
+  left: 18px;
   width: 100%;
   height: 150px;
+  pointer-events: none;
   display: none;
+  z-index: 7;
 }
 
 /*Touch devices*/
-@media (hover: none) {
+@media (hover: none), (pointer: coarse) {
   .touch-controls {
     display: block;
   }
@@ -154,7 +327,8 @@ body {
   border-radius: 150px;
   background: rgba(153, 153, 153, .5);
   position: absolute;
-  overflow: hidden
+  overflow: hidden;
+  pointer-events: auto;
 }
 
 .dot {
@@ -167,4 +341,48 @@ body {
   left: 50%;
   transform: translate(-50%, -50%);
 
+}
+
+.actions {
+  bottom: 0;
+  display: flex;
+  gap: 10px;
+  position: absolute;
+  right: 36px;
+}
+
+.actions button {
+  border-radius: 999px;
+  height: 82px;
+  padding: 0;
+  pointer-events: auto;
+  width: 82px;
+}
+
+@media (max-width: 700px) {
+  .menu-panel {
+    padding: 22px;
+  }
+
+  .menu-panel h1 {
+    font-size: 34px;
+  }
+
+  .menu-actions,
+  .hud {
+    flex-wrap: wrap;
+  }
+
+  .hud {
+    max-width: calc(100% - 28px);
+  }
+
+  .hp-meter {
+    width: 82px;
+  }
+
+  .minimap {
+    height: 260px;
+    width: 320px;
+  }
 }

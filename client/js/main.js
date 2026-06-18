@@ -1,30 +1,78 @@
 const IMAGES = {};
+let ARE_ASSETS_READY = false;
+
+function resetTankState() {
+  userTank.lives = 100;
+  userTank.x = 180;
+  userTank.y = 170;
+  userTank.angle = 90;
+  userTank.mod = 0;
+  userTank.tracksShift = [0, 0];
+  userTank.traces = [];
+  userTank.velocity.x = 0;
+  userTank.velocity.y = 0;
+  canvasShift.x = 0;
+  canvasShift.y = 0;
+  Object.keys(keys).forEach(key => keys[key] = false);
+  LAST_MINE_TIME = 0;
+  IS_GAME_OVER = false;
+  gameOverPanel.classList.remove('opened');
+  translateWalls();
+}
+
+function startGameWorld() {
+  resetTankState();
+  menuBoard.classList.add('hidden');
+  wrapper.style.display = 'block';
+  resize();
+  drawWallsMinimap();
+  drawWalls();
+  updateHud();
+
+  if (!webSocket) {
+    runWsConnection();
+  } else {
+    sendMessage({type: 'UPDATE_TANK', payload: {tank: userTank}});
+  }
+
+  IS_GAME_STARTED = true;
+  LAST_FRAME_TIME = 0;
+  requestAnimationFrame(loop);
+}
 
 function newGame() {
   if (IS_GAME_STARTED) {
     return;
   }
+
+  if (ARE_ASSETS_READY) {
+    startGameWorld();
+    return;
+  }
+
   loadAssets().then(({images}) => {
     Object.assign(IMAGES, images);
-
-    loop();
-    resize();
-    drawWallsMinimap();
-    drawWalls();
-
-    runWsConnection();
-
-    IS_GAME_STARTED = true;
-    wrapper.style.display = 'block';
-
+    ARE_ASSETS_READY = true;
+    startGameWorld();
   });
-
 }
 
 window.onload = function () {
+  newGameButton.addEventListener('click', newGame);
+  controlsButton.addEventListener('click', () => {
+    controlsPanel.classList.toggle('opened');
+  });
+  respawnButton.addEventListener('click', () => {
+    resetTankState();
+    sendMessage({type: 'UPDATE_TANK', payload: {tank: userTank}});
+  });
+
   window.addEventListener('keydown', e => {
     if (!IS_GAME_STARTED) {
       return;
+    }
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+      e.preventDefault();
     }
     keypress_handler(e);
     if (e.code === 'KeyM') {
@@ -56,11 +104,20 @@ window.onload = function () {
   });
 
   function touchEventHandler(e) {
+    if (!IS_GAME_STARTED || IS_GAME_OVER) {
+      return;
+    }
+    e.preventDefault();
     const {clientX, clientY} = e.touches[0];
     const rect = joyStick.getBoundingClientRect();
-    let posX = clientX - rect.x;
-    let posY = clientY - rect.y;
-    const radius = 75;
+    const radius = rect.width / 2;
+    const maxDistance = radius - 20;
+    const rawX = clientX - rect.x - radius;
+    const rawY = clientY - rect.y - radius;
+    const distance = Math.min(Math.sqrt(rawX ** 2 + rawY ** 2), maxDistance);
+    const direction = Math.atan2(rawY, rawX);
+    const posX = radius + Math.cos(direction) * distance;
+    const posY = radius + Math.sin(direction) * distance;
     const angleRadians = Math.atan2(posX - radius, radius - posY);
     const angle = (radians_to_degrees(angleRadians) + 360.0) % 360.0;
     userTank.angle = angle - 90;
@@ -79,28 +136,11 @@ window.onload = function () {
     joyStickDot.style.left = '50%';
     joyStickDot.style.top = '50%';
   });
-  // window.addEventListener('focus', () => {
-  //   const tank = getFromLs('TANK');
-  //   if (tank) {
-  //     Object.assign(userTank, JSON.parse(tank));
-  //   }
-  // });
-  // window.addEventListener('storage', e => {
-  //   if (!e.newValue) {
-  //     return;
-  //   }
-  //   if (e.key === 'openpages') {
-  //     // Emit that you're already available.
-  //     localStorage.page_available = Date.now();
-  //   }
-  //   if (e.key === 'page_available') {
-  //     IS_GAME_IN_ANOTHER_TAB = true;
-  //     Object.assign(userTank, JSON.parse(getFromLs('TANK')));
-  //   }
-  // }, false);
+  touchMineButton.addEventListener('click', putMine);
 
-  // localStorage.openpages = Date.now();
   (function setupCanvas() {
+    canvas.width = VIEWPORT_WIDTH;
+    canvas.height = VIEWPORT_HEIGHT;
     canvasWalls.width = maxGameWidth;
     canvasWalls.height = maxGameHeight;
     canvasWallsMinimap.width = maxGameWidth;
@@ -112,70 +152,94 @@ window.onload = function () {
     canvasMinimap.style.transform = minimapScale;
     minimapContainer.querySelector('div').style.height = `${minimapHeight}px`;
   })();
-  newGame();
+  resize();
 };
 
 function canPutMine() {
-  return Date.now() - LAST_MINE_TIME > 2000;
+  return !IS_GAME_OVER && Date.now() - LAST_MINE_TIME > MINE_COOLDOWN_MS;
 }
 
-function update() {
+function putMine() {
+  if (!canPutMine()) {
+    return;
+  }
+  MINES.push({
+    x: userTank.x,
+    y: userTank.y,
+    size: 15,
+    time: Date.now(),
+    ownerUid: userTank.uid
+  });
+  LAST_MINE_TIME = Date.now();
+  sendMessage({type: 'UPDATE_MINES', payload: {mines: MINES}});
+}
+
+function updateHud() {
+  const lives = Math.max(0, Math.round(userTank.lives));
+  const mineCooldown = Math.max(0, MINE_COOLDOWN_MS - (Date.now() - LAST_MINE_TIME));
+  hpFill.style.width = `${lives}%`;
+  hpFill.style.background = lives <= 25 ? 'var(--danger)' : 'var(--accent)';
+  hpValue.textContent = String(lives);
+  mineStatus.textContent = mineCooldown ? `${Math.ceil(mineCooldown / 1000)}s` : 'Ready';
+  playersCount.textContent = String(TANKS.length + 1);
+}
+
+function update(delta) {
   const now = Date.now();
   const {w, s, a, d} = keys;
   const oldAngle = userTank.angle;
   const oldTraces = userTank.traces;
+
+  if (IS_GAME_OVER) {
+    updateHud();
+    return;
+  }
+
   IS_TANK_ON_WATER = isPointInWater(getRectangleCornerPointsAfterRotate(userTank));
 
   if (w) {
     userTank.mod = 1;
-    userTank.tracksShift[0]++;
-    userTank.tracksShift[1]++;
+    userTank.tracksShift[0] += 60 * delta;
+    userTank.tracksShift[1] += 60 * delta;
   }
   if (s) {
     userTank.mod = -1;
-    userTank.tracksShift[0]--;
-    userTank.tracksShift[1]--;
+    userTank.tracksShift[0] -= 60 * delta;
+    userTank.tracksShift[1] -= 60 * delta;
   }
   if (!s && !w) {
     userTank.mod = 0;
   }
   if (a) {
-    userTank.angle -= 5;
-    userTank.tracksShift[0]--;
-    userTank.tracksShift[1]++;
+    userTank.angle -= 300 * delta;
+    userTank.tracksShift[0] -= 60 * delta;
+    userTank.tracksShift[1] += 60 * delta;
   }
   if (d) {
-    userTank.angle += 5;
-    userTank.tracksShift[0]++;
-    userTank.tracksShift[1]--;
+    userTank.angle += 300 * delta;
+    userTank.tracksShift[0] += 60 * delta;
+    userTank.tracksShift[1] -= 60 * delta;
   }
   if (keys.shift) {
-    if (canPutMine()) {
-      MINES.push({
-        x: userTank.x,
-        y: userTank.y,
-        size: 15,
-        time: Date.now()
-      });
-      LAST_MINE_TIME = Date.now();
-      sendMessage({type: 'UPDATE_MINES', payload: {mines: MINES}});
-    }
+    putMine();
   }
 
   if (userTank.angle > 360) {
     userTank.angle = userTank.angle - 360;
+  } else if (userTank.angle < 0) {
+    userTank.angle = userTank.angle + 360;
   }
 
   const oldX = userTank.x;
   const oldY = userTank.y;
   const friction = IS_TANK_ON_WATER ? userTank.friction + 0.05 : userTank.friction;
   const force = IS_TANK_ON_WATER ? userTank.force - 90 : userTank.force;
-  const aX = (userTank.speed * userTank.mod) * Math.cos(Math.PI / 180 * userTank.angle) * userTank.force;
-  const aY = (userTank.speed * userTank.mod) * Math.sin(Math.PI / 180 * userTank.angle) * userTank.force;
+  const aX = (userTank.speed * userTank.mod) * Math.cos(Math.PI / 180 * userTank.angle) * force;
+  const aY = (userTank.speed * userTank.mod) * Math.sin(Math.PI / 180 * userTank.angle) * force;
 
-  userTank.velocity.x *= friction;
-  userTank.velocity.y *= friction;
-  const delta = (60 / 1000);
+  const frictionStep = Math.pow(friction, delta / (1 / 60));
+  userTank.velocity.x *= frictionStep;
+  userTank.velocity.y *= frictionStep;
   userTank.velocity.x += aX * delta;
   userTank.velocity.y += aY * delta;
 
@@ -286,18 +350,26 @@ function update() {
   if (sendNewTankData || oldTraces.length !== userTank.traces.length) {
     sendMessage({type: 'UPDATE_TANK', payload: {tank: userTank}});
   }
+  updateHud();
 }
 
 function isMineArmored({time}) {
   const now = Date.now();
-  return now - time > 1500;
+  return now - time > MINE_ARM_MS;
 }
 
-function loop() {
-  update();
+function loop(timestamp) {
+  if (!IS_GAME_STARTED) {
+    return;
+  }
+  if (!LAST_FRAME_TIME) {
+    LAST_FRAME_TIME = timestamp;
+  }
+  const delta = Math.min((timestamp - LAST_FRAME_TIME) / 1000, 0.05);
+  LAST_FRAME_TIME = timestamp;
+  update(delta);
   draw();
   detectTankMineCollision();
-  setTimeout(() => {
-    requestAnimationFrame(loop);
-  }, 30);
+  updateHud();
+  requestAnimationFrame(loop);
 }

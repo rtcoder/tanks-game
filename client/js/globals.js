@@ -6,19 +6,23 @@ const keys = {
   shift: false,
   space: false,
 };
+const VIEWPORT_WIDTH = 1200;
+const VIEWPORT_HEIGHT = 900;
+const MINE_COOLDOWN_MS = 2000;
+const MINE_ARM_MS = 1500;
 const userTank = {
   uid: null,
   lives: 100,
-  x: 60,
-  y: 70,
+  x: 180,
+  y: 170,
   speed: 4,
   angle: 90,
-  mod: 1,
+  mod: 0,
   tracksShift: [0, 0],
   traces: [],
   width: 50,
   height: 40,
-  color: '#000',
+  color: '#000000',
   velocity: {
     x: 0,
     y: 0
@@ -34,6 +38,17 @@ let LAST_MINE_TIME = 0;
 const joyStick = document.querySelector('.joystick');
 const joyStickDot = document.querySelector('.joystick .dot');
 const wrapper = document.querySelector('.wrapper');
+const menuBoard = document.getElementById('menu-board');
+const controlsPanel = document.getElementById('controls-panel');
+const newGameButton = document.getElementById('new-game-button');
+const controlsButton = document.getElementById('controls-button');
+const respawnButton = document.getElementById('respawn-button');
+const gameOverPanel = document.getElementById('game-over');
+const hpFill = document.getElementById('hp-fill');
+const hpValue = document.getElementById('hp-value');
+const mineStatus = document.getElementById('mine-status');
+const playersCount = document.getElementById('players-count');
+const touchMineButton = document.getElementById('touch-mine');
 const minimapContainer = document.querySelector('.minimap');
 const canvas = document.getElementById('canvas');
 const canvasMinimap = document.getElementById('canvas-minimap');
@@ -186,3 +201,5 @@ let IS_TANK_ON_WATER = false;
 let IS_GAME_IN_ANOTHER_TAB = false;
 
 let IS_GAME_STARTED = false;
+let IS_GAME_OVER = false;
+let LAST_FRAME_TIME = 0;

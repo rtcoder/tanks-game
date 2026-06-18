@@ -100,7 +100,6 @@ function keypress_handler(event) {
 }
 
 function switchKey(e, value) {
-  console.log(e.code);
   switch (e.code) {
     case 'KeyW':
     case 'ArrowUp':
@@ -131,19 +130,11 @@ function resize() {
   const width = window.innerWidth;
   const height = window.innerHeight;
 
-  const canvasWidth = 800;
-  const canvasHeight = 600;
-
-  let xScale = 1;
-  let yScale = 1;
-  let scale = 1;
-
-  if (canvasWidth > width || canvasHeight > height) {
-    xScale = width / canvasWidth;
-    yScale = height / canvasHeight;
-    scale = yScale < xScale ? yScale : xScale;
-  }
-  wrapper.style.transform = 'scale(' + scale + ') translate(-50%,-50%)';
+  const padding = width < 700 ? 16 : 32;
+  const xScale = (width - padding) / VIEWPORT_WIDTH;
+  const yScale = (height - padding) / VIEWPORT_HEIGHT;
+  const scale = Math.min(1, xScale, yScale);
+  wrapper.style.transform = `translate(-50%, -50%) scale(${scale})`;
 }
 
 
@@ -154,12 +145,12 @@ function shift_color([r, g, b], val, percent) {
       ((0 | (1 << 8) + b + (val - b) * percent / 100).toString(16)).substr(1);
 }
 
-function lighter_color([r, g, b], percent) {
-  return shift_color([r, g, b], 256, percent);
+function lighter_color(color, percent) {
+  return shift_color(Array.isArray(color) ? color : hexToRgb(color), 256, percent);
 }
 
-function darker_color([r, g, b], percent) {
-  return shift_color([r, g, b], 1, percent);
+function darker_color(color, percent) {
+  return shift_color(Array.isArray(color) ? color : hexToRgb(color), 1, percent);
 }
 
 function hexToRgb(hex) {
@@ -184,5 +175,5 @@ function setInLs(key, value) {
 }
 
 function getRandomColor() {
-  return `#${Math.floor(Math.random() * 16777215).toString(16)}`;
+  return `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`;
 }

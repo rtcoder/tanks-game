@@ -1,23 +1,58 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>hello world</title>
+  <title>Tanks Arena</title>
   <meta charset="UTF-8">
+  <meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport">
   <link href="style.css" rel="stylesheet">
 </head>
 <body>
 
-<div class="menu-board">
-  <button onclick="newGame()">New game</button>
-  <button>Controls</button>
-</div>
-<div class="controls">
-
+<div class="menu-board" id="menu-board">
+  <div class="menu-panel">
+    <p class="eyebrow">Multiplayer arena</p>
+    <h1>Tanks Arena</h1>
+    <p class="menu-copy">Drive, bait enemies through mines, and use water to break pursuit.</p>
+    <div class="menu-actions">
+      <button class="primary" id="new-game-button">New game</button>
+      <button id="controls-button">Controls</button>
+    </div>
+    <div class="controls" id="controls-panel">
+      <span>Move: W/A/S/D or arrows</span>
+      <span>Mine: Shift</span>
+      <span>Minimap: hold M</span>
+    </div>
+  </div>
 </div>
 <div class="wrapper">
 
   <canvas id="canvas-walls"></canvas>
   <canvas height="900" id="canvas" width="1200"></canvas>
+
+  <div class="hud">
+    <div class="hud-panel hp-panel">
+      <span>HP</span>
+      <div class="hp-meter">
+        <div id="hp-fill"></div>
+      </div>
+      <strong id="hp-value">100</strong>
+    </div>
+    <div class="hud-panel">
+      <span>Mine</span>
+      <strong id="mine-status">Ready</strong>
+    </div>
+    <div class="hud-panel">
+      <span>Players</span>
+      <strong id="players-count">1</strong>
+    </div>
+  </div>
+
+  <div class="game-over" id="game-over">
+    <div class="game-over-panel">
+      <h2>Tank disabled</h2>
+      <button id="respawn-button">Respawn</button>
+    </div>
+  </div>
 
   <div id="info">
     <div class="message connected">Connected to the server</div>
@@ -34,14 +69,12 @@
   </div>
 
   <div class="touch-controls">
-    <canvas id="joystick" height="300" width="300"></canvas>
     <div class="joystick">
       <div class="dot"></div>
     </div>
 
     <div class="actions">
-      <div class="mine"></div>
-      <div class="fire"></div>
+      <button class="mine" id="touch-mine">Mine</button>
     </div>
   </div>
 </div>

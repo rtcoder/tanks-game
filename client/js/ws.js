@@ -1,16 +1,8 @@
 const decodeMessage = message => {
-  return JSON.parse(
-      decodeURIComponent(
-          escape(message)
-      )
-  );
+  return JSON.parse(message);
 };
 const encodeMessage = message => {
-  return unescape(
-      encodeURIComponent(
-          JSON.stringify(message)
-      )
-  );
+  return JSON.stringify(message);
 };
 
 let webSocket = null;
@@ -34,9 +26,8 @@ function runWsConnection() {
   }
 
   function startWs() {
-    // webSocket = new WebSocket('ws://tanks-game-ten.vercel.app:8001');
-
-    webSocket = new WebSocket('ws://127.0.0.1:8001');
+    const wsHost = window.location.hostname || '127.0.0.1';
+    webSocket = new WebSocket(`ws://${wsHost}:8001`);
     webSocket.onopen = () => {
       restartAttempts = 0;
       console.info('WS connection opened');
@@ -51,9 +42,6 @@ function runWsConnection() {
       const {type, payload} = decodedMessage;
       switch (type) {
         case 'SET_ID':
-          // if (IS_GAME_IN_ANOTHER_TAB) {
-          //   return;
-          // }
           userTank.uid = payload.id;
           userTank.color = getRandomColor();
           sendMessage({type: 'ADD_TANK', payload: {tank: userTank}});
@@ -61,6 +49,7 @@ function runWsConnection() {
         case 'TANKS_DATA':
           TANKS.length = 0;
           TANKS.push(...payload.tanks.filter(tank => tank.uid !== userTank.uid));
+          updateHud();
           break;
         case 'MINES_DATA':
           MINES.length = 0;
@@ -75,7 +64,7 @@ function runWsConnection() {
       setTimeout(restartWs, 1000);
     };
     webSocket.onerror=e=>{
-      console.log(e)
+      console.error(e);
     }
   }
 
