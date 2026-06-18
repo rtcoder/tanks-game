@@ -113,3 +113,80 @@ export type GameConfig = {
   };
   webSocketPath: string;
 };
+
+export type SerializedBattle = {
+  id: string;
+  title: string;
+  mode: BattleMode;
+  status: BattleStatus;
+  maxPlayers: number;
+  createdAt: string;
+  winnerUid: string | null;
+  players: Array<{
+    id: string;
+    nick: string;
+    connected: boolean;
+    alive: boolean;
+  }>;
+};
+
+export type Request = {
+  url?: string;
+  method?: string;
+  headers: {
+    host?: string;
+  };
+  on: (event: string, listener: (chunk?: Buffer | Error) => void) => void;
+  destroy: () => void;
+};
+
+export type Response = {
+  writeHead: (statusCode: number, headers: Record<string, string>) => void;
+  write: (chunk: unknown) => void;
+  end: (data?: string) => void;
+};
+
+export type WebSocketClient = {
+  readyState: number;
+  battleId?: string;
+  battle?: Battle;
+  player?: Player;
+  uid?: string;
+  send: (data: string) => void;
+  close: (code?: number, reason?: string) => void;
+  on: (event: string, listener: (data?: unknown) => void) => void;
+};
+
+export type Player = {
+  id: string;
+  nick: string;
+  connected: boolean;
+  lastSeen: string | null;
+  tank: Tank | null;
+};
+
+export type Battle = {
+  id: string;
+  title: string;
+  mode: BattleMode;
+  status: BattleStatus;
+  maxPlayers: number;
+  createdAt: string;
+  winnerUid: string | null;
+  players: Map<string, Player>;
+  mines: Mine[];
+};
+
+export type PlayerPayload = {
+  nick?: unknown;
+  playerId?: unknown;
+};
+
+export type CreateBattlePayload = PlayerPayload & {
+  title?: unknown;
+  maxPlayers?: unknown;
+};
+
+export type ApiError = Error & {
+  statusCode?: number;
+};

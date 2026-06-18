@@ -1,152 +1,49 @@
-const crypto = require('crypto');
-const fs = require('fs');
-const http = require('http');
-const path = require('path');
-const WebSocket = require('ws');
+import crypto from 'crypto';
+import fs from 'fs';
+import http from 'http';
+import path from 'path';
+import WebSocket, {WebSocketServer} from 'ws';
+import {
+  ApiError,
+  Battle,
+  CreateBattlePayload,
+  Mine,
+  Player,
+  PlayerPayload,
+  Request,
+  Response,
+  SerializedBattle,
+  Tank,
+  WebSocketClient,
+} from './types';
 
-type Request = {
-  url?: string;
-  method?: string;
-  headers: {
-    host?: string;
-  };
-  on: (event: string, listener: (chunk?: Buffer | Error) => void) => void;
-  destroy: () => void;
-};
-
-type Response = {
-  writeHead: (statusCode: number, headers: Record<string, string>) => void;
-  end: (data?: string) => void;
-};
-
-type WebSocketClient = {
-  readyState: number;
-  battleId?: string;
-  battle?: Battle;
-  player?: Player;
-  uid?: string;
-  send: (data: string) => void;
-  close: (code?: number, reason?: string) => void;
-  on: (event: string, listener: (data?: unknown) => void) => void;
-};
-
-type BattleMode = 'ffa' | 'teams';
-type BattleStatus = 'waiting' | 'active' | 'finished';
-
-type Point = {
-  x: number;
-  y: number;
-};
-
-type Trace = {
-  x: number;
-  y: number;
-  angle: number;
-  time: number;
-};
-
-type Tank = {
-  uid: string;
-  lives: number;
-  x: number;
-  y: number;
-  speed: number;
-  angle: number;
-  mod: number;
-  tracksShift: [number, number];
-  traces: Trace[];
-  width: number;
-  height: number;
-  color: string;
-  velocity: Point;
-  friction: number;
-  force: number;
-};
-
-type Mine = {
-  x: number;
-  y: number;
-  size: number;
-  time: number;
-  ownerUid: string | null;
-};
-
-type Player = {
-  id: string;
-  nick: string;
-  connected: boolean;
-  lastSeen: string | null;
-  tank: Tank | null;
-};
-
-type Battle = {
-  id: string;
-  title: string;
-  mode: BattleMode;
-  status: BattleStatus;
-  maxPlayers: number;
-  createdAt: string;
-  winnerUid: string | null;
-  players: Map<string, Player>;
-  mines: Mine[];
-};
-
-type PlayerPayload = {
-  nick?: unknown;
-  playerId?: unknown;
-};
-
-type CreateBattlePayload = PlayerPayload & {
-  title?: unknown;
-  maxPlayers?: unknown;
-};
-
-type ApiError = Error & {
-  statusCode?: number;
-};
-
-type SerializedBattle = {
-  id: string;
-  title: string;
-  mode: BattleMode;
-  status: BattleStatus;
-  maxPlayers: number;
-  createdAt: string;
-  winnerUid: string | null;
-  players: Array<{
-    id: string;
-    nick: string;
-    connected: boolean;
-    alive: boolean;
-  }>;
-};
 
 const port = Number(process.env.PORT || 8001);
 const distDir = path.resolve(__dirname, '..', 'dist');
 const battles = new Map<string, Battle>();
 const GAME_BOUNDS = {
   width: 3000,
-  height: 2200
+  height: 2200,
 };
 const PLAYER_SPAWN = {
   x: 700,
   y: 700,
-  angle: 0
+  angle: 0,
 };
 const GAME_CONFIG = {
   gameBounds: GAME_BOUNDS,
   playerSpawn: PLAYER_SPAWN,
-  webSocketPath: '/ws'
+  webSocketPath: '/ws',
 };
 
-const contentTypes = {
+const contentTypes: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
-  '.webp': 'image/webp'
+  '.webp': 'image/webp',
 };
 
 const decodeMessage = (message: unknown): any => JSON.parse(String(message));
@@ -162,6 +59,10 @@ function sendNotFound(res: Response): void {
 }
 
 function serveStatic(req: Request, res: Response): void {
+  if (req.url === undefined) {
+    sendNotFound(res);
+    return;
+  }
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = decodeURIComponent(requestUrl.pathname);
   const relativePath = pathname === '/' ? 'index.html' : pathname.slice(1);
@@ -177,14 +78,23 @@ function serveStatic(req: Request, res: Response): void {
   if (!fs.existsSync(targetPath)) {
     sendJson(res, 503, {
       error: 'Frontend build not found',
-      hint: 'Run npm run build before npm start.'
+      hint: 'Run npm run build before npm start.',
     });
     return;
   }
 
   const ext = path.extname(targetPath);
   res.writeHead(200, {'Content-Type': contentTypes[ext] || 'application/octet-stream'});
-  fs.createReadStream(targetPath).pipe(res);
+  const stream = fs.createReadStream(targetPath);
+  stream.on('data', (chunk: unknown) => {
+    res.write(chunk);
+  });
+  stream.on('end', () => {
+    res.end();
+  });
+  stream.on('error', () => {
+    sendJson(res, 500, {error: 'Could not read static file'});
+  });
 }
 
 function readJsonBody(req: Request): Promise<Record<string, unknown>> {
@@ -230,14 +140,14 @@ function sanitizeText(value: unknown, fallback: string, maxLength: number): stri
   return text.slice(0, maxLength);
 }
 
-function sanitizeColor(color: unknown): string {
+function sanitizeColor(color: string): string {
   return /^#[0-9a-f]{6}$/i.test(color) ? color : '#4f8cff';
 }
 
 function sanitizePlayerId(playerId: unknown): string {
   return typeof playerId === 'string' && playerId.length >= 8 && playerId.length <= 80
-    ? playerId
-    : crypto.randomUUID();
+      ? playerId
+      : crypto.randomUUID();
 }
 
 function sanitizeTank(tank: any, uid: string): Tank {
@@ -256,10 +166,10 @@ function sanitizeTank(tank: any, uid: string): Tank {
     color: sanitizeColor(tank?.color),
     velocity: {
       x: clamp(tank?.velocity?.x, -600, 600),
-      y: clamp(tank?.velocity?.y, -600, 600)
+      y: clamp(tank?.velocity?.y, -600, 600),
     },
     friction: clamp(tank?.friction, 0.75, 0.99),
-    force: clamp(tank?.force, 20, 160)
+    force: clamp(tank?.force, 20, 160),
   };
 }
 
@@ -269,7 +179,7 @@ function sanitizeMine(mine: any): Mine {
     y: clamp(mine?.y, 0, GAME_BOUNDS.height),
     size: clamp(mine?.size, 8, 40),
     time: clamp(mine?.time, 0, Date.now()),
-    ownerUid: typeof mine?.ownerUid === 'string' ? mine.ownerUid : null
+    ownerUid: typeof mine?.ownerUid === 'string' ? mine.ownerUid : null,
   };
 }
 
@@ -284,7 +194,7 @@ function createBattle({title, maxPlayers, nick, playerId}: CreateBattlePayload):
     createdAt: new Date().toISOString(),
     winnerUid: null,
     players: new Map(),
-    mines: []
+    mines: [],
   };
   battles.set(id, battle);
   const player = upsertPlayer(battle, {nick, playerId});
@@ -314,7 +224,7 @@ function upsertPlayer(battle: Battle, {nick, playerId}: PlayerPayload): Player {
       nick: sanitizeText(nick, 'Player', 24),
       connected: false,
       lastSeen: null,
-      tank: null
+      tank: null,
     };
     battle.players.set(id, player);
   } else {
@@ -329,7 +239,7 @@ function serializeBattle(battle: Battle): SerializedBattle {
     id: player.id,
     nick: player.nick,
     connected: player.connected,
-    alive: Boolean(player.tank && player.tank.lives > 0)
+    alive: Boolean(player.tank && player.tank.lives > 0),
   }));
 
   return {
@@ -340,14 +250,14 @@ function serializeBattle(battle: Battle): SerializedBattle {
     maxPlayers: battle.maxPlayers,
     createdAt: battle.createdAt,
     winnerUid: battle.winnerUid,
-    players
+    players,
   };
 }
 
 function tanksInBattle(battle: Battle): Tank[] {
   return Array.from(battle.players.values())
-    .map(player => player.tank)
-    .filter((tank): tank is Tank => Boolean(tank));
+      .map(player => player.tank)
+      .filter((tank): tank is Tank => Boolean(tank));
 }
 
 function sendBattleMessage(battle: Battle, data: unknown): void {
@@ -361,7 +271,7 @@ function sendBattleMessage(battle: Battle, data: unknown): void {
 function broadcastBattleState(battle: Battle): void {
   sendBattleMessage(battle, {
     type: 'BATTLE_STATE',
-    payload: {battle: serializeBattle(battle)}
+    payload: {battle: serializeBattle(battle)},
   });
 }
 
@@ -396,8 +306,8 @@ function addTank(ws: WebSocketClient, tank: unknown): void {
   }
 
   player.tank = player.tank
-    ? sanitizeTank(player.tank, player.id)
-    : sanitizeTank(tank, player.id);
+      ? sanitizeTank(player.tank, player.id)
+      : sanitizeTank(tank, player.id);
   broadcastTanks(battle);
   sendBattleMessage(battle, {type: 'MINES_DATA', payload: {mines: battle.mines}});
   maybeFinishBattle(battle);
@@ -435,6 +345,10 @@ function updateMines(ws: WebSocketClient, mines: unknown): void {
 }
 
 async function handleApiRequest(req: Request, res: Response): Promise<boolean> {
+  if (req.url === undefined) {
+    sendNotFound(res);
+    return true;
+  }
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   if (requestUrl.pathname === '/api/game-config') {
@@ -482,33 +396,37 @@ async function handleApiRequest(req: Request, res: Response): Promise<boolean> {
 }
 
 const httpServer = http.createServer((req: Request, res: Response) => {
-  if (!req.url) {
+  if (req.url === undefined) {
     sendNotFound(res);
     return;
   }
 
   if (req.url.startsWith('/api/')) {
     handleApiRequest(req, res)
-      .then((handled: boolean) => {
-        if (!handled) {
-          sendNotFound(res);
-        }
-      })
-      .catch((error: ApiError) => {
-        sendJson(res, error.statusCode || 400, {error: error.message || 'Bad request'});
-      });
+        .then((handled: boolean) => {
+          if (!handled) {
+            sendNotFound(res);
+          }
+        })
+        .catch((error: ApiError) => {
+          sendJson(res, error.statusCode || 400, {error: error.message || 'Bad request'});
+        });
     return;
   }
 
   serveStatic(req, res);
 });
 
-const wsServer = new WebSocket.Server({
+const wsServer = new WebSocketServer({
   server: httpServer,
-  path: GAME_CONFIG.webSocketPath
+  path: GAME_CONFIG.webSocketPath,
 });
 
 wsServer.on('connection', (ws: WebSocketClient, req: Request) => {
+  if (req.url === undefined) {
+    return;
+  }
+
   try {
     const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const battle = getBattle(requestUrl.searchParams.get('battleId'));
@@ -532,8 +450,8 @@ wsServer.on('connection', (ws: WebSocketClient, req: Request) => {
       type: 'SET_ID',
       payload: {
         id: player.id,
-        battle: serializeBattle(battle)
-      }
+        battle: serializeBattle(battle),
+      },
     }));
     broadcastBattleState(battle);
 
