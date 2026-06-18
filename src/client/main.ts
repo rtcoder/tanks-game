@@ -1,16 +1,14 @@
 import './style.css';
-import {
-  BattleStatus,
+import {BattleStatus, ClientMessageType, ImageKey, WsMessageType} from '../shared/types';
+import type {
   BattleSummary,
   ClientMessage,
-  ClientMessageType,
   GameConfig,
-  ImageKey,
   KeysState,
   Mine,
   Point,
   Tank,
-  WsMessage, WsMessageType,
+  WsMessage,
 } from '../shared/types';
 import {loadAssets} from './game/assets';
 import {circleRectColliding, isMineArmed, isPointInWater} from './game/collisions';

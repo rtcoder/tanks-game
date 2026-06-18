@@ -47,15 +47,18 @@ export type Mine = {
   ownerUid?: string | null;
 };
 
-export enum BattleMode {
-  Ffa = 'ffa',
-  Teams = 'teams',
-}
-export enum BattleStatus {
-  Waiting = 'waiting',
-  Active = 'active',
-  Finished = 'finished',
-}
+export const BattleMode = {
+  Ffa: 'ffa',
+  Teams: 'teams',
+} as const;
+export type BattleMode = typeof BattleMode[keyof typeof BattleMode];
+
+export const BattleStatus = {
+  Waiting: 'waiting',
+  Active: 'active',
+  Finished: 'finished',
+} as const;
+export type BattleStatus = typeof BattleStatus[keyof typeof BattleStatus];
 
 export type BattlePlayer = {
   id: string;
@@ -87,23 +90,25 @@ export type WaterField = {
   getPath: () => Path2D;
 };
 
-export enum ImageKey {
-  BLOCK_1 = 'BLOCK_1',
-  BLOCK_2 = 'BLOCK_2',
-  WATER = 'WATER',
-  MUD = 'MUD',
-}
+export const ImageKey = {
+  BLOCK_1: 'BLOCK_1',
+  BLOCK_2: 'BLOCK_2',
+  WATER: 'WATER',
+  MUD: 'MUD',
+} as const;
+export type ImageKey = typeof ImageKey[keyof typeof ImageKey];
 
-export enum WsMessageType {
-  SetId = 'SET_ID',
-  BattleState = 'BATTLE_STATE',
-  TanksData = 'TANKS_DATA',
-  MinesData = 'MINES_DATA',
-}
-export type WsMessageSetId = { type: WsMessageType.SetId; payload: { id: string; battle: BattleSummary } };
-export type WsMessageBattleState = { type: WsMessageType.BattleState; payload: { battle: BattleSummary } };
-export type WsMessageTanksData = { type: WsMessageType.TanksData; payload: { tanks: Tank[] } };
-export type WsMessageMinesData = { type: WsMessageType.MinesData; payload: { mines: Mine[] } };
+export const WsMessageType = {
+  SetId: 'SET_ID',
+  BattleState: 'BATTLE_STATE',
+  TanksData: 'TANKS_DATA',
+  MinesData: 'MINES_DATA',
+} as const;
+export type WsMessageType = typeof WsMessageType[keyof typeof WsMessageType];
+export type WsMessageSetId = { type: typeof WsMessageType.SetId; payload: { id: string; battle: BattleSummary } };
+export type WsMessageBattleState = { type: typeof WsMessageType.BattleState; payload: { battle: BattleSummary } };
+export type WsMessageTanksData = { type: typeof WsMessageType.TanksData; payload: { tanks: Tank[] } };
+export type WsMessageMinesData = { type: typeof WsMessageType.MinesData; payload: { mines: Mine[] } };
 
 export type WsMessage =
   | WsMessageSetId
@@ -111,16 +116,17 @@ export type WsMessage =
   | WsMessageTanksData
   | WsMessageMinesData;
 
-export enum ClientMessageType {
-  AddTank = 'ADD_TANK',
-  LeftGame = 'LEFT_GAME',
-  UpdateTank = 'UPDATE_TANK',
-  UpdateMines = 'UPDATE_MINES',
-}
-export type ClientMessageAddTank = { type: ClientMessageType.AddTank; payload: { tank: Tank } };
-export type ClientMessageLeftGame = { type: ClientMessageType.LeftGame; payload: { uid: string | null } };
-export type ClientMessageUpdateTank = { type: ClientMessageType.UpdateTank; payload: { tank: Tank } };
-export type ClientMessageUpdateMines = { type: ClientMessageType.UpdateMines; payload: { mines: Mine[] } };
+export const ClientMessageType = {
+  AddTank: 'ADD_TANK',
+  LeftGame: 'LEFT_GAME',
+  UpdateTank: 'UPDATE_TANK',
+  UpdateMines: 'UPDATE_MINES',
+} as const;
+export type ClientMessageType = typeof ClientMessageType[keyof typeof ClientMessageType];
+export type ClientMessageAddTank = { type: typeof ClientMessageType.AddTank; payload: { tank: Tank } };
+export type ClientMessageLeftGame = { type: typeof ClientMessageType.LeftGame; payload: { uid: string | null } };
+export type ClientMessageUpdateTank = { type: typeof ClientMessageType.UpdateTank; payload: { tank: Tank } };
+export type ClientMessageUpdateMines = { type: typeof ClientMessageType.UpdateMines; payload: { mines: Mine[] } };
 
 export type ClientMessage =
   | ClientMessageAddTank
