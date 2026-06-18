@@ -1,14 +1,33 @@
 import './style.css';
-import { loadAssets } from './game/assets';
-import { circleRectColliding, isMineArmed, isPointInWater } from './game/collisions';
-import { MINIMAP_WIDTH, MINE_ARM_MS, MINE_COOLDOWN_MS, STORAGE_KEYS, VIEWPORT_HEIGHT, VIEWPORT_WIDTH } from './game/constants';
-import { clearKeys, switchKey } from './game/input';
-import { createWalls, createWaterFields } from './game/map';
-import { getRectangleCornerPointsAfterRotate, radiansToDegrees, round } from './game/math';
-import { getRandomColor, lighterColor, roundRect } from './game/rendering';
-import { createBattle, formatBattleStatus, joinBattle } from './network/battles';
-import { contexts, dom } from './ui/dom';
-import type { BattleSummary, ClientMessage, GameConfig, ImageKey, KeysState, Mine, Point, Tank, WsMessage } from '../shared/types';
+import {
+  BattleStatus,
+  BattleSummary,
+  ClientMessage,
+  ClientMessageType,
+  GameConfig,
+  ImageKey,
+  KeysState,
+  Mine,
+  Point,
+  Tank,
+  WsMessage, WsMessageType,
+} from '../shared/types';
+import {loadAssets} from './game/assets';
+import {circleRectColliding, isMineArmed, isPointInWater} from './game/collisions';
+import {
+  MINE_ARM_MS,
+  MINE_COOLDOWN_MS,
+  MINIMAP_WIDTH,
+  STORAGE_KEYS,
+  VIEWPORT_HEIGHT,
+  VIEWPORT_WIDTH,
+} from './game/constants';
+import {clearKeys, switchKey} from './game/input';
+import {createWalls, createWaterFields} from './game/map';
+import {getRectangleCornerPointsAfterRotate, radiansToDegrees, round} from './game/math';
+import {getRandomColor, lighterColor, roundRect} from './game/rendering';
+import {createBattle, formatBattleStatus, joinBattle} from './network/battles';
+import {contexts, dom} from './ui/dom';
 
 let maxGameWidth = 3000;
 let maxGameHeight = 2200;
@@ -223,8 +242,8 @@ const detectTankMineCollision = (): void => {
     gameOverPanel.classList.add('opened');
   }
 
-  sendMessage({ type: 'UPDATE_TANK', payload: { tank: userTank } });
-  sendMessage({ type: 'UPDATE_MINES', payload: { mines } });
+  sendMessage({ type: ClientMessageType.UpdateTank, payload: { tank: userTank } });
+  sendMessage({ type: ClientMessageType.UpdateMines, payload: { mines } });
 };
 
 const drawTankTraces = (tank: Tank): void => {
@@ -353,13 +372,13 @@ const drawTankOnMinimap = (tank: Tank): void => {
 const drawWalls = (): void => {
   ctxWalls.clearRect(0, 0, maxGameWidth, maxGameHeight);
   walls.forEach((wall) => {
-    ctxWalls.fillStyle = getPattern(ctxWalls, 'BLOCK_2');
+    ctxWalls.fillStyle = getPattern(ctxWalls, ImageKey.BLOCK_2);
     wall.path = new Path2D();
     wall.path.rect(wall.x, wall.y, wall.width, wall.height);
     ctxWalls.fill(wall.path);
   });
 
-  ctxWalls.fillStyle = getPattern(ctxWalls, 'WATER');
+  ctxWalls.fillStyle = getPattern(ctxWalls, ImageKey.WATER);
   waterFields.forEach((water) => {
     ctxWalls.fill(water.getPath());
   });
@@ -368,13 +387,13 @@ const drawWalls = (): void => {
 const drawWallsMinimap = (): void => {
   ctxWallsMinimap.clearRect(0, 0, maxGameWidth, maxGameHeight);
   walls.forEach((wall) => {
-    ctxWallsMinimap.fillStyle = getPattern(ctxWallsMinimap, 'BLOCK_2');
+    ctxWallsMinimap.fillStyle = getPattern(ctxWallsMinimap, ImageKey.BLOCK_2);
     wall.path = new Path2D();
     wall.path.rect(wall.x, wall.y, wall.width, wall.height);
     ctxWallsMinimap.fill(wall.path);
   });
 
-  ctxWallsMinimap.fillStyle = getPattern(ctxWallsMinimap, 'WATER');
+  ctxWallsMinimap.fillStyle = getPattern(ctxWallsMinimap, ImageKey.WATER);
   waterFields.forEach((water) => {
     ctxWallsMinimap.fill(water.getPath());
   });
@@ -424,7 +443,7 @@ const putMine = (): void => {
     ownerUid: userTank.uid,
   });
   lastMineTime = Date.now();
-  sendMessage({ type: 'UPDATE_MINES', payload: { mines } });
+  sendMessage({ type: ClientMessageType.UpdateMines, payload: { mines } });
 };
 
 const updateHud = (): void => {
@@ -500,19 +519,19 @@ const runWsConnection = (): void => {
       const decodedMessage = decodeMessage(message.data);
       const { type, payload } = decodedMessage;
       switch (type) {
-        case 'SET_ID':
+        case WsMessageType.SetId:
           userTank.uid = payload.id;
           currentBattle = payload.battle;
           setBattleStatus(formatBattleStatus(payload.battle));
           if (userTank.color === '#000000') {
             userTank.color = getRandomColor();
           }
-          sendMessage({ type: 'ADD_TANK', payload: { tank: userTank } });
+          sendMessage({ type: ClientMessageType.AddTank, payload: { tank: userTank } });
           break;
-        case 'BATTLE_STATE':
+        case WsMessageType.BattleState:
           currentBattle = payload.battle;
           setBattleStatus(formatBattleStatus(payload.battle));
-          if (payload.battle.status === 'finished') {
+          if (payload.battle.status === BattleStatus.Finished) {
             isGameOver = true;
             userTank.mod = 0;
             userTank.velocity.x = 0;
@@ -520,7 +539,7 @@ const runWsConnection = (): void => {
             gameOverPanel.classList.add('opened');
           }
           break;
-        case 'TANKS_DATA':
+        case WsMessageType.TanksData:
           remoteTanks.length = 0;
           payload.tanks
             .filter((tank) => tank.uid === userTank.uid)
@@ -528,7 +547,7 @@ const runWsConnection = (): void => {
           remoteTanks.push(...payload.tanks.filter((tank) => tank.uid !== userTank.uid));
           updateHud();
           break;
-        case 'MINES_DATA':
+        case WsMessageType.MinesData:
           mines.length = 0;
           mines.push(...payload.mines);
           break;
@@ -693,7 +712,7 @@ const update = (delta: number): void => {
     sendNewTankData = true;
   }
   if (sendNewTankData || oldTraces.length !== userTank.traces.length) {
-    sendMessage({ type: 'UPDATE_TANK', payload: { tank: userTank } });
+    sendMessage({ type: ClientMessageType.UpdateTank, payload: { tank: userTank } });
   }
   updateHud();
 };
@@ -748,7 +767,7 @@ const startGameWorld = (): void => {
   if (!webSocket) {
     runWsConnection();
   } else {
-    sendMessage({ type: 'UPDATE_TANK', payload: { tank: userTank } });
+    sendMessage({ type: ClientMessageType.UpdateTank, payload: { tank: userTank } });
   }
 
   isGameStarted = true;
@@ -799,7 +818,7 @@ const bindEvents = (): void => {
   });
   respawnButton.addEventListener('click', () => {
     resetTankState();
-    sendMessage({ type: 'UPDATE_TANK', payload: { tank: userTank } });
+    sendMessage({ type: ClientMessageType.UpdateTank, payload: { tank: userTank } });
   });
 
   window.addEventListener('keydown', (event) => {
@@ -830,7 +849,7 @@ const bindEvents = (): void => {
     if (!isGameStarted) {
       return;
     }
-    sendMessage({ type: 'LEFT_GAME', payload: { uid: userTank.uid } });
+    sendMessage({ type: ClientMessageType.LeftGame, payload: { uid: userTank.uid } });
   });
   window.addEventListener('blur', () => {
     if (!isGameStarted) {

@@ -2,11 +2,13 @@ import crypto from 'crypto';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import {fileURLToPath} from 'url';
 import WebSocket, {WebSocketServer} from 'ws';
-import type {
+import {
   ApiError,
   Battle,
+  BattleMode,
+  BattleStatus, ClientMessage, ClientMessageType,
   CreateBattlePayload,
   Mine,
   Player,
@@ -16,6 +18,8 @@ import type {
   SerializedBattle,
   Tank,
   WebSocketClient,
+  WsMessage,
+  WsMessageType,
 } from '../shared/types.js';
 
 
@@ -190,8 +194,8 @@ function createBattle({title, maxPlayers, nick, playerId}: CreateBattlePayload):
   const battle: Battle = {
     id,
     title: sanitizeText(title, 'Untitled battle', 40),
-    mode: 'ffa',
-    status: 'waiting',
+    mode: BattleMode.Ffa,
+    status: BattleStatus.Waiting,
     maxPlayers: clamp(maxPlayers, 2, 16),
     createdAt: new Date().toISOString(),
     winnerUid: null,
@@ -262,7 +266,7 @@ function tanksInBattle(battle: Battle): Tank[] {
       .filter((tank): tank is Tank => Boolean(tank));
 }
 
-function sendBattleMessage(battle: Battle, data: unknown): void {
+function sendBattleMessage(battle: Battle, data: WsMessage): void {
   wsServer.clients.forEach((client: WebSocketClient) => {
     if (client.readyState === WebSocket.OPEN && client.battleId === battle.id) {
       client.send(encodeMessage(data));
@@ -272,29 +276,29 @@ function sendBattleMessage(battle: Battle, data: unknown): void {
 
 function broadcastBattleState(battle: Battle): void {
   sendBattleMessage(battle, {
-    type: 'BATTLE_STATE',
+    type: WsMessageType.BattleState,
     payload: {battle: serializeBattle(battle)},
   });
 }
 
 function broadcastTanks(battle: Battle): void {
-  sendBattleMessage(battle, {type: 'TANKS_DATA', payload: {tanks: tanksInBattle(battle)}});
+  sendBattleMessage(battle, {type: WsMessageType.TanksData, payload: {tanks: tanksInBattle(battle)}});
 }
 
 function maybeFinishBattle(battle: Battle): void {
   const tanks = tanksInBattle(battle);
   const aliveTanks = tanks.filter(tank => tank.lives > 0);
 
-  if (battle.status === 'waiting' && tanks.length > 1) {
-    battle.status = 'active';
+  if (battle.status === BattleStatus.Waiting && tanks.length > 1) {
+    battle.status = BattleStatus.Active;
     broadcastBattleState(battle);
   }
 
-  if (battle.status !== 'active' || tanks.length < 2 || aliveTanks.length !== 1) {
+  if (battle.status !== BattleStatus.Active || tanks.length < 2 || aliveTanks.length !== 1) {
     return;
   }
 
-  battle.status = 'finished';
+  battle.status = BattleStatus.Finished;
   battle.winnerUid = aliveTanks[0].uid;
   broadcastBattleState(battle);
 }
@@ -311,7 +315,7 @@ function addTank(ws: WebSocketClient, tank: unknown): void {
       ? sanitizeTank(player.tank, player.id)
       : sanitizeTank(tank, player.id);
   broadcastTanks(battle);
-  sendBattleMessage(battle, {type: 'MINES_DATA', payload: {mines: battle.mines}});
+  sendBattleMessage(battle, {type: WsMessageType.MinesData, payload: {mines: battle.mines}});
   maybeFinishBattle(battle);
 }
 
@@ -343,7 +347,7 @@ function updateMines(ws: WebSocketClient, mines: unknown): void {
     return;
   }
   battle.mines = mines.slice(-80).map(sanitizeMine);
-  sendBattleMessage(battle, {type: 'MINES_DATA', payload: {mines: battle.mines}});
+  sendBattleMessage(battle, {type: WsMessageType.MinesData, payload: {mines: battle.mines}});
 }
 
 async function handleApiRequest(req: Request, res: Response): Promise<boolean> {
@@ -449,7 +453,7 @@ wsServer.on('connection', (ws: WebSocketClient, req: Request) => {
     ws.uid = player.id;
 
     ws.send(encodeMessage({
-      type: 'SET_ID',
+      type: WsMessageType.SetId,
       payload: {
         id: player.id,
         battle: serializeBattle(battle),
@@ -458,7 +462,7 @@ wsServer.on('connection', (ws: WebSocketClient, req: Request) => {
     broadcastBattleState(battle);
 
     ws.on('message', (data: unknown) => {
-      let messageJson;
+      let messageJson:ClientMessage;
       try {
         messageJson = decodeMessage(data);
       } catch (e) {
@@ -467,16 +471,16 @@ wsServer.on('connection', (ws: WebSocketClient, req: Request) => {
       }
 
       switch (messageJson.type) {
-        case 'ADD_TANK':
+        case ClientMessageType.AddTank:
           addTank(ws, messageJson.payload.tank);
           break;
-        case 'LEFT_GAME':
+        case ClientMessageType.LeftGame:
           markPlayerDisconnected(ws);
           break;
-        case 'UPDATE_TANK':
+        case ClientMessageType.UpdateTank:
           updateTank(ws, messageJson.payload.tank);
           break;
-        case 'UPDATE_MINES':
+        case ClientMessageType.UpdateMines:
           updateMines(ws, messageJson.payload.mines);
           break;
       }

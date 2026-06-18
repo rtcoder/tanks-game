@@ -47,8 +47,15 @@ export type Mine = {
   ownerUid?: string | null;
 };
 
-export type BattleMode = 'ffa' | 'teams';
-export type BattleStatus = 'waiting' | 'active' | 'finished';
+export enum BattleMode {
+  Ffa = 'ffa',
+  Teams = 'teams',
+}
+export enum BattleStatus {
+  Waiting = 'waiting',
+  Active = 'active',
+  Finished = 'finished',
+}
 
 export type BattlePlayer = {
   id: string;
@@ -80,19 +87,46 @@ export type WaterField = {
   getPath: () => Path2D;
 };
 
-export type ImageKey = 'BLOCK_1' | 'BLOCK_2' | 'WATER' | 'MUD';
+export enum ImageKey {
+  BLOCK_1 = 'BLOCK_1',
+  BLOCK_2 = 'BLOCK_2',
+  WATER = 'WATER',
+  MUD = 'MUD',
+}
+
+export enum WsMessageType {
+  SetId = 'SET_ID',
+  BattleState = 'BATTLE_STATE',
+  TanksData = 'TANKS_DATA',
+  MinesData = 'MINES_DATA',
+}
+export type WsMessageSetId = { type: WsMessageType.SetId; payload: { id: string; battle: BattleSummary } };
+export type WsMessageBattleState = { type: WsMessageType.BattleState; payload: { battle: BattleSummary } };
+export type WsMessageTanksData = { type: WsMessageType.TanksData; payload: { tanks: Tank[] } };
+export type WsMessageMinesData = { type: WsMessageType.MinesData; payload: { mines: Mine[] } };
 
 export type WsMessage =
-  | { type: 'SET_ID'; payload: { id: string; battle: BattleSummary } }
-  | { type: 'BATTLE_STATE'; payload: { battle: BattleSummary } }
-  | { type: 'TANKS_DATA'; payload: { tanks: Tank[] } }
-  | { type: 'MINES_DATA'; payload: { mines: Mine[] } };
+  | WsMessageSetId
+  | WsMessageBattleState
+  | WsMessageTanksData
+  | WsMessageMinesData;
+
+export enum ClientMessageType {
+  AddTank = 'ADD_TANK',
+  LeftGame = 'LEFT_GAME',
+  UpdateTank = 'UPDATE_TANK',
+  UpdateMines = 'UPDATE_MINES',
+}
+export type ClientMessageAddTank = { type: ClientMessageType.AddTank; payload: { tank: Tank } };
+export type ClientMessageLeftGame = { type: ClientMessageType.LeftGame; payload: { uid: string | null } };
+export type ClientMessageUpdateTank = { type: ClientMessageType.UpdateTank; payload: { tank: Tank } };
+export type ClientMessageUpdateMines = { type: ClientMessageType.UpdateMines; payload: { mines: Mine[] } };
 
 export type ClientMessage =
-  | { type: 'ADD_TANK'; payload: { tank: Tank } }
-  | { type: 'LEFT_GAME'; payload: { uid: string | null } }
-  | { type: 'UPDATE_TANK'; payload: { tank: Tank } }
-  | { type: 'UPDATE_MINES'; payload: { mines: Mine[] } };
+  | ClientMessageAddTank
+  | ClientMessageLeftGame
+  | ClientMessageUpdateTank
+  | ClientMessageUpdateMines;
 
 export type RadiusConfig = {
   tl: number;
