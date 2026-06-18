@@ -1,4 +1,4 @@
-import type { KeysState } from './types';
+import type { KeysState } from '../../shared/types';
 
 export const switchKey = (keys: KeysState, event: KeyboardEvent, value: boolean): void => {
   switch (event.code) {

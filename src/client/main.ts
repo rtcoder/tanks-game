@@ -1,14 +1,14 @@
 import './style.css';
-import { loadAssets } from './assets';
-import { createBattle, formatBattleStatus, joinBattle } from './battles';
-import { circleRectColliding, isMineArmed, isPointInWater } from './collisions';
-import { MINIMAP_WIDTH, MINE_ARM_MS, MINE_COOLDOWN_MS, STORAGE_KEYS, VIEWPORT_HEIGHT, VIEWPORT_WIDTH } from './constants';
-import { contexts, dom } from './dom';
-import { clearKeys, switchKey } from './input';
-import { createWalls, createWaterFields } from './map';
-import { getRectangleCornerPointsAfterRotate, radiansToDegrees, round } from './math';
-import { getRandomColor, lighterColor, roundRect } from './rendering';
-import type { BattleSummary, ClientMessage, GameConfig, ImageKey, KeysState, Mine, Point, Tank, WsMessage } from './types';
+import { loadAssets } from './game/assets';
+import { circleRectColliding, isMineArmed, isPointInWater } from './game/collisions';
+import { MINIMAP_WIDTH, MINE_ARM_MS, MINE_COOLDOWN_MS, STORAGE_KEYS, VIEWPORT_HEIGHT, VIEWPORT_WIDTH } from './game/constants';
+import { clearKeys, switchKey } from './game/input';
+import { createWalls, createWaterFields } from './game/map';
+import { getRectangleCornerPointsAfterRotate, radiansToDegrees, round } from './game/math';
+import { getRandomColor, lighterColor, roundRect } from './game/rendering';
+import { createBattle, formatBattleStatus, joinBattle } from './network/battles';
+import { contexts, dom } from './ui/dom';
+import type { BattleSummary, ClientMessage, GameConfig, ImageKey, KeysState, Mine, Point, Tank, WsMessage } from '../shared/types';
 
 let maxGameWidth = 3000;
 let maxGameHeight = 2200;

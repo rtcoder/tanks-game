@@ -22,7 +22,7 @@ canvas {
 }
 
 #canvas-walls {
-  background: #fff url("assets/img/grass.png");
+  background: #fff url("../assets/img/grass.png");
 }
 
 body {
@@ -72,7 +72,7 @@ input:focus {
 
 .menu-board {
   align-items: center;
-  background: linear-gradient(rgba(4, 5, 4, 0.58), rgba(4, 5, 4, 0.84)), url("assets/img/grass.png");
+  background: linear-gradient(rgba(4, 5, 4, 0.58), rgba(4, 5, 4, 0.84)), url("../assets/img/grass.png");
   background-size: auto;
   display: flex;
   inset: 0;

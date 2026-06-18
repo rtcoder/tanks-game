@@ -1,8 +1,8 @@
-import block1Url from './assets/img/block1.png';
-import block2Url from './assets/img/block2.png';
-import mudUrl from './assets/img/mud.png';
-import waterUrl from './assets/img/water.png';
-import type { ImageKey } from './types';
+import block1Url from '../../assets/img/block1.png';
+import block2Url from '../../assets/img/block2.png';
+import mudUrl from '../../assets/img/mud.png';
+import waterUrl from '../../assets/img/water.png';
+import type { ImageKey } from '../../shared/types';
 
 const assetManifest: Record<ImageKey, string> = {
   BLOCK_1: block1Url,

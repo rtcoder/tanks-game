@@ -1,4 +1,4 @@
-import type { Mine, Point, Tank, WaterField } from './types';
+import type { Mine, Point, Tank, WaterField } from '../../shared/types';
 
 export const isPointInWater = (
   context: CanvasRenderingContext2D,

@@ -1,4 +1,4 @@
-import type { RadiusConfig } from './types';
+import type { RadiusConfig } from '../../shared/types';
 
 export const roundRect = (
   context: CanvasRenderingContext2D,

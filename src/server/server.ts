@@ -2,8 +2,9 @@ import crypto from 'crypto';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import WebSocket, {WebSocketServer} from 'ws';
-import {
+import type {
   ApiError,
   Battle,
   CreateBattlePayload,
@@ -15,11 +16,12 @@ import {
   SerializedBattle,
   Tank,
   WebSocketClient,
-} from './types';
+} from '../shared/types.js';
 
 
 const port = Number(process.env.PORT || 8001);
-const distDir = path.resolve(__dirname, '..', 'dist');
+const dirname = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.resolve(dirname, '..', '..', 'dist');
 const battles = new Map<string, Battle>();
 const GAME_BOUNDS = {
   width: 3000,
@@ -101,7 +103,7 @@ function readJsonBody(req: Request): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let body = '';
 
-    req.on('data', chunk => {
+    req.on('data', (chunk: unknown) => {
       body += String(chunk);
       if (body.length > 64 * 1024) {
         reject(new Error('Request body too large'));
@@ -455,7 +457,7 @@ wsServer.on('connection', (ws: WebSocketClient, req: Request) => {
     }));
     broadcastBattleState(battle);
 
-    ws.on('message', data => {
+    ws.on('message', (data: unknown) => {
       let messageJson;
       try {
         messageJson = decodeMessage(data);

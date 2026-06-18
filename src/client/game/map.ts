@@ -1,4 +1,4 @@
-import type { Wall, WaterField } from './types';
+import type { Wall, WaterField } from '../../shared/types';
 
 export const createWalls = (maxGameWidth: number, maxGameHeight: number): Wall[] => [
   { x: 0, y: 0, width: maxGameWidth, height: 20, path: new Path2D() },

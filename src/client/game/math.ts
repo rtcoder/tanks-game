@@ -1,4 +1,4 @@
-import type { Point, Tank } from './types';
+import type { Point, Tank } from '../../shared/types';
 
 export const round = (num: number, decimalPlaces = 0): number => {
   const value = 10 ** decimalPlaces;

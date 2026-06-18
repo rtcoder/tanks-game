@@ -1,4 +1,4 @@
-import type { BattleSummary } from './types';
+import type { BattleSummary } from '../../shared/types';
 
 type BattleSessionResponse = {
   battle: BattleSummary;
