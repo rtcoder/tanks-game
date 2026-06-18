@@ -2,7 +2,7 @@
   "name": "tanks-game",
   "version": "1.0.0",
   "scripts": {
-    "server": "node src/server.js",
+    "server": "node src/server.ts",
     "start": "npm run server",
     "build": "tsc && vite build",
     "preview": "vite preview"
@@ -11,6 +11,7 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@types/node": "^25.9.3",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
   }

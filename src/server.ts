@@ -4,9 +4,126 @@ const http = require('http');
 const path = require('path');
 const WebSocket = require('ws');
 
+type Request = {
+  url?: string;
+  method?: string;
+  headers: {
+    host?: string;
+  };
+  on: (event: string, listener: (chunk?: Buffer | Error) => void) => void;
+  destroy: () => void;
+};
+
+type Response = {
+  writeHead: (statusCode: number, headers: Record<string, string>) => void;
+  end: (data?: string) => void;
+};
+
+type WebSocketClient = {
+  readyState: number;
+  battleId?: string;
+  battle?: Battle;
+  player?: Player;
+  uid?: string;
+  send: (data: string) => void;
+  close: (code?: number, reason?: string) => void;
+  on: (event: string, listener: (data?: unknown) => void) => void;
+};
+
+type BattleMode = 'ffa' | 'teams';
+type BattleStatus = 'waiting' | 'active' | 'finished';
+
+type Point = {
+  x: number;
+  y: number;
+};
+
+type Trace = {
+  x: number;
+  y: number;
+  angle: number;
+  time: number;
+};
+
+type Tank = {
+  uid: string;
+  lives: number;
+  x: number;
+  y: number;
+  speed: number;
+  angle: number;
+  mod: number;
+  tracksShift: [number, number];
+  traces: Trace[];
+  width: number;
+  height: number;
+  color: string;
+  velocity: Point;
+  friction: number;
+  force: number;
+};
+
+type Mine = {
+  x: number;
+  y: number;
+  size: number;
+  time: number;
+  ownerUid: string | null;
+};
+
+type Player = {
+  id: string;
+  nick: string;
+  connected: boolean;
+  lastSeen: string | null;
+  tank: Tank | null;
+};
+
+type Battle = {
+  id: string;
+  title: string;
+  mode: BattleMode;
+  status: BattleStatus;
+  maxPlayers: number;
+  createdAt: string;
+  winnerUid: string | null;
+  players: Map<string, Player>;
+  mines: Mine[];
+};
+
+type PlayerPayload = {
+  nick?: unknown;
+  playerId?: unknown;
+};
+
+type CreateBattlePayload = PlayerPayload & {
+  title?: unknown;
+  maxPlayers?: unknown;
+};
+
+type ApiError = Error & {
+  statusCode?: number;
+};
+
+type SerializedBattle = {
+  id: string;
+  title: string;
+  mode: BattleMode;
+  status: BattleStatus;
+  maxPlayers: number;
+  createdAt: string;
+  winnerUid: string | null;
+  players: Array<{
+    id: string;
+    nick: string;
+    connected: boolean;
+    alive: boolean;
+  }>;
+};
+
 const port = Number(process.env.PORT || 8001);
 const distDir = path.resolve(__dirname, '..', 'dist');
-const battles = new Map();
+const battles = new Map<string, Battle>();
 const GAME_BOUNDS = {
   width: 3000,
   height: 2200
@@ -32,19 +149,19 @@ const contentTypes = {
   '.webp': 'image/webp'
 };
 
-const decodeMessage = message => JSON.parse(message);
-const encodeMessage = message => JSON.stringify(message);
+const decodeMessage = (message: unknown): any => JSON.parse(String(message));
+const encodeMessage = (message: unknown): string => JSON.stringify(message);
 
-function sendJson(res, statusCode, data) {
+function sendJson(res: Response, statusCode: number, data: unknown): void {
   res.writeHead(statusCode, {'Content-Type': 'application/json; charset=utf-8'});
   res.end(encodeMessage(data));
 }
 
-function sendNotFound(res) {
+function sendNotFound(res: Response): void {
   sendJson(res, 404, {error: 'Not found'});
 }
 
-function serveStatic(req, res) {
+function serveStatic(req: Request, res: Response): void {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = decodeURIComponent(requestUrl.pathname);
   const relativePath = pathname === '/' ? 'index.html' : pathname.slice(1);
@@ -70,12 +187,12 @@ function serveStatic(req, res) {
   fs.createReadStream(targetPath).pipe(res);
 }
 
-function readJsonBody(req) {
+function readJsonBody(req: Request): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let body = '';
 
     req.on('data', chunk => {
-      body += chunk.toString();
+      body += String(chunk);
       if (body.length > 64 * 1024) {
         reject(new Error('Request body too large'));
         req.destroy();
@@ -97,7 +214,7 @@ function readJsonBody(req) {
   });
 }
 
-function clamp(value, min, max) {
+function clamp(value: unknown, min: number, max: number): number {
   const number = Number(value);
   if (!Number.isFinite(number)) {
     return min;
@@ -105,7 +222,7 @@ function clamp(value, min, max) {
   return Math.min(Math.max(number, min), max);
 }
 
-function sanitizeText(value, fallback, maxLength) {
+function sanitizeText(value: unknown, fallback: string, maxLength: number): string {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text) {
     return fallback;
@@ -113,17 +230,17 @@ function sanitizeText(value, fallback, maxLength) {
   return text.slice(0, maxLength);
 }
 
-function sanitizeColor(color) {
+function sanitizeColor(color: unknown): string {
   return /^#[0-9a-f]{6}$/i.test(color) ? color : '#4f8cff';
 }
 
-function sanitizePlayerId(playerId) {
+function sanitizePlayerId(playerId: unknown): string {
   return typeof playerId === 'string' && playerId.length >= 8 && playerId.length <= 80
     ? playerId
     : crypto.randomUUID();
 }
 
-function sanitizeTank(tank, uid) {
+function sanitizeTank(tank: any, uid: string): Tank {
   return {
     uid,
     lives: clamp(tank?.lives, 0, 100),
@@ -146,7 +263,7 @@ function sanitizeTank(tank, uid) {
   };
 }
 
-function sanitizeMine(mine) {
+function sanitizeMine(mine: any): Mine {
   return {
     x: clamp(mine?.x, 0, GAME_BOUNDS.width),
     y: clamp(mine?.y, 0, GAME_BOUNDS.height),
@@ -156,9 +273,9 @@ function sanitizeMine(mine) {
   };
 }
 
-function createBattle({title, maxPlayers, nick, playerId}) {
+function createBattle({title, maxPlayers, nick, playerId}: CreateBattlePayload): { battle: Battle; player: Player } {
   const id = crypto.randomUUID();
-  const battle = {
+  const battle: Battle = {
     id,
     title: sanitizeText(title, 'Untitled battle', 40),
     mode: 'ffa',
@@ -174,19 +291,19 @@ function createBattle({title, maxPlayers, nick, playerId}) {
   return {battle, player};
 }
 
-function getBattle(id) {
+function getBattle(id: unknown): Battle | null {
   if (typeof id !== 'string') {
     return null;
   }
   return battles.get(id.trim()) || null;
 }
 
-function upsertPlayer(battle, {nick, playerId}) {
+function upsertPlayer(battle: Battle, {nick, playerId}: PlayerPayload): Player {
   const id = sanitizePlayerId(playerId);
   let player = battle.players.get(id);
 
   if (!player && battle.players.size >= battle.maxPlayers) {
-    const error = new Error('Battle is full');
+    const error = new Error('Battle is full') as ApiError;
     error.statusCode = 409;
     throw error;
   }
@@ -207,7 +324,7 @@ function upsertPlayer(battle, {nick, playerId}) {
   return player;
 }
 
-function serializeBattle(battle) {
+function serializeBattle(battle: Battle): SerializedBattle {
   const players = Array.from(battle.players.values()).map(player => ({
     id: player.id,
     nick: player.nick,
@@ -227,32 +344,32 @@ function serializeBattle(battle) {
   };
 }
 
-function tanksInBattle(battle) {
+function tanksInBattle(battle: Battle): Tank[] {
   return Array.from(battle.players.values())
     .map(player => player.tank)
-    .filter(Boolean);
+    .filter((tank): tank is Tank => Boolean(tank));
 }
 
-function sendBattleMessage(battle, data) {
-  wsServer.clients.forEach(client => {
+function sendBattleMessage(battle: Battle, data: unknown): void {
+  wsServer.clients.forEach((client: WebSocketClient) => {
     if (client.readyState === WebSocket.OPEN && client.battleId === battle.id) {
       client.send(encodeMessage(data));
     }
   });
 }
 
-function broadcastBattleState(battle) {
+function broadcastBattleState(battle: Battle): void {
   sendBattleMessage(battle, {
     type: 'BATTLE_STATE',
     payload: {battle: serializeBattle(battle)}
   });
 }
 
-function broadcastTanks(battle) {
+function broadcastTanks(battle: Battle): void {
   sendBattleMessage(battle, {type: 'TANKS_DATA', payload: {tanks: tanksInBattle(battle)}});
 }
 
-function maybeFinishBattle(battle) {
+function maybeFinishBattle(battle: Battle): void {
   const tanks = tanksInBattle(battle);
   const aliveTanks = tanks.filter(tank => tank.lives > 0);
 
@@ -270,7 +387,7 @@ function maybeFinishBattle(battle) {
   broadcastBattleState(battle);
 }
 
-function addTank(ws, tank) {
+function addTank(ws: WebSocketClient, tank: unknown): void {
   const player = ws.player;
   const battle = ws.battle;
 
@@ -286,7 +403,7 @@ function addTank(ws, tank) {
   maybeFinishBattle(battle);
 }
 
-function markPlayerDisconnected(ws) {
+function markPlayerDisconnected(ws: WebSocketClient): void {
   if (!ws.player || !ws.battle) {
     return;
   }
@@ -295,7 +412,7 @@ function markPlayerDisconnected(ws) {
   broadcastBattleState(ws.battle);
 }
 
-function updateTank(ws, tank) {
+function updateTank(ws: WebSocketClient, tank: unknown): void {
   const player = ws.player;
   const battle = ws.battle;
 
@@ -308,7 +425,7 @@ function updateTank(ws, tank) {
   maybeFinishBattle(battle);
 }
 
-function updateMines(ws, mines) {
+function updateMines(ws: WebSocketClient, mines: unknown): void {
   const battle = ws.battle;
   if (!battle || !Array.isArray(mines)) {
     return;
@@ -317,7 +434,7 @@ function updateMines(ws, mines) {
   sendBattleMessage(battle, {type: 'MINES_DATA', payload: {mines: battle.mines}});
 }
 
-async function handleApiRequest(req, res) {
+async function handleApiRequest(req: Request, res: Response): Promise<boolean> {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   if (requestUrl.pathname === '/api/game-config') {
@@ -364,7 +481,7 @@ async function handleApiRequest(req, res) {
   return false;
 }
 
-const httpServer = http.createServer((req, res) => {
+const httpServer = http.createServer((req: Request, res: Response) => {
   if (!req.url) {
     sendNotFound(res);
     return;
@@ -372,12 +489,12 @@ const httpServer = http.createServer((req, res) => {
 
   if (req.url.startsWith('/api/')) {
     handleApiRequest(req, res)
-      .then(handled => {
+      .then((handled: boolean) => {
         if (!handled) {
           sendNotFound(res);
         }
       })
-      .catch(error => {
+      .catch((error: ApiError) => {
         sendJson(res, error.statusCode || 400, {error: error.message || 'Bad request'});
       });
     return;
@@ -391,7 +508,7 @@ const wsServer = new WebSocket.Server({
   path: GAME_CONFIG.webSocketPath
 });
 
-wsServer.on('connection', (ws, req) => {
+wsServer.on('connection', (ws: WebSocketClient, req: Request) => {
   try {
     const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const battle = getBattle(requestUrl.searchParams.get('battleId'));

@@ -1,137 +1,17 @@
 import './style.css';
-import block1Url from './assets/img/block1.png';
-import block2Url from './assets/img/block2.png';
-import mudUrl from './assets/img/mud.png';
-import waterUrl from './assets/img/water.png';
+import { loadAssets } from './assets';
+import { createBattle, formatBattleStatus, joinBattle } from './battles';
+import { circleRectColliding, isMineArmed, isPointInWater } from './collisions';
+import { MINIMAP_WIDTH, MINE_ARM_MS, MINE_COOLDOWN_MS, STORAGE_KEYS, VIEWPORT_HEIGHT, VIEWPORT_WIDTH } from './constants';
+import { contexts, dom } from './dom';
+import { clearKeys, switchKey } from './input';
+import { createWalls, createWaterFields } from './map';
+import { getRectangleCornerPointsAfterRotate, radiansToDegrees, round } from './math';
+import { getRandomColor, lighterColor, roundRect } from './rendering';
+import type { BattleSummary, ClientMessage, GameConfig, ImageKey, KeysState, Mine, Point, Tank, WsMessage } from './types';
 
-type KeysState = {
-  w: boolean;
-  s: boolean;
-  a: boolean;
-  d: boolean;
-  shift: boolean;
-  space: boolean;
-};
-
-type Point = {
-  x: number;
-  y: number;
-  gamma?: number;
-};
-
-type Trace = {
-  x: number;
-  y: number;
-  angle: number;
-  time: number;
-};
-
-type Tank = {
-  uid: string | null;
-  lives: number;
-  x: number;
-  y: number;
-  speed: number;
-  angle: number;
-  mod: number;
-  tracksShift: [number, number];
-  traces: Trace[];
-  width: number;
-  height: number;
-  color: string;
-  velocity: Point;
-  friction: number;
-  force: number;
-  drawDot?: boolean;
-};
-
-type Mine = {
-  x: number;
-  y: number;
-  size: number;
-  time: number;
-  ownerUid?: string | null;
-};
-
-type BattleMode = 'ffa' | 'teams';
-type BattleStatus = 'waiting' | 'active' | 'finished';
-
-type BattlePlayer = {
-  id: string;
-  nick: string;
-  connected: boolean;
-  alive: boolean;
-};
-
-type BattleSummary = {
-  id: string;
-  title: string;
-  mode: BattleMode;
-  status: BattleStatus;
-  maxPlayers: number;
-  createdAt: string;
-  winnerUid: string | null;
-  players: BattlePlayer[];
-};
-
-type Wall = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  path: Path2D;
-};
-
-type WaterField = {
-  getPath: () => Path2D;
-};
-
-type ImageKey = 'BLOCK_1' | 'BLOCK_2' | 'WATER' | 'MUD';
-
-type WsMessage =
-  | { type: 'SET_ID'; payload: { id: string; battle: BattleSummary } }
-  | { type: 'BATTLE_STATE'; payload: { battle: BattleSummary } }
-  | { type: 'TANKS_DATA'; payload: { tanks: Tank[] } }
-  | { type: 'MINES_DATA'; payload: { mines: Mine[] } };
-
-type ClientMessage =
-  | { type: 'ADD_TANK'; payload: { tank: Tank } }
-  | { type: 'LEFT_GAME'; payload: { uid: string | null } }
-  | { type: 'UPDATE_TANK'; payload: { tank: Tank } }
-  | { type: 'UPDATE_MINES'; payload: { mines: Mine[] } };
-
-type RadiusConfig = {
-  tl: number;
-  tr: number;
-  br: number;
-  bl: number;
-};
-
-type GameConfig = {
-  gameBounds: {
-    width: number;
-    height: number;
-  };
-  playerSpawn: {
-    x: number;
-    y: number;
-    angle: number;
-  };
-  webSocketPath: string;
-};
-
-const VIEWPORT_WIDTH = 1200;
-const VIEWPORT_HEIGHT = 900;
-const MINE_COOLDOWN_MS = 2000;
-const MINE_ARM_MS = 1500;
-const STORAGE_KEYS = {
-  nick: 'tanks:nick',
-  playerId: 'tanks:playerId',
-  battleId: 'tanks:battleId',
-} as const;
 let maxGameWidth = 3000;
 let maxGameHeight = 2200;
-const MINIMAP_WIDTH = 800;
 let minimapHeight = MINIMAP_WIDTH * (maxGameHeight / maxGameWidth);
 let playerSpawn = {
   x: 700,
@@ -185,12 +65,43 @@ let webSocket: WebSocket | null = null;
 let currentBattle: BattleSummary | null = null;
 let currentPlayerId = localStorage.getItem(STORAGE_KEYS.playerId) || crypto.randomUUID();
 
-const assetManifest: Record<ImageKey, string> = {
-  BLOCK_1: block1Url,
-  BLOCK_2: block2Url,
-  WATER: waterUrl,
-  MUD: mudUrl,
-};
+const {
+  joyStick,
+  joyStickDot,
+  wrapper,
+  menuBoard,
+  controlsPanel,
+  createBattleButton,
+  joinBattleButton,
+  controlsButton,
+  respawnButton,
+  gameOverPanel,
+  hpFill,
+  hpValue,
+  mineStatus,
+  playersCount,
+  nickInput,
+  battleTitleInput,
+  maxPlayersInput,
+  battleIdInput,
+  battleStatusText,
+  touchMineButton,
+  minimapContainer,
+  canvas,
+  canvasMinimap,
+  canvasWalls,
+  canvasWallsMinimap,
+} = dom;
+
+const {
+  ctx,
+  ctxMinimap,
+  ctxWalls,
+  ctxWallsMinimap,
+} = contexts;
+
+const walls = createWalls(maxGameWidth, maxGameHeight);
+const waterFields = createWaterFields();
 
 const syncBoundaryWalls = (): void => {
   Object.assign(walls[0], { x: 0, y: 0, width: maxGameWidth, height: 20 });
@@ -217,232 +128,6 @@ const loadGameConfig = async (): Promise<void> => {
   }
 };
 
-const queryElement = <T extends Element>(selector: string): T => {
-  const element = document.querySelector<T>(selector);
-  if (!element) {
-    throw new Error(`Missing required element: ${selector}`);
-  }
-  return element;
-};
-
-const queryById = <T extends HTMLElement>(id: string): T => {
-  const element = document.getElementById(id) as T | null;
-  if (!element) {
-    throw new Error(`Missing required element: #${id}`);
-  }
-  return element;
-};
-
-const getContext = (canvasElement: HTMLCanvasElement): CanvasRenderingContext2D => {
-  const context = canvasElement.getContext('2d');
-  if (!context) {
-    throw new Error('2D canvas context is not available');
-  }
-  return context;
-};
-
-const joyStick = queryElement<HTMLElement>('.joystick');
-const joyStickDot = queryElement<HTMLElement>('.joystick .dot');
-const wrapper = queryElement<HTMLElement>('.wrapper');
-const menuBoard = queryById<HTMLElement>('menu-board');
-const controlsPanel = queryById<HTMLElement>('controls-panel');
-const createBattleButton = queryById<HTMLButtonElement>('create-battle-button');
-const joinBattleButton = queryById<HTMLButtonElement>('join-battle-button');
-const controlsButton = queryById<HTMLButtonElement>('controls-button');
-const respawnButton = queryById<HTMLButtonElement>('respawn-button');
-const gameOverPanel = queryById<HTMLElement>('game-over');
-const hpFill = queryById<HTMLElement>('hp-fill');
-const hpValue = queryById<HTMLElement>('hp-value');
-const mineStatus = queryById<HTMLElement>('mine-status');
-const playersCount = queryById<HTMLElement>('players-count');
-const nickInput = queryById<HTMLInputElement>('nick-input');
-const battleTitleInput = queryById<HTMLInputElement>('battle-title-input');
-const maxPlayersInput = queryById<HTMLInputElement>('max-players-input');
-const battleIdInput = queryById<HTMLInputElement>('battle-id-input');
-const battleStatusText = queryById<HTMLElement>('battle-status-text');
-const touchMineButton = queryById<HTMLButtonElement>('touch-mine');
-const minimapContainer = queryElement<HTMLElement>('.minimap');
-const canvas = queryById<HTMLCanvasElement>('canvas');
-const canvasMinimap = queryById<HTMLCanvasElement>('canvas-minimap');
-const canvasWalls = queryById<HTMLCanvasElement>('canvas-walls');
-const canvasWallsMinimap = queryById<HTMLCanvasElement>('canvas-walls-minimap');
-const ctx = getContext(canvas);
-const ctxMinimap = getContext(canvasMinimap);
-const ctxWalls = getContext(canvasWalls);
-const ctxWallsMinimap = getContext(canvasWallsMinimap);
-
-const walls: Wall[] = [
-  { x: 0, y: 0, width: maxGameWidth, height: 20, path: new Path2D() },
-  { x: 0, y: maxGameHeight - 20, width: maxGameWidth, height: 20, path: new Path2D() },
-  { x: maxGameWidth - 20, y: 0, width: 20, height: maxGameHeight, path: new Path2D() },
-  { x: 0, y: 0, width: 20, height: maxGameHeight, path: new Path2D() },
-  { x: 100, y: 0, width: 20, height: 300, path: new Path2D() },
-  { x: 100, y: 300, width: 200, height: 30, path: new Path2D() },
-  { x: 300, y: 300, width: 50, height: 300, path: new Path2D() },
-];
-
-const waterFields: WaterField[] = [
-  {
-    getPath: () => {
-      const path = new Path2D();
-      path.moveTo(170, 80);
-      path.bezierCurveTo(130, 100, 130, 150, 230, 150);
-      path.bezierCurveTo(420, 150, 420, 120, 390, 100);
-      path.bezierCurveTo(320, 5, 250, 20, 250, 50);
-      return path;
-    },
-  },
-  {
-    getPath: () => {
-      const path = new Path2D();
-      path.moveTo(371, 292);
-      path.quadraticCurveTo(400, 250, 480, 232);
-      path.bezierCurveTo(554, 221, 529, 226, 578, 250);
-      path.bezierCurveTo(590, 260, 546, 259, 569, 280);
-      path.bezierCurveTo(572, 304, 561, 288, 587, 314);
-      path.bezierCurveTo(594, 345, 569, 328, 588, 361);
-      path.bezierCurveTo(586, 392, 562, 374, 583, 406);
-      path.bezierCurveTo(583, 446, 564, 423, 590, 464);
-      path.bezierCurveTo(593, 489, 588, 482, 596, 501);
-      path.bezierCurveTo(575, 533, 562, 523, 543, 537);
-      path.bezierCurveTo(519, 544, 502, 545, 505, 531);
-      path.bezierCurveTo(490, 519, 473, 519, 498, 500);
-      path.bezierCurveTo(503, 478, 482, 489, 519, 472);
-      path.bezierCurveTo(530, 460, 512, 471, 538, 458);
-      path.bezierCurveTo(546, 438, 525, 443, 539, 424);
-      path.bezierCurveTo(536, 414, 514, 414, 525, 417);
-      path.bezierCurveTo(503, 421, 492, 418, 494, 434);
-      path.bezierCurveTo(468, 454, 452, 440, 462, 469);
-      path.bezierCurveTo(451, 497, 436, 484, 465, 516);
-      path.bezierCurveTo(472, 543, 442, 536, 484, 553);
-      path.bezierCurveTo(511, 574, 480, 556, 535, 571);
-      path.bezierCurveTo(552, 578, 533, 573, 559, 584);
-      path.bezierCurveTo(562, 590, 538, 593, 548, 595);
-      path.bezierCurveTo(507, 602, 506, 606, 487, 598);
-      path.bezierCurveTo(464, 593, 452, 596, 460, 577);
-      path.bezierCurveTo(443, 551, 432, 564, 445, 534);
-      path.bezierCurveTo(438, 504, 421, 521, 440, 491);
-      path.bezierCurveTo(438, 461, 412, 476, 440, 449);
-      path.bezierCurveTo(446, 424, 422, 436, 459, 417);
-      path.bezierCurveTo(471, 401, 448, 413, 482, 399);
-      path.bezierCurveTo(496, 383, 467, 391, 499, 374);
-      path.bezierCurveTo(510, 356, 485, 367, 515, 349);
-      path.bezierCurveTo(526, 324, 502, 338, 529, 312);
-      path.bezierCurveTo(534, 288, 517, 298, 532, 277);
-      path.bezierCurveTo(529, 265, 508, 270, 517, 266);
-      path.bezierCurveTo(502, 261, 489, 260, 495, 264);
-      path.bezierCurveTo(480, 267, 464, 263, 476, 275);
-      path.bezierCurveTo(461, 293, 455, 287, 462, 307);
-      path.bezierCurveTo(448, 326, 434, 335, 438, 331);
-      path.quadraticCurveTo(380, 324, 368, 291);
-      return path;
-    },
-  },
-];
-
-const loadImage = (src: string): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
-  const image = new Image();
-  image.onload = () => resolve(image);
-  image.onerror = () => reject(new Error(`Could not load image: ${src}`));
-  image.src = src;
-});
-
-const loadAssets = async (): Promise<Record<ImageKey, HTMLImageElement>> => {
-  const entries = await Promise.all(
-    Object.entries(assetManifest).map(async ([key, src]) => [key, await loadImage(src)] as const),
-  );
-  return Object.fromEntries(entries) as Record<ImageKey, HTMLImageElement>;
-};
-
-const round = (num: number, decimalPlaces = 0): number => {
-  const value = 10 ** decimalPlaces;
-  return Math.round((num + Number.EPSILON) * value) / value;
-};
-
-const radiansToDegrees = (radians: number): number => radians * (180 / Math.PI);
-const degreesToRadians = (degrees: number): number => (degrees / 180) * Math.PI;
-
-const getRectangleCornerPointsAfterRotate = (tank: Tank): Required<Point>[] => {
-  const { x, y, width, height, angle } = tank;
-  const radius = Math.sqrt((width / 2) ** 2 + (height / 2) ** 2);
-  const beta = radiansToDegrees(Math.atan2(height, width));
-  const gammas = [
-    degreesToRadians(beta + angle),
-    degreesToRadians(beta + angle + radiansToDegrees(Math.PI)),
-    degreesToRadians(-beta + angle + radiansToDegrees(Math.PI)),
-    degreesToRadians(-beta + angle),
-  ];
-
-  return gammas.map((gamma) => ({
-    x: x + radius * Math.cos(gamma),
-    y: y + radius * Math.sin(gamma),
-    gamma: (radiansToDegrees(gamma) + 720) % 360,
-  }));
-};
-
-const roundRect = (
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number | Partial<RadiusConfig> = 5,
-  fillColor?: string,
-  strokeColor?: string,
-): void => {
-  const radii: RadiusConfig = typeof radius === 'number'
-    ? { tl: radius, tr: radius, br: radius, bl: radius }
-    : { tl: radius.tl ?? 0, tr: radius.tr ?? 0, br: radius.br ?? 0, bl: radius.bl ?? 0 };
-
-  context.beginPath();
-  context.moveTo(x + radii.tl, y);
-  context.lineTo(x + width - radii.tr, y);
-  context.quadraticCurveTo(x + width, y, x + width, y + radii.tr);
-  context.lineTo(x + width, y + height - radii.br);
-  context.quadraticCurveTo(x + width, y + height, x + width - radii.br, y + height);
-  context.lineTo(x + radii.bl, y + height);
-  context.quadraticCurveTo(x, y + height, x, y + height - radii.bl);
-  context.lineTo(x, y + radii.tl);
-  context.quadraticCurveTo(x, y, x + radii.tl, y);
-  context.closePath();
-
-  if (fillColor) {
-    context.fillStyle = fillColor;
-    context.fill();
-  }
-
-  if (strokeColor) {
-    context.strokeStyle = strokeColor;
-    context.stroke();
-  }
-};
-
-const hexToRgb = (hex: string): [number, number, number] => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  if (!result) {
-    return [0, 0, 0];
-  }
-  return [
-    parseInt(result[1], 16),
-    parseInt(result[2], 16),
-    parseInt(result[3], 16),
-  ];
-};
-
-const shiftColor = ([r, g, b]: [number, number, number], val: number, percent: number): string => (
-  `#${
-    ((0 | (1 << 8) + r + ((val - r) * percent) / 100).toString(16)).substr(1)
-  }${
-    ((0 | (1 << 8) + g + ((val - g) * percent) / 100).toString(16)).substr(1)
-  }${
-    ((0 | (1 << 8) + b + ((val - b) * percent) / 100).toString(16)).substr(1)
-  }`
-);
-
-const lighterColor = (color: string, percent: number): string => shiftColor(hexToRgb(color), 256, percent);
-
-const getRandomColor = (): string => `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`;
-
 const sanitizeNick = (): string => nickInput.value.trim().slice(0, 24) || 'Player';
 
 const setBattleStatus = (message: string): void => {
@@ -458,48 +143,14 @@ const persistSession = (battle: BattleSummary, playerId: string): void => {
   battleIdInput.value = battle.id;
 };
 
-const formatBattleStatus = (battle: BattleSummary): string => {
-  const playerCount = battle.players.length;
-  const winner = battle.winnerUid
-    ? battle.players.find((player) => player.id === battle.winnerUid)?.nick ?? 'unknown'
-    : null;
-
-  if (battle.status === 'finished' && winner) {
-    return `${battle.title} · winner: ${winner}`;
-  }
-
-  return `${battle.title} · ${playerCount}/${battle.maxPlayers} · ${battle.mode.toUpperCase()} · ${battle.status}`;
-};
-
-const requestJson = async <T>(url: string, options?: RequestInit): Promise<T> => {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
-  const data = await response.json() as T;
-
-  if (!response.ok) {
-    const errorData = data as { error?: string };
-    throw new Error(errorData.error || 'Request failed');
-  }
-
-  return data as T;
-};
-
 const createBattleSession = async (): Promise<void> => {
   const nick = sanitizeNick();
   const maxPlayers = Number(maxPlayersInput.value);
-  const response = await requestJson<{ battle: BattleSummary; playerId: string }>('/api/battles', {
-    method: 'POST',
-    body: JSON.stringify({
-      title: battleTitleInput.value.trim(),
-      maxPlayers,
-      nick,
-      playerId: currentPlayerId,
-    }),
+  const response = await createBattle({
+    title: battleTitleInput.value.trim(),
+    maxPlayers,
+    nick,
+    playerId: currentPlayerId,
   });
   persistSession(response.battle, response.playerId);
   setBattleStatus(formatBattleStatus(response.battle));
@@ -513,12 +164,10 @@ const joinBattleSession = async (battleId = battleIdInput.value): Promise<void> 
     return;
   }
 
-  const response = await requestJson<{ battle: BattleSummary; playerId: string }>(`/api/battles/${encodeURIComponent(trimmedBattleId)}/join`, {
-    method: 'POST',
-    body: JSON.stringify({
-      nick: sanitizeNick(),
-      playerId: currentPlayerId,
-    }),
+  const response = await joinBattle({
+    battleId: trimmedBattleId,
+    nick: sanitizeNick(),
+    playerId: currentPlayerId,
   });
   persistSession(response.battle, response.playerId);
   setBattleStatus(formatBattleStatus(response.battle));
@@ -543,65 +192,13 @@ const resize = (): void => {
   wrapper.style.transform = `translate(-50%, -50%) scale(${scale})`;
 };
 
-const switchKey = (event: KeyboardEvent, value: boolean): void => {
-  switch (event.code) {
-    case 'KeyW':
-    case 'ArrowUp':
-      keys.w = value;
-      break;
-    case 'KeyS':
-    case 'ArrowDown':
-      keys.s = value;
-      break;
-    case 'KeyA':
-    case 'ArrowLeft':
-      keys.a = value;
-      break;
-    case 'KeyD':
-    case 'ArrowRight':
-      keys.d = value;
-      break;
-    case 'ShiftLeft':
-    case 'ShiftRight':
-      keys.shift = value;
-      break;
-    case 'Space':
-      keys.space = value;
-      break;
-  }
-};
-
-const isPointInWater = (points: Point[]): boolean => waterFields.some((waterField) => (
-  points.some((point) => ctx.isPointInPath(waterField.getPath(), point.x, point.y))
-));
-
-const circleRectColliding = (circle: Mine, rect: Point & Partial<Pick<Tank, 'width' | 'height'>>): boolean => {
-  const width = rect.width ?? 1;
-  const height = rect.height ?? 1;
-  const distX = Math.abs(circle.x - rect.x - width / 2);
-  const distY = Math.abs(circle.y - rect.y - height / 2);
-
-  if (distX > width / 2 + circle.size || distY > height / 2 + circle.size) {
-    return false;
-  }
-  if (distX <= width / 2 || distY <= height / 2) {
-    return true;
-  }
-
-  const dx = distX - width / 2;
-  const dy = distY - height / 2;
-  return dx * dx + dy * dy <= circle.size * circle.size;
-};
-
-const isMineArmed = ({ time }: Mine): boolean => Date.now() - time > MINE_ARM_MS;
-
 const detectTankMineCollision = (): void => {
   if (isGameOver) {
     return;
   }
 
   const hitIndex = mines.findIndex((mine) => {
-    if (!isMineArmed(mine)) {
+    if (!isMineArmed(mine, MINE_ARM_MS)) {
       return false;
     }
     const collidingWithTank = circleRectColliding(mine, userTank);
@@ -622,9 +219,7 @@ const detectTankMineCollision = (): void => {
     userTank.mod = 0;
     userTank.velocity.x = 0;
     userTank.velocity.y = 0;
-    Object.keys(keys).forEach((key) => {
-      keys[key as keyof KeysState] = false;
-    });
+    clearKeys(keys);
     gameOverPanel.classList.add('opened');
   }
 
@@ -659,7 +254,7 @@ const drawMines = (): void => {
     const { x, y, size } = mine;
     ctx.save();
     ctx.translate(x + canvasShift.x, y + canvasShift.y);
-    ctx.fillStyle = isMineArmed(mine) ? '#850000' : '#067200';
+    ctx.fillStyle = isMineArmed(mine, MINE_ARM_MS) ? '#850000' : '#067200';
     ctx.beginPath();
     ctx.strokeStyle = '#a2a2a2';
     ctx.arc(0, 0, size, 0, Math.PI * 2);
@@ -852,9 +447,7 @@ const resetTankState = (): void => {
   userTank.traces = [];
   userTank.velocity.x = 0;
   userTank.velocity.y = 0;
-  Object.keys(keys).forEach((key) => {
-    keys[key as keyof KeysState] = false;
-  });
+  clearKeys(keys);
   lastMineTime = 0;
   isGameOver = false;
   gameOverPanel.classList.remove('opened');
@@ -972,7 +565,7 @@ const update = (delta: number): void => {
     return;
   }
 
-  isTankOnWater = isPointInWater(getRectangleCornerPointsAfterRotate(userTank));
+  isTankOnWater = isPointInWater(ctx, waterFields, getRectangleCornerPointsAfterRotate(userTank));
 
   if (w) {
     userTank.mod = 1;
@@ -1216,7 +809,7 @@ const bindEvents = (): void => {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) {
       event.preventDefault();
     }
-    switchKey(event, true);
+    switchKey(keys, event, true);
     if (event.code === 'KeyM') {
       minimapContainer.style.display = 'flex';
     }
@@ -1226,7 +819,7 @@ const bindEvents = (): void => {
     if (!isGameStarted) {
       return;
     }
-    switchKey(event, false);
+    switchKey(keys, event, false);
     if (event.code === 'KeyM') {
       minimapContainer.style.display = 'none';
     }
@@ -1243,9 +836,7 @@ const bindEvents = (): void => {
     if (!isGameStarted) {
       return;
     }
-    Object.keys(keys).forEach((key) => {
-      keys[key as keyof KeysState] = false;
-    });
+    clearKeys(keys);
   });
 
   const touchEventHandler = (event: TouchEvent): void => {
