@@ -1,7 +1,8 @@
-import block1Url from '../assets/img/block1.png';
-import block2Url from '../assets/img/block2.png';
-import mudUrl from '../assets/img/mud.png';
-import waterUrl from '../assets/img/water.png';
+import './style.css';
+import block1Url from './assets/img/block1.png';
+import block2Url from './assets/img/block2.png';
+import mudUrl from './assets/img/mud.png';
+import waterUrl from './assets/img/water.png';
 
 type KeysState = {
   w: boolean;
@@ -52,6 +53,27 @@ type Mine = {
   ownerUid?: string | null;
 };
 
+type BattleMode = 'ffa' | 'teams';
+type BattleStatus = 'waiting' | 'active' | 'finished';
+
+type BattlePlayer = {
+  id: string;
+  nick: string;
+  connected: boolean;
+  alive: boolean;
+};
+
+type BattleSummary = {
+  id: string;
+  title: string;
+  mode: BattleMode;
+  status: BattleStatus;
+  maxPlayers: number;
+  createdAt: string;
+  winnerUid: string | null;
+  players: BattlePlayer[];
+};
+
 type Wall = {
   x: number;
   y: number;
@@ -67,7 +89,8 @@ type WaterField = {
 type ImageKey = 'BLOCK_1' | 'BLOCK_2' | 'WATER' | 'MUD';
 
 type WsMessage =
-  | { type: 'SET_ID'; payload: { id: string } }
+  | { type: 'SET_ID'; payload: { id: string; battle: BattleSummary } }
+  | { type: 'BATTLE_STATE'; payload: { battle: BattleSummary } }
   | { type: 'TANKS_DATA'; payload: { tanks: Tank[] } }
   | { type: 'MINES_DATA'; payload: { mines: Mine[] } };
 
@@ -84,19 +107,38 @@ type RadiusConfig = {
   bl: number;
 };
 
+type GameConfig = {
+  gameBounds: {
+    width: number;
+    height: number;
+  };
+  playerSpawn: {
+    x: number;
+    y: number;
+    angle: number;
+  };
+  webSocketPath: string;
+};
+
 const VIEWPORT_WIDTH = 1200;
 const VIEWPORT_HEIGHT = 900;
 const MINE_COOLDOWN_MS = 2000;
 const MINE_ARM_MS = 1500;
-const MAX_GAME_WIDTH = 3000;
-const MAX_GAME_HEIGHT = 2200;
+const STORAGE_KEYS = {
+  nick: 'tanks:nick',
+  playerId: 'tanks:playerId',
+  battleId: 'tanks:battleId',
+} as const;
+let maxGameWidth = 3000;
+let maxGameHeight = 2200;
 const MINIMAP_WIDTH = 800;
-const MINIMAP_HEIGHT = MINIMAP_WIDTH * (MAX_GAME_HEIGHT / MAX_GAME_WIDTH);
-const PLAYER_SPAWN = {
+let minimapHeight = MINIMAP_WIDTH * (maxGameHeight / maxGameWidth);
+let playerSpawn = {
   x: 700,
   y: 700,
   angle: 0,
 };
+let webSocketPath = '/ws';
 
 const keys: KeysState = {
   w: false,
@@ -110,10 +152,10 @@ const keys: KeysState = {
 const userTank: Tank = {
   uid: null,
   lives: 100,
-  x: PLAYER_SPAWN.x,
-  y: PLAYER_SPAWN.y,
+  x: playerSpawn.x,
+  y: playerSpawn.y,
   speed: 7,
-  angle: PLAYER_SPAWN.angle,
+  angle: playerSpawn.angle,
   mod: 0,
   tracksShift: [0, 0],
   traces: [],
@@ -140,12 +182,39 @@ let isGameOver = false;
 let lastFrameTime = 0;
 let areAssetsReady = false;
 let webSocket: WebSocket | null = null;
+let currentBattle: BattleSummary | null = null;
+let currentPlayerId = localStorage.getItem(STORAGE_KEYS.playerId) || crypto.randomUUID();
 
 const assetManifest: Record<ImageKey, string> = {
   BLOCK_1: block1Url,
   BLOCK_2: block2Url,
   WATER: waterUrl,
   MUD: mudUrl,
+};
+
+const syncBoundaryWalls = (): void => {
+  Object.assign(walls[0], { x: 0, y: 0, width: maxGameWidth, height: 20 });
+  Object.assign(walls[1], { x: 0, y: maxGameHeight - 20, width: maxGameWidth, height: 20 });
+  Object.assign(walls[2], { x: maxGameWidth - 20, y: 0, width: 20, height: maxGameHeight });
+  Object.assign(walls[3], { x: 0, y: 0, width: 20, height: maxGameHeight });
+};
+
+const loadGameConfig = async (): Promise<void> => {
+  try {
+    const response = await fetch('/api/game-config');
+    if (!response.ok) {
+      return;
+    }
+    const config = await response.json() as GameConfig;
+    maxGameWidth = config.gameBounds.width;
+    maxGameHeight = config.gameBounds.height;
+    minimapHeight = MINIMAP_WIDTH * (maxGameHeight / maxGameWidth);
+    playerSpawn = config.playerSpawn;
+    webSocketPath = config.webSocketPath;
+    syncBoundaryWalls();
+  } catch {
+    // Dev mode can still run the canvas without backend config.
+  }
 };
 
 const queryElement = <T extends Element>(selector: string): T => {
@@ -177,7 +246,8 @@ const joyStickDot = queryElement<HTMLElement>('.joystick .dot');
 const wrapper = queryElement<HTMLElement>('.wrapper');
 const menuBoard = queryById<HTMLElement>('menu-board');
 const controlsPanel = queryById<HTMLElement>('controls-panel');
-const newGameButton = queryById<HTMLButtonElement>('new-game-button');
+const createBattleButton = queryById<HTMLButtonElement>('create-battle-button');
+const joinBattleButton = queryById<HTMLButtonElement>('join-battle-button');
 const controlsButton = queryById<HTMLButtonElement>('controls-button');
 const respawnButton = queryById<HTMLButtonElement>('respawn-button');
 const gameOverPanel = queryById<HTMLElement>('game-over');
@@ -185,6 +255,11 @@ const hpFill = queryById<HTMLElement>('hp-fill');
 const hpValue = queryById<HTMLElement>('hp-value');
 const mineStatus = queryById<HTMLElement>('mine-status');
 const playersCount = queryById<HTMLElement>('players-count');
+const nickInput = queryById<HTMLInputElement>('nick-input');
+const battleTitleInput = queryById<HTMLInputElement>('battle-title-input');
+const maxPlayersInput = queryById<HTMLInputElement>('max-players-input');
+const battleIdInput = queryById<HTMLInputElement>('battle-id-input');
+const battleStatusText = queryById<HTMLElement>('battle-status-text');
 const touchMineButton = queryById<HTMLButtonElement>('touch-mine');
 const minimapContainer = queryElement<HTMLElement>('.minimap');
 const canvas = queryById<HTMLCanvasElement>('canvas');
@@ -197,10 +272,10 @@ const ctxWalls = getContext(canvasWalls);
 const ctxWallsMinimap = getContext(canvasWallsMinimap);
 
 const walls: Wall[] = [
-  { x: 0, y: 0, width: MAX_GAME_WIDTH, height: 20, path: new Path2D() },
-  { x: 0, y: MAX_GAME_HEIGHT - 20, width: MAX_GAME_WIDTH, height: 20, path: new Path2D() },
-  { x: MAX_GAME_WIDTH - 20, y: 0, width: 20, height: MAX_GAME_HEIGHT, path: new Path2D() },
-  { x: 0, y: 0, width: 20, height: MAX_GAME_HEIGHT, path: new Path2D() },
+  { x: 0, y: 0, width: maxGameWidth, height: 20, path: new Path2D() },
+  { x: 0, y: maxGameHeight - 20, width: maxGameWidth, height: 20, path: new Path2D() },
+  { x: maxGameWidth - 20, y: 0, width: 20, height: maxGameHeight, path: new Path2D() },
+  { x: 0, y: 0, width: 20, height: maxGameHeight, path: new Path2D() },
   { x: 100, y: 0, width: 20, height: 300, path: new Path2D() },
   { x: 100, y: 300, width: 200, height: 30, path: new Path2D() },
   { x: 300, y: 300, width: 50, height: 300, path: new Path2D() },
@@ -367,6 +442,88 @@ const shiftColor = ([r, g, b]: [number, number, number], val: number, percent: n
 const lighterColor = (color: string, percent: number): string => shiftColor(hexToRgb(color), 256, percent);
 
 const getRandomColor = (): string => `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`;
+
+const sanitizeNick = (): string => nickInput.value.trim().slice(0, 24) || 'Player';
+
+const setBattleStatus = (message: string): void => {
+  battleStatusText.textContent = message;
+};
+
+const persistSession = (battle: BattleSummary, playerId: string): void => {
+  currentBattle = battle;
+  currentPlayerId = playerId;
+  localStorage.setItem(STORAGE_KEYS.nick, sanitizeNick());
+  localStorage.setItem(STORAGE_KEYS.playerId, playerId);
+  localStorage.setItem(STORAGE_KEYS.battleId, battle.id);
+  battleIdInput.value = battle.id;
+};
+
+const formatBattleStatus = (battle: BattleSummary): string => {
+  const playerCount = battle.players.length;
+  const winner = battle.winnerUid
+    ? battle.players.find((player) => player.id === battle.winnerUid)?.nick ?? 'unknown'
+    : null;
+
+  if (battle.status === 'finished' && winner) {
+    return `${battle.title} · winner: ${winner}`;
+  }
+
+  return `${battle.title} · ${playerCount}/${battle.maxPlayers} · ${battle.mode.toUpperCase()} · ${battle.status}`;
+};
+
+const requestJson = async <T>(url: string, options?: RequestInit): Promise<T> => {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    },
+  });
+  const data = await response.json() as T;
+
+  if (!response.ok) {
+    const errorData = data as { error?: string };
+    throw new Error(errorData.error || 'Request failed');
+  }
+
+  return data as T;
+};
+
+const createBattleSession = async (): Promise<void> => {
+  const nick = sanitizeNick();
+  const maxPlayers = Number(maxPlayersInput.value);
+  const response = await requestJson<{ battle: BattleSummary; playerId: string }>('/api/battles', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: battleTitleInput.value.trim(),
+      maxPlayers,
+      nick,
+      playerId: currentPlayerId,
+    }),
+  });
+  persistSession(response.battle, response.playerId);
+  setBattleStatus(formatBattleStatus(response.battle));
+  await newGame();
+};
+
+const joinBattleSession = async (battleId = battleIdInput.value): Promise<void> => {
+  const trimmedBattleId = battleId.trim();
+  if (!trimmedBattleId) {
+    setBattleStatus('Paste a battle UUID first');
+    return;
+  }
+
+  const response = await requestJson<{ battle: BattleSummary; playerId: string }>(`/api/battles/${encodeURIComponent(trimmedBattleId)}/join`, {
+    method: 'POST',
+    body: JSON.stringify({
+      nick: sanitizeNick(),
+      playerId: currentPlayerId,
+    }),
+  });
+  persistSession(response.battle, response.playerId);
+  setBattleStatus(formatBattleStatus(response.battle));
+  await newGame();
+};
 
 const getPattern = (
   context: CanvasRenderingContext2D,
@@ -599,7 +756,7 @@ const drawTankOnMinimap = (tank: Tank): void => {
 };
 
 const drawWalls = (): void => {
-  ctxWalls.clearRect(0, 0, MAX_GAME_WIDTH, MAX_GAME_HEIGHT);
+  ctxWalls.clearRect(0, 0, maxGameWidth, maxGameHeight);
   walls.forEach((wall) => {
     ctxWalls.fillStyle = getPattern(ctxWalls, 'BLOCK_2');
     wall.path = new Path2D();
@@ -614,7 +771,7 @@ const drawWalls = (): void => {
 };
 
 const drawWallsMinimap = (): void => {
-  ctxWallsMinimap.clearRect(0, 0, MAX_GAME_WIDTH, MAX_GAME_HEIGHT);
+  ctxWallsMinimap.clearRect(0, 0, maxGameWidth, maxGameHeight);
   walls.forEach((wall) => {
     ctxWallsMinimap.fillStyle = getPattern(ctxWallsMinimap, 'BLOCK_2');
     wall.path = new Path2D();
@@ -636,10 +793,10 @@ const syncCameraToTank = (): void => {
   canvasShift.x = 0;
   canvasShift.y = 0;
 
-  if (userTank.x > canvas.width / 2 && userTank.x < MAX_GAME_WIDTH - canvas.width / 2) {
+  if (userTank.x > canvas.width / 2 && userTank.x < maxGameWidth - canvas.width / 2) {
     canvasShift.x = canvas.width / 2 - userTank.x;
   }
-  if (userTank.y > canvas.height / 2 && userTank.y < MAX_GAME_HEIGHT - canvas.height / 2) {
+  if (userTank.y > canvas.height / 2 && userTank.y < maxGameHeight - canvas.height / 2) {
     canvasShift.y = canvas.height / 2 - userTank.y;
   }
 
@@ -687,9 +844,9 @@ const updateHud = (): void => {
 
 const resetTankState = (): void => {
   userTank.lives = 100;
-  userTank.x = PLAYER_SPAWN.x;
-  userTank.y = PLAYER_SPAWN.y;
-  userTank.angle = PLAYER_SPAWN.angle;
+  userTank.x = playerSpawn.x;
+  userTank.y = playerSpawn.y;
+  userTank.angle = playerSpawn.angle;
   userTank.mod = 0;
   userTank.tracksShift = [0, 0];
   userTank.traces = [];
@@ -724,8 +881,17 @@ const runWsConnection = (): void => {
   let restartAttempts = 0;
 
   const startWs = (): void => {
-    const wsHost = window.location.hostname || '127.0.0.1';
-    webSocket = new WebSocket(`ws://${wsHost}:8001`);
+    if (!currentBattle) {
+      setBattleStatus('Create or join a battle first');
+      return;
+    }
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const params = new URLSearchParams({
+      battleId: currentBattle.id,
+      playerId: currentPlayerId,
+      nick: sanitizeNick(),
+    });
+    webSocket = new WebSocket(`${protocol}//${window.location.host}${webSocketPath}?${params}`);
     webSocket.onopen = () => {
       restartAttempts = 0;
       document.querySelector('.message.error-connection')?.classList.remove('opened');
@@ -743,11 +909,29 @@ const runWsConnection = (): void => {
       switch (type) {
         case 'SET_ID':
           userTank.uid = payload.id;
-          userTank.color = getRandomColor();
+          currentBattle = payload.battle;
+          setBattleStatus(formatBattleStatus(payload.battle));
+          if (userTank.color === '#000000') {
+            userTank.color = getRandomColor();
+          }
           sendMessage({ type: 'ADD_TANK', payload: { tank: userTank } });
+          break;
+        case 'BATTLE_STATE':
+          currentBattle = payload.battle;
+          setBattleStatus(formatBattleStatus(payload.battle));
+          if (payload.battle.status === 'finished') {
+            isGameOver = true;
+            userTank.mod = 0;
+            userTank.velocity.x = 0;
+            userTank.velocity.y = 0;
+            gameOverPanel.classList.add('opened');
+          }
           break;
         case 'TANKS_DATA':
           remoteTanks.length = 0;
+          payload.tanks
+            .filter((tank) => tank.uid === userTank.uid)
+            .forEach((tank) => Object.assign(userTank, tank, { drawDot: false }));
           remoteTanks.push(...payload.tanks.filter((tank) => tank.uid !== userTank.uid));
           updateHud();
           break;
@@ -840,7 +1024,7 @@ const update = (delta: number): void => {
 
   let redrawWalls = false;
   if (userTank.x > canvas.width / 2) {
-    if (userTank.x < MAX_GAME_WIDTH - canvas.width / 2) {
+    if (userTank.x < maxGameWidth - canvas.width / 2) {
       canvasShift.x = canvas.width / 2 - userTank.x;
       redrawWalls = true;
     }
@@ -849,7 +1033,7 @@ const update = (delta: number): void => {
     redrawWalls = true;
   }
   if (userTank.y > canvas.height / 2) {
-    if (userTank.y < MAX_GAME_HEIGHT - canvas.height / 2) {
+    if (userTank.y < maxGameHeight - canvas.height / 2) {
       canvasShift.y = canvas.height / 2 - userTank.y;
       redrawWalls = true;
     }
@@ -940,22 +1124,26 @@ const loop = (timestamp: number): void => {
 const setupCanvas = (): void => {
   canvas.width = VIEWPORT_WIDTH;
   canvas.height = VIEWPORT_HEIGHT;
-  canvasWalls.width = MAX_GAME_WIDTH;
-  canvasWalls.height = MAX_GAME_HEIGHT;
-  canvasWallsMinimap.width = MAX_GAME_WIDTH;
-  canvasWallsMinimap.height = MAX_GAME_HEIGHT;
-  canvasMinimap.width = MAX_GAME_WIDTH;
-  canvasMinimap.height = MAX_GAME_HEIGHT;
-  const minimapScale = `scale(calc(1 / (${MAX_GAME_WIDTH} / ${MINIMAP_WIDTH})), calc(1 / (${MAX_GAME_HEIGHT} / ${MINIMAP_HEIGHT})))`;
+  canvasWalls.width = maxGameWidth;
+  canvasWalls.height = maxGameHeight;
+  canvasWallsMinimap.width = maxGameWidth;
+  canvasWallsMinimap.height = maxGameHeight;
+  canvasMinimap.width = maxGameWidth;
+  canvasMinimap.height = maxGameHeight;
+  const minimapScale = `scale(calc(1 / (${maxGameWidth} / ${MINIMAP_WIDTH})), calc(1 / (${maxGameHeight} / ${minimapHeight})))`;
   canvasWallsMinimap.style.transform = minimapScale;
   canvasMinimap.style.transform = minimapScale;
   const minimapInner = minimapContainer.querySelector<HTMLElement>('div');
   if (minimapInner) {
-    minimapInner.style.height = `${MINIMAP_HEIGHT}px`;
+    minimapInner.style.height = `${minimapHeight}px`;
   }
 };
 
 const startGameWorld = (): void => {
+  if (!currentBattle) {
+    setBattleStatus('Create or join a battle first');
+    return;
+  }
   resetTankState();
   menuBoard.classList.add('hidden');
   wrapper.style.display = 'block';
@@ -988,8 +1176,30 @@ const newGame = async (): Promise<void> => {
 };
 
 const bindEvents = (): void => {
-  newGameButton.addEventListener('click', () => {
-    void newGame();
+  createBattleButton.addEventListener('click', () => {
+    createBattleButton.disabled = true;
+    setBattleStatus('Creating battle...');
+    void createBattleSession()
+      .catch((error) => {
+        setBattleStatus(error instanceof Error ? error.message : 'Could not create battle');
+      })
+      .finally(() => {
+        createBattleButton.disabled = false;
+      });
+  });
+  joinBattleButton.addEventListener('click', () => {
+    joinBattleButton.disabled = true;
+    setBattleStatus('Joining battle...');
+    void joinBattleSession()
+      .catch((error) => {
+        setBattleStatus(error instanceof Error ? error.message : 'Could not join battle');
+      })
+      .finally(() => {
+        joinBattleButton.disabled = false;
+      });
+  });
+  nickInput.addEventListener('input', () => {
+    localStorage.setItem(STORAGE_KEYS.nick, sanitizeNick());
   });
   controlsButton.addEventListener('click', () => {
     controlsPanel.classList.toggle('opened');
@@ -1077,6 +1287,25 @@ const bindEvents = (): void => {
   touchMineButton.addEventListener('click', putMine);
 };
 
-setupCanvas();
-bindEvents();
-resize();
+const restoreSavedSession = async (): Promise<void> => {
+  nickInput.value = localStorage.getItem(STORAGE_KEYS.nick) || '';
+  battleIdInput.value = localStorage.getItem(STORAGE_KEYS.battleId) || '';
+
+  if (!nickInput.value || !battleIdInput.value) {
+    return;
+  }
+
+  setBattleStatus('Rejoining saved battle...');
+  try {
+    await joinBattleSession(battleIdInput.value);
+  } catch (error) {
+    setBattleStatus(error instanceof Error ? error.message : 'Saved battle is unavailable');
+  }
+};
+
+void loadGameConfig().finally(() => {
+  setupCanvas();
+  bindEvents();
+  resize();
+  void restoreSavedSession();
+});

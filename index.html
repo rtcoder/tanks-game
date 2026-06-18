@@ -4,7 +4,6 @@
   <title>Tanks Arena</title>
   <meta charset="UTF-8">
   <meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport">
-  <link href="style.css" rel="stylesheet">
 </head>
 <body>
 
@@ -12,10 +11,34 @@
   <div class="menu-panel">
     <p class="eyebrow">Multiplayer arena</p>
     <h1>Tanks Arena</h1>
-    <p class="menu-copy">Drive, bait enemies through mines, and use water to break pursuit.</p>
+    <p class="menu-copy">Create a free-for-all battle or join one by UUID. Last tank standing wins.</p>
+    <label class="field">
+      <span>Nick</span>
+      <input autocomplete="nickname" id="nick-input" maxlength="24" placeholder="Tank commander" type="text">
+    </label>
+    <div class="battle-grid">
+      <label class="field">
+        <span>Battle title</span>
+        <input id="battle-title-input" maxlength="40" placeholder="Friday skirmish" type="text">
+      </label>
+      <label class="field compact">
+        <span>Max players</span>
+        <input id="max-players-input" max="16" min="2" type="number" value="4">
+      </label>
+    </div>
     <div class="menu-actions">
-      <button class="primary" id="new-game-button">New game</button>
+      <button class="primary" id="create-battle-button">Create battle</button>
       <button id="controls-button">Controls</button>
+    </div>
+    <label class="field join-field">
+      <span>Battle UUID</span>
+      <input id="battle-id-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" type="text">
+    </label>
+    <div class="menu-actions">
+      <button id="join-battle-button">Join battle</button>
+    </div>
+    <div class="battle-status" id="battle-status">
+      <span id="battle-status-text">No battle selected</span>
     </div>
     <div class="controls" id="controls-panel">
       <span>Move: W/A/S/D or arrows</span>

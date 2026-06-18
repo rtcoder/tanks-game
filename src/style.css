@@ -55,6 +55,21 @@ button.primary {
   color: #17200d;
 }
 
+input {
+  background: rgba(4, 7, 5, 0.82);
+  border: 1px solid var(--ui-border);
+  color: var(--ui-text);
+  font: inherit;
+  min-height: 42px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+input:focus {
+  border-color: rgba(208, 240, 95, 0.85);
+  outline: none;
+}
+
 .menu-board {
   align-items: center;
   background: linear-gradient(rgba(4, 5, 4, 0.58), rgba(4, 5, 4, 0.84)), url("assets/img/grass.png");
@@ -102,7 +117,38 @@ button.primary {
 .menu-actions {
   display: flex;
   gap: 10px;
-  margin-top: 22px;
+  margin-top: 12px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.field span,
+.battle-status span {
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.battle-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 120px;
+}
+
+.join-field {
+  margin-top: 18px;
+}
+
+.battle-status {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--ui-border);
+  margin-top: 14px;
+  padding: 10px 12px;
 }
 
 .controls {
@@ -371,6 +417,10 @@ button.primary {
   .menu-actions,
   .hud {
     flex-wrap: wrap;
+  }
+
+  .battle-grid {
+    grid-template-columns: 1fr;
   }
 
   .hud {
