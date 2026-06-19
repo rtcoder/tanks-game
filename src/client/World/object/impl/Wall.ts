@@ -15,7 +15,7 @@ export class Wall extends BaseObject {
   destroyAnimationActive = false;
   destroyAnimationElapsed = 0;
   destroyAnimationFrame = -1;
-  destroyAnimationFrameDuration = 0.16;
+  destroyAnimationFrameDuration = 0.05;
   removed = false;
 
   static onTick = (_wall: Wall, _delta: number) => {};
