@@ -23,12 +23,12 @@ class PBar {
       <div class="${class_name}__value">${(totalTime / 1000).toFixed(1)}s</div>
     </div>
   `;
-    container.insertAdjacentHTML("beforeend", html);
+    container.insertAdjacentHTML('beforeend', html);
 
     this.element = document.getElementById(this.id) as HTMLElement;
-    this.fillElement = this.element.getElementsByClassName(class_name + "__bar__fill")[0] as HTMLElement;
-    this.valueElement = this.element.getElementsByClassName(class_name + "__value")[0] as HTMLElement;
-    
+    this.fillElement = this.element.getElementsByClassName(class_name + '__bar__fill')[0] as HTMLElement;
+    this.valueElement = this.element.getElementsByClassName(class_name + '__value')[0] as HTMLElement;
+
     this.update(this.timeout);
   }
 
@@ -46,4 +46,4 @@ class PBar {
   }
 }
 
-export { PBar }
+export {PBar};

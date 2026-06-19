@@ -7,8 +7,8 @@ Its interaction with other componenets in the scene are listed below:
 4. The tank can be hit by bullets from other tanks.
 5. The tank can be collect powerups that can change its mobility and firepower, and health.
 */
-import * as THREE from "three";
-import { disposeMeshes } from "../utils/mesh";
+import * as THREE from 'three';
+import {disposeMeshes} from '../utils/mesh';
 
 abstract class BaseObject {
   type: string;
@@ -34,4 +34,4 @@ abstract class MovableObject extends BaseObject {
   abstract tick(delta: number): void;
 }
 
-export { BaseObject, MovableObject };
+export {BaseObject, MovableObject};

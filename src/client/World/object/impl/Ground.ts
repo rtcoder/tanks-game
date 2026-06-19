@@ -1,27 +1,29 @@
-import { BaseObject } from "../BaseObject";
-import * as THREE from "three";
+import * as THREE from 'three';
+import {BaseObject} from '../BaseObject';
 
 class Ground extends BaseObject {
   mesh: THREE.Mesh;
   planeSize: number;
+
   constructor(name: string, textures: { [key: string]: THREE.Texture }) {
-    super("ground", name);
+    super('ground', name);
+
     function repeat_texture(
-      texture: THREE.Texture,
-      num_S: number,
-      num_T: number
+        texture: THREE.Texture,
+        num_S: number,
+        num_T: number,
     ) {
       texture.wrapS = THREE.RepeatWrapping;
       texture.wrapT = THREE.RepeatWrapping;
       texture.repeat.set(num_S, num_T);
     }
 
-    const albedoTexture = textures["albedo"];
-    const aoTexture = textures["ao"];
-    const heightTexture = textures["height"];
-    const metallicTexture = textures["metallic"];
-    const normalTexture = textures["normal"];
-    const roughnessTexture = textures["roughness"];
+    const albedoTexture = textures['albedo'];
+    const aoTexture = textures['ao'];
+    const heightTexture = textures['height'];
+    const metallicTexture = textures['metallic'];
+    const normalTexture = textures['normal'];
+    const roughnessTexture = textures['roughness'];
 
     repeat_texture(albedoTexture, 10, 10);
     repeat_texture(aoTexture, 10, 10);
@@ -56,12 +58,12 @@ class Ground extends BaseObject {
 
   inBoundary(pos: THREE.Vector3): boolean {
     return (
-      pos.x <= this.mesh.position.x + this.planeSize / 2 &&
-      pos.x >= this.mesh.position.x - this.planeSize / 2 &&
-      pos.y <= this.mesh.position.y + this.planeSize / 2 &&
-      pos.y >= this.mesh.position.y - this.planeSize / 2
+        pos.x <= this.mesh.position.x + this.planeSize / 2 &&
+        pos.x >= this.mesh.position.x - this.planeSize / 2 &&
+        pos.y <= this.mesh.position.y + this.planeSize / 2 &&
+        pos.y >= this.mesh.position.y - this.planeSize / 2
     );
   }
 }
 
-export { Ground };
+export {Ground};

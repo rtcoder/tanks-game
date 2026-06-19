@@ -1,7 +1,7 @@
-import { Clock } from "three";
-import { Camera } from "./Camera";
-import { Renderer } from "./Renderer";
-import { Scene } from "./Scene";
+import {Clock} from 'three';
+import {Camera} from './Camera';
+import {Renderer} from './Renderer';
+import {Scene} from './Scene';
 
 class Loop {
   scene: Scene;
@@ -26,9 +26,10 @@ class Loop {
       renderer.renderer.setAnimationLoop(() => {
         this.tick();
         renderer.renderer.render(this.scene.scene, camera.camera);
-    });
-    this.clock.getDelta();
-  }}
+      });
+      this.clock.getDelta();
+    }
+  }
 
   tick() {
     const delta = this.clock.getDelta();
@@ -42,4 +43,4 @@ class Loop {
   }
 }
 
-export { Loop };
+export {Loop};

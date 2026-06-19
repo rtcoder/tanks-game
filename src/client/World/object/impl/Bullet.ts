@@ -1,13 +1,13 @@
-import * as THREE from "three";
-import { MovableObject } from "../BaseObject";
-import { Wall } from "./Wall";
-import { Tank } from "./Tank";
-import { Ground } from "./Ground";
+import * as THREE from 'three';
 
-import { checkCollisionBulletWithTank, checkCollisionBulletWithWall } from "../../utils/collision";
+import {checkCollisionBulletWithTank, checkCollisionBulletWithWall} from '../../utils/collision';
+import {MovableObject} from '../BaseObject';
+import {Ground} from './Ground';
+import {Tank} from './Tank';
+import {Wall} from './Wall';
 
 class Bullet extends MovableObject {
-  mesh: THREE.Group
+  mesh: THREE.Group;
   listeners: THREE.AudioListener[];
   audio: { [key: string]: AudioBuffer };
 
@@ -16,8 +16,10 @@ class Bullet extends MovableObject {
   attack: number;
 
   constructor(name: string, pos: THREE.Vector3, vel: THREE.Vector3, attack: number,
-    mesh: THREE.Object3D, rotation: THREE.Euler, listeners: THREE.AudioListener[], audio: { [key: string]: AudioBuffer }) {
-    super("bullet", name);
+              mesh: THREE.Object3D, rotation: THREE.Euler, listeners: THREE.AudioListener[], audio: {
+        [key: string]: AudioBuffer
+      }) {
+    super('bullet', name);
 
     this.mesh = new THREE.Group();
     this.mesh.add(mesh.clone());
@@ -35,7 +37,7 @@ class Bullet extends MovableObject {
     this.vel = vel;
     this.accel = new THREE.Vector3(0, 0, 0);
 
-    this.attack = attack
+    this.attack = attack;
   }
 
   update(ground: Ground, bullets: Bullet[], walls: Wall[], tanks: Tank[], _delta: number) {
@@ -43,7 +45,7 @@ class Bullet extends MovableObject {
     if (this.mesh.position.z < 0 || walls.some(wall => checkCollisionBulletWithWall(this, wall) || !ground.inBoundary(this.mesh.position))) {
       this.listeners.forEach(listener => {
         const sound = new THREE.PositionalAudio(listener);
-        sound.setBuffer(this.audio["Bullet_hit"]).setVolume(20).play();
+        sound.setBuffer(this.audio['Bullet_hit']).setVolume(20).play();
       });
 
       this.destruct();
@@ -57,7 +59,7 @@ class Bullet extends MovableObject {
       if (checkCollisionBulletWithTank(this, tank)) {
         this.listeners.forEach(listener => {
           const sound = new THREE.PositionalAudio(listener);
-          sound.setBuffer(this.audio["Bullet_hit"]).setVolume(20).play();
+          sound.setBuffer(this.audio['Bullet_hit']).setVolume(20).play();
         });
 
         this.destruct();
@@ -67,7 +69,8 @@ class Bullet extends MovableObject {
     }
   }
 
-  static onTick(_bullet: Bullet, _delta: number) { };
+  static onTick(_bullet: Bullet, _delta: number) {
+  };
 
   tick(delta: number): void {
     if (!this.mesh) {
@@ -81,4 +84,4 @@ class Bullet extends MovableObject {
   }
 }
 
-export { Bullet }
+export {Bullet};

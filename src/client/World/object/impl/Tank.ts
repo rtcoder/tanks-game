@@ -1,14 +1,14 @@
-import * as THREE from "three";
-import { MovableObject } from "../BaseObject.js";
-import { Wall } from "./Wall.js";
-import { Bullet } from "./Bullet.js";
-import { Scene } from "../../system/Scene.js";
-import { checkCollisionTankWithTank, checkCollisionTankWithWall } from "../../utils/collision.js";
-import { PBar } from "../../utils/PBar.js";
+import * as THREE from 'three';
+import {Scene} from '../../system/Scene.js';
+import {checkCollisionTankWithTank, checkCollisionTankWithWall} from '../../utils/collision.js';
+import {PBar} from '../../utils/PBar.js';
+import {MovableObject} from '../BaseObject.js';
+import {Bullet} from './Bullet.js';
+import {Wall} from './Wall.js';
 
 class Tank extends MovableObject {
   mesh: THREE.Group;
-  bboxParameter = { width: 30, height: 50, depth: 30, };
+  bboxParameter = {width: 30, height: 50, depth: 30};
   health: number = 100;
 
   // bullet configuration
@@ -17,11 +17,11 @@ class Tank extends MovableObject {
   bulletSpeed: number = 520;
 
   // key bindings
-  proceedUpKey: string = "ArrowUp";
-  proceedDownKey: string = "ArrowDown";
-  rotateLeftKey: string = "ArrowLeft";
-  rotateRightKey: string = "ArrowRight";
-  firingKey: string = "Space";
+  proceedUpKey: string = 'ArrowUp';
+  proceedDownKey: string = 'ArrowDown';
+  rotateLeftKey: string = 'ArrowLeft';
+  rotateRightKey: string = 'ArrowRight';
+  firingKey: string = 'Space';
 
   // keyboard control variables
   proceed: number = 0;
@@ -57,9 +57,9 @@ class Tank extends MovableObject {
   rotateSpeed: number = 1;
 
   constructor(name: string, tank_mesh: THREE.Object3D | null,
-    bullet_mesh: THREE.Object3D | null, listeners: THREE.AudioListener[] | null,
-    audio: { [key: string]: AudioBuffer } | null, config: Partial<Tank> = {}) {
-    super("tank", name);
+              bullet_mesh: THREE.Object3D | null, listeners: THREE.AudioListener[] | null,
+              audio: { [key: string]: AudioBuffer } | null, config: Partial<Tank> = {}) {
+    super('tank', name);
     Object.assign(this, config);
 
     this.mesh = new THREE.Group();
@@ -98,11 +98,11 @@ class Tank extends MovableObject {
   }
 
   post_init(container_sub: HTMLElement) {
-    this.healthBarFillElement = container_sub.getElementsByClassName("health__bar__fill")[0] as HTMLElement;
-    this.healthBarValueElement = container_sub.getElementsByClassName("health__value")[0] as HTMLElement;
+    this.healthBarFillElement = container_sub.getElementsByClassName('health__bar__fill')[0] as HTMLElement;
+    this.healthBarValueElement = container_sub.getElementsByClassName('health__value')[0] as HTMLElement;
     // this.weaponBarFillElement = container_sub.getElementsByClassName("weapon__bar__fill")[0] as HTMLElement;
     // this.weaponBarValueElement = container_sub.getElementsByClassName("weapon__value")[0] as HTMLElement;
-    this.powerupsContainerElement = container_sub.getElementsByClassName("powerups")[0] as HTMLElement;
+    this.powerupsContainerElement = container_sub.getElementsByClassName('powerups')[0] as HTMLElement;
   }
 
   _updateSpeed(keyboard: { [key: string]: number }, delta: number) {
@@ -111,24 +111,24 @@ class Tank extends MovableObject {
   }
 
   _updatePosition(walls: Wall[], tanks: Tank[], surrounding_walls: Wall[]) {
-    const tank_object_tmp = new Tank("temp", null, null, null, null);
+    const tank_object_tmp = new Tank('temp', null, null, null, null);
     tank_object_tmp.mesh.applyMatrix4(this.mesh.matrix);
     tank_object_tmp.mesh.translateY(this.proceed * this.proceedSpeed);
     tank_object_tmp.mesh.rotateZ(this.rotate * this.rotateSpeed);
     tank_object_tmp.mesh.updateMatrix();
 
     const not_collided_with_surrounding_walls =
-      (!surrounding_walls.some((wall) => checkCollisionTankWithWall(tank_object_tmp, wall)));
+        (!surrounding_walls.some((wall) => checkCollisionTankWithWall(tank_object_tmp, wall)));
 
     if (this.penetrationUpgraded && not_collided_with_surrounding_walls) {
       this.mesh.translateY(this.proceed * this.proceedSpeed);
       this.mesh.rotateZ(this.rotate * this.rotateSpeed);
-      return
+      return;
     }
 
     const not_collided = (!tanks.some((tank) => (tank.name !== this.name
-      && checkCollisionTankWithTank(tank_object_tmp, tank)))
-      && !walls.some((wall) => checkCollisionTankWithWall(tank_object_tmp, wall)));
+            && checkCollisionTankWithTank(tank_object_tmp, tank)))
+        && !walls.some((wall) => checkCollisionTankWithWall(tank_object_tmp, wall)));
 
     if (this.penetrationPermitted && not_collided_with_surrounding_walls || not_collided) {
       this.mesh.translateY(this.proceed * this.proceedSpeed);
@@ -147,7 +147,7 @@ class Tank extends MovableObject {
     return {
       pos: localPos,
       vel: localDir.multiplyScalar(this.bulletSpeed),
-    }
+    };
   }
 
   _createBullets(keyboard: { [key: string]: number }, bullets: Bullet[], scene: Scene) {
@@ -155,27 +155,25 @@ class Tank extends MovableObject {
     if (keyboard[this.firingKey]) {
       const now = Date.now();
       if (!this.firingKeyPressed && now - this.lastFireTime > 100) {
-        const { pos, vel } = this._getBulletInitState();
+        const {pos, vel} = this._getBulletInitState();
         this.proceed = (keyboard[this.proceedUpKey] || 0) - (keyboard[this.proceedDownKey] || 0);
         const tankVel = new THREE.Vector3(0, 1, 0).applyEuler(this.mesh.rotation).multiplyScalar(this.proceed * this.proceedSpeed);
         if (!this.bulletUpgraded) {
-          const bullet = new Bullet("main", pos, vel.add(tankVel), this.attack, this.bullet_mesh, this.mesh.rotation, this.listeners, this.audio);
+          const bullet = new Bullet('main', pos, vel.add(tankVel), this.attack, this.bullet_mesh, this.mesh.rotation, this.listeners, this.audio);
           bullets.push(bullet);
           scene.add(bullet);
         } else {
           // TODO: make it more standard
-          let vel2 = new THREE.Vector3(-0.22, 1, 0).
-            applyEuler(this.mesh.rotation).multiplyScalar(this.bulletSpeed);
-          let vel3 = new THREE.Vector3(0.22, 1, 0).
-            applyEuler(this.mesh.rotation).multiplyScalar(this.bulletSpeed);
-          const bullet1 = new Bullet("main", pos, vel.add(tankVel), this.attack, this.bullet_mesh,
-            this.mesh.rotation, this.listeners, this.audio);
-          const bullet2 = new Bullet("main", pos, vel2.add(tankVel), this.attack, this.bullet_mesh,
-            new THREE.Euler(this.mesh.rotation.x, this.mesh.rotation.y, this.mesh.rotation.z + Math.PI / 6),
-            this.listeners, this.audio);
-          const bullet3 = new Bullet("main", pos, vel3.add(tankVel), this.attack, this.bullet_mesh,
-            new THREE.Euler(this.mesh.rotation.x, this.mesh.rotation.y, this.mesh.rotation.z - Math.PI / 6),
-            this.listeners, this.audio);
+          let vel2 = new THREE.Vector3(-0.22, 1, 0).applyEuler(this.mesh.rotation).multiplyScalar(this.bulletSpeed);
+          let vel3 = new THREE.Vector3(0.22, 1, 0).applyEuler(this.mesh.rotation).multiplyScalar(this.bulletSpeed);
+          const bullet1 = new Bullet('main', pos, vel.add(tankVel), this.attack, this.bullet_mesh,
+              this.mesh.rotation, this.listeners, this.audio);
+          const bullet2 = new Bullet('main', pos, vel2.add(tankVel), this.attack, this.bullet_mesh,
+              new THREE.Euler(this.mesh.rotation.x, this.mesh.rotation.y, this.mesh.rotation.z + Math.PI / 6),
+              this.listeners, this.audio);
+          const bullet3 = new Bullet('main', pos, vel3.add(tankVel), this.attack, this.bullet_mesh,
+              new THREE.Euler(this.mesh.rotation.x, this.mesh.rotation.y, this.mesh.rotation.z - Math.PI / 6),
+              this.listeners, this.audio);
           bullets.push(bullet1, bullet2, bullet3);
           scene.add(bullet1);
           scene.add(bullet2);
@@ -191,13 +189,13 @@ class Tank extends MovableObject {
   }
 
   update(
-    keyboard: { [key: string]: number },
-    scene: Scene,
-    tanks: Tank[],
-    walls: Wall[],
-    surrounding_walls: Wall[],
-    bullets: Bullet[],
-    delta: number
+      keyboard: { [key: string]: number },
+      scene: Scene,
+      tanks: Tank[],
+      walls: Wall[],
+      surrounding_walls: Wall[],
+      bullets: Bullet[],
+      delta: number,
   ) {
     this._updateSpeed(keyboard, delta);
     this._updatePosition(walls, tanks, surrounding_walls);
@@ -224,7 +222,8 @@ class Tank extends MovableObject {
     }
   }
 
-  static onTick(_tank: Tank, _delta: number) { };
+  static onTick(_tank: Tank, _delta: number) {
+  };
 
   tick(delta: number): void {
     if (!this.mesh) {
@@ -265,7 +264,7 @@ class Tank extends MovableObject {
   addPowerup(type: string, timeout: number, priorHook: (tank: Tank) => void, postHook: (tank: Tank) => void) {
     if (timeout <= 0) return;
     if (this.powerups[type] === undefined) {
-      this.powerups[type] = new PBar(this.powerupsContainerElement, "powerup", type, timeout);
+      this.powerups[type] = new PBar(this.powerupsContainerElement, 'powerup', type, timeout);
       priorHook(this);
       this.powerupPostHooks[type] = postHook;
     } else {
@@ -292,4 +291,4 @@ class Tank extends MovableObject {
   }
 }
 
-export { Tank };
+export {Tank};

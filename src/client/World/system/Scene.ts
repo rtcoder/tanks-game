@@ -1,5 +1,5 @@
-import * as THREE from "three";
-import { BaseObject } from "../object/BaseObject";
+import * as THREE from 'three';
+import {BaseObject} from '../object/BaseObject';
 
 class Scene {
   scene: THREE.Scene;
@@ -15,4 +15,4 @@ class Scene {
   }
 }
 
-export { Scene };
+export {Scene};

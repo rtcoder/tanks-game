@@ -1,8 +1,8 @@
-import * as THREE from "three";
-import { MovableObject } from "../BaseObject";
-import { Tank } from "./Tank";
-import { checkCollisionPowerupWithTank, checkCollisionPowerupWithWall } from "../../utils/collision";
-import { Wall } from "./Wall";
+import * as THREE from 'three';
+import {checkCollisionPowerupWithTank, checkCollisionPowerupWithWall} from '../../utils/collision';
+import {MovableObject} from '../BaseObject';
+import {Tank} from './Tank';
+import {Wall} from './Wall';
 
 abstract class Powerup extends MovableObject {
   powerup_type: string;
@@ -16,13 +16,13 @@ abstract class Powerup extends MovableObject {
   zBounds: number[] = [10, 20];
   changeZDirection: boolean = false;
 
-  constructor(name: string, type: string, mesh: THREE.Object3D, pos: THREE.Vector3, 
-      listeners: THREE.AudioListener[], audio: AudioBuffer) {
+  constructor(name: string, type: string, mesh: THREE.Object3D, pos: THREE.Vector3,
+              listeners: THREE.AudioListener[], audio: AudioBuffer) {
     super(`powerup-${type}`, name);
     this.powerup_type = type;
 
     this.mesh = new THREE.Group();
-    this.mesh.add(mesh.children[0].clone())
+    this.mesh.add(mesh.children[0].clone());
     this.mesh.children[0].scale.set(20, 20, 20);
     this.mesh.children[0].rotation.x = Math.PI / 2;
     this.mesh.position.copy(pos);
@@ -42,8 +42,8 @@ abstract class Powerup extends MovableObject {
         });
         let new_position;
         let is_collide = true;
-        while (is_collide) { 
-          new_position = new THREE.Vector3(Math.random() * 1000 - 500, Math.random() * 1000 - 500, 15)
+        while (is_collide) {
+          new_position = new THREE.Vector3(Math.random() * 1000 - 500, Math.random() * 1000 - 500, 15);
           this.mesh.position.copy(new_position);
           let no_collide = true;
           for (let wall of walls) {
@@ -58,12 +58,13 @@ abstract class Powerup extends MovableObject {
         this.apply(tank);
         // this.destruct();
         // powerups.splice(powerups.indexOf(this), 1);
-        return
+        return;
       }
     }
   }
 
-  static onTick(_powerup: Powerup, _delta: number) { }
+  static onTick(_powerup: Powerup, _delta: number) {
+  }
 
   tick(delta: number): void {
     if (!this.mesh) {
@@ -89,8 +90,8 @@ abstract class Powerup extends MovableObject {
     }
 
     if (
-      this.mesh.position.z > this.zBounds[1] ||
-      this.mesh.position.z < this.zBounds[0]
+        this.mesh.position.z > this.zBounds[1] ||
+        this.mesh.position.z < this.zBounds[0]
     ) {
       this.zDirection *= -1;
     }
@@ -103,7 +104,7 @@ abstract class Powerup extends MovableObject {
 
 class HealthPowerup extends Powerup {
   constructor(name: string, mesh: THREE.Object3D, pos: THREE.Vector3, listeners: THREE.AudioListener[], audio: AudioBuffer) {
-    super(name, "health", mesh, pos, listeners, audio);
+    super(name, 'health', mesh, pos, listeners, audio);
   }
 
   apply(tank_object: Tank): void {
@@ -116,10 +117,11 @@ class HealthPowerup extends Powerup {
 
 class GoalPowerup extends Powerup {
   constructor(name: string, mesh: THREE.Object3D, pos: THREE.Vector3, listeners: THREE.AudioListener[], audio: AudioBuffer) {
-    super(name, "goal", mesh, pos, listeners, audio);
+    super(name, 'goal', mesh, pos, listeners, audio);
   }
+
   apply(tank_object: Tank): void {
-    document.dispatchEvent(new CustomEvent("gameover", { detail: { winner: tank_object.name } }));
+    document.dispatchEvent(new CustomEvent('gameover', {detail: {winner: tank_object.name}}));
   }
 }
 
@@ -127,13 +129,15 @@ abstract class TimeoutPowerup extends Powerup {
   timeout: number;
 
   constructor(name: string, type: string, mesh: THREE.Object3D, pos: THREE.Vector3,
-    listeners: THREE.AudioListener[], audio: AudioBuffer, timeout: number) {
+              listeners: THREE.AudioListener[], audio: AudioBuffer, timeout: number) {
     super(name, type, mesh, pos, listeners, audio);
     this.timeout = timeout;
   }
 
   abstract PriorHook(tank: Tank): void;
+
   abstract PostHook(tank: Tank): void;
+
   apply(tank_object: Tank): void {
     tank_object.addPowerup(this.powerup_type, this.timeout, this.PriorHook, this.PostHook);
   }
@@ -143,8 +147,8 @@ abstract class TimeoutPowerup extends Powerup {
 
 class WeaponPowerup extends TimeoutPowerup {
   constructor(name: string, mesh: THREE.Object3D, pos: THREE.Vector3,
-    listeners: THREE.AudioListener[], audio: AudioBuffer) {
-    super(name, "weapon", mesh, pos, listeners, audio, 10000);
+              listeners: THREE.AudioListener[], audio: AudioBuffer) {
+    super(name, 'weapon', mesh, pos, listeners, audio, 10000);
   }
 
   PriorHook(tank: Tank): void {
@@ -161,13 +165,15 @@ class SpeedPowerup extends TimeoutPowerup {
   // rotateBoost: number = 1.5;
 
   constructor(name: string, mesh: THREE.Object3D, pos: THREE.Vector3,
-    listeners: THREE.AudioListener[], audio: AudioBuffer) {
-    super(name, "speed", mesh, pos, listeners, audio, 10000);
+              listeners: THREE.AudioListener[], audio: AudioBuffer) {
+    super(name, 'speed', mesh, pos, listeners, audio, 10000);
   }
+
   PriorHook(tank: Tank): void {
     tank.proceedSpeed = tank.proceedSpeed * 2;
     tank.rotateSpeed = tank.rotateSpeed * 1.5;
   }
+
   PostHook(tank: Tank): void {
     tank.proceedSpeed = tank.proceedSpeed / 2;
     tank.rotateSpeed = tank.rotateSpeed / 1.5;
@@ -176,12 +182,14 @@ class SpeedPowerup extends TimeoutPowerup {
 
 class DefensePowerup extends TimeoutPowerup {
   constructor(name: string, mesh: THREE.Object3D, pos: THREE.Vector3,
-    listeners: THREE.AudioListener[], audio: AudioBuffer) {
-    super(name, "defense", mesh, pos, listeners, audio, 10000);
+              listeners: THREE.AudioListener[], audio: AudioBuffer) {
+    super(name, 'defense', mesh, pos, listeners, audio, 10000);
   }
+
   PriorHook(tank: Tank): void {
     tank.defense = 0.5;
   }
+
   PostHook(tank: Tank): void {
     tank.defense = 0;
   }
@@ -189,12 +197,14 @@ class DefensePowerup extends TimeoutPowerup {
 
 class AttackPowerup extends TimeoutPowerup {
   constructor(name: string, mesh: THREE.Object3D, pos: THREE.Vector3,
-    listeners: THREE.AudioListener[], audio: AudioBuffer) {
-    super(name, "attack", mesh, pos, listeners, audio, 10000);
+              listeners: THREE.AudioListener[], audio: AudioBuffer) {
+    super(name, 'attack', mesh, pos, listeners, audio, 10000);
   }
+
   PriorHook(tank: Tank): void {
     tank.attack *= 2;
   }
+
   PostHook(tank: Tank): void {
     tank.attack /= 2;
   }
@@ -202,16 +212,27 @@ class AttackPowerup extends TimeoutPowerup {
 
 class PenetrationPowerup extends TimeoutPowerup {
   constructor(name: string, mesh: THREE.Object3D, pos: THREE.Vector3,
-    listeners: THREE.AudioListener[], audio: AudioBuffer) {
-    super(name, "penetration", mesh, pos, listeners, audio, 10000);
+              listeners: THREE.AudioListener[], audio: AudioBuffer) {
+    super(name, 'penetration', mesh, pos, listeners, audio, 10000);
   }
+
   PriorHook(tank: Tank): void {
     tank.penetrationUpgraded = true;
     tank.penetrationPermitted = true;
   }
+
   PostHook(tank: Tank): void {
     tank.penetrationUpgraded = false;
   }
 }
 
-export { Powerup, HealthPowerup, WeaponPowerup, SpeedPowerup, DefensePowerup, AttackPowerup, PenetrationPowerup, GoalPowerup };
+export {
+  Powerup,
+  HealthPowerup,
+  WeaponPowerup,
+  SpeedPowerup,
+  DefensePowerup,
+  AttackPowerup,
+  PenetrationPowerup,
+  GoalPowerup,
+};

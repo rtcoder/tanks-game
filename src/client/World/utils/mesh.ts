@@ -14,4 +14,4 @@ function disposeMeshes(obj: THREE.Object3D) {
 
 }
 
-export { disposeMeshes }
+export {disposeMeshes};

@@ -5,14 +5,14 @@ function fadeElement(element: HTMLElement, init_opacity: number, final_opacity: 
   var timer = setInterval(function () {
     if (op <= final_opacity) {
       element.style.opacity = final_opacity.toString();
-      element.style.filter = 'alpha(opacity=' + final_opacity * 100 + ")";
+      element.style.filter = 'alpha(opacity=' + final_opacity * 100 + ')';
       clearInterval(timer);
       if (remove) {
         element.style.display = 'none';
       }
     }
     element.style.opacity = op.toString();
-    element.style.filter = 'alpha(opacity=' + op * 100 + ")";
+    element.style.filter = 'alpha(opacity=' + op * 100 + ')';
     op -= decrement;
   }, timeInterval);
 }
@@ -27,11 +27,11 @@ function displayElement(element: HTMLElement, init_opacity: number, final_opacit
   var timer = setInterval(function () {
     if (op >= final_opacity) {
       element.style.opacity = final_opacity.toString();
-      element.style.filter = 'alpha(opacity=' + final_opacity * 100 + ")";
+      element.style.filter = 'alpha(opacity=' + final_opacity * 100 + ')';
       clearInterval(timer);
     }
     element.style.opacity = op.toString();
-    element.style.filter = 'alpha(opacity=' + op * 100 + ")";
+    element.style.filter = 'alpha(opacity=' + op * 100 + ')';
     op += increment;
   }, timeInterval);
 }
@@ -67,4 +67,4 @@ function fadeBackGround(element: HTMLElement, init_opacity: number, final_opacit
 }
 
 
-export { fadeElement, fadeBackGround, displayElement }
+export {fadeElement, fadeBackGround, displayElement};

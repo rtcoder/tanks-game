@@ -1,5 +1,5 @@
-import * as THREE from "three";
-import { Tank } from "../object/impl/Tank";
+import * as THREE from 'three';
+import {Tank} from '../object/impl/Tank';
 
 abstract class Camera {
   _camera!: THREE.PerspectiveCamera;
@@ -15,10 +15,10 @@ class ThirdPersonViewCamera extends Camera {
   constructor(tank: Tank, aspect: number) {
     super();
     this._camera = new THREE.PerspectiveCamera(
-      75,
-      aspect,
-      0.1,
-      1000
+        75,
+        aspect,
+        0.1,
+        1000,
     );
     // add camera to the tank's local coordinate frame
     tank.mesh.add(this._camera);
@@ -35,4 +35,4 @@ class ThirdPersonViewCamera extends Camera {
   }
 }
 
-export { Camera, ThirdPersonViewCamera };
+export {Camera, ThirdPersonViewCamera};
