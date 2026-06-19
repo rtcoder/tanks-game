@@ -8,7 +8,7 @@ export class Wall extends BaseObject {
   maxHealth: number;
   health: number;
   size: THREE.Vector3;
-  crackLines: THREE.LineSegments | null = null;
+  damageTexture: THREE.CanvasTexture | null = null;
 
   constructor(name: string, texture: {
     [key: string]: THREE.Texture
@@ -79,49 +79,91 @@ export class Wall extends BaseObject {
     const materials = Array.isArray(this.mesh.material) ? this.mesh.material : [this.mesh.material];
     materials.forEach((material) => {
       if (material instanceof THREE.MeshStandardMaterial) {
-        material.color.lerp(new THREE.Color(0x3f2d28), damageRatio * 0.45);
+        material.color.set(new THREE.Color(0x827b6c).lerp(new THREE.Color(0x514331), damageRatio * 0.5));
+        material.map = this.createDamageTexture(damageRatio);
+        material.needsUpdate = true;
       }
     });
-    this.updateCracks(damageRatio);
   }
 
-  updateCracks(damageRatio: number): void {
-    this.crackLines?.geometry.dispose();
-    if (this.crackLines?.material instanceof THREE.Material) {
-      this.crackLines.material.dispose();
+  createDamageTexture(damageRatio: number): THREE.CanvasTexture {
+    this.damageTexture?.dispose();
+
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      return new THREE.CanvasTexture(canvas);
     }
-    this.crackLines?.removeFromParent();
 
-    const crackCount = Math.max(1, Math.ceil(damageRatio * 5));
-    const points: number[] = [];
-    const halfX = this.size.x / 2 + 0.35;
-    const halfY = this.size.y / 2;
-    const topZ = this.size.z / 2 + 0.45;
+    context.fillStyle = '#80775f';
+    context.fillRect(0, 0, size, size);
 
+    for (let y = 0; y < size; y += 32) {
+      context.fillStyle = y % 64 === 0 ? '#70684f' : '#8b8268';
+      context.fillRect(0, y, size, 2);
+    }
+    for (let x = 0; x < size; x += 42) {
+      context.fillStyle = '#6f674f';
+      context.fillRect(x + ((x / 42) % 2) * 18, 0, 2, size);
+    }
+
+    const scorchCount = Math.max(1, Math.ceil(damageRatio * 5));
+    for (let index = 0; index < scorchCount; index++) {
+      const seed = this.hashSeed(index + 100);
+      const x = (seed % 1000) / 1000 * size;
+      const y = (((seed >>> 7) % 1000) / 1000) * size;
+      const radius = Math.max(1, 15 + damageRatio * 36 + ((seed >>> 13) % 14));
+      const gradient = context.createRadialGradient(x, y, 2, x, y, radius);
+      gradient.addColorStop(0, `rgba(24, 18, 14, ${0.42 + damageRatio * 0.38})`);
+      gradient.addColorStop(0.62, `rgba(54, 42, 32, ${0.24 + damageRatio * 0.2})`);
+      gradient.addColorStop(1, 'rgba(54, 42, 32, 0)');
+      context.fillStyle = gradient;
+      context.beginPath();
+      context.arc(x, y, radius, 0, Math.PI * 2);
+      context.fill();
+    }
+
+    const crackCount = Math.max(2, Math.ceil(damageRatio * 9));
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
     for (let index = 0; index < crackCount; index++) {
-      const seed = this.hashSeed(index);
-      const startY = -halfY + (seed % 1000) / 1000 * this.size.y;
-      const startZ = topZ - 4 - ((seed >> 4) % 12);
-      const zig = ((seed >> 8) % 9) - 4;
-      points.push(
-          -halfX, startY, startZ,
-          -halfX, Math.max(-halfY, Math.min(halfY, startY + zig * 2.4)), Math.max(2, startZ - 8),
-          halfX, startY * 0.72, topZ - 2,
-          halfX, Math.max(-halfY, Math.min(halfY, startY - zig * 2.1)), Math.max(2, startZ - 7),
-      );
+      const seed = this.hashSeed(index + 200);
+      let x = (seed % 1000) / 1000 * size;
+      let y = (((seed >>> 6) % 1000) / 1000) * size;
+      context.strokeStyle = `rgba(19, 14, 11, ${0.35 + damageRatio * 0.55})`;
+      context.lineWidth = 1 + damageRatio * 1.3;
+      context.beginPath();
+      context.moveTo(x, y);
+      const steps = 2 + (seed % 3);
+      for (let step = 0; step < steps; step++) {
+        x += (((seed >>> (step + 9)) % 100) - 50) * 0.75;
+        y += 12 + (((seed >>> (step + 14)) % 100) - 50) * 0.35;
+        context.lineTo(x, y);
+      }
+      context.stroke();
     }
 
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-    this.crackLines = new THREE.LineSegments(
-        geometry,
-        new THREE.LineBasicMaterial({
-          color: 0x160f0c,
-          transparent: true,
-          opacity: Math.min(0.95, 0.35 + damageRatio * 0.75),
-        }),
-    );
-    this.mesh.add(this.crackLines);
+    const chipCount = Math.max(2, Math.ceil(damageRatio * 12));
+    for (let index = 0; index < chipCount; index++) {
+      const seed = this.hashSeed(index + 300);
+      const x = (seed % 1000) / 1000 * size;
+      const y = (((seed >>> 5) % 1000) / 1000) * size;
+      const radius = Math.max(1, 2 + ((seed >>> 11) % 7));
+      context.fillStyle = `rgba(188, 178, 142, ${0.25 + damageRatio * 0.28})`;
+      context.beginPath();
+      context.arc(x, y, radius, 0, Math.PI * 2);
+      context.fill();
+    }
+
+    this.damageTexture = new THREE.CanvasTexture(canvas);
+    this.damageTexture.wrapS = THREE.RepeatWrapping;
+    this.damageTexture.wrapT = THREE.RepeatWrapping;
+    this.damageTexture.repeat.set(Math.max(1, this.size.y / 64), 1);
+    this.damageTexture.colorSpace = THREE.SRGBColorSpace;
+    return this.damageTexture;
   }
 
   hashSeed(salt: number): number {
@@ -138,10 +180,7 @@ export class Wall extends BaseObject {
     if (!this.mesh.parent) {
       return;
     }
-    this.crackLines?.geometry.dispose();
-    if (this.crackLines?.material instanceof THREE.Material) {
-      this.crackLines.material.dispose();
-    }
+    this.damageTexture?.dispose();
     this.mesh.geometry.dispose();
     this.mesh.parent?.remove(this.mesh);
   }
