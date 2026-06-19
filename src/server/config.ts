@@ -1,14 +1,14 @@
 export const PORT = Number(process.env.PORT || 8001);
 
 export const GAME_BOUNDS = {
-  width: 3000,
-  height: 2200,
+  width: 10000,
+  height: 10000,
 };
 
 export const PLAYER_SPAWN = {
-  x: 700,
-  y: 700,
-  angle: 0,
+  x: 5000,
+  y: 4350,
+  angle: 90,
 };
 
 export const GAME_CONFIG = {

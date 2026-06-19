@@ -1,14 +1,14 @@
 import * as THREE from 'three';
-import type { Mine, Tank, Wall, WaterField } from '../../shared/types';
+import type { DestructibleSegment, Mine, Tank, Wall, WaterField } from '../../shared/types';
 import { MINE_ARM_MS } from './constants';
 import { isMineArmed } from './collisions';
 
-const WORLD_SCALE = 0.035;
+const WORLD_SCALE = 0.12;
 const WALL_HEIGHT = 2.2;
 const GROUND_Y = 0;
 const TANK_Y = 0.75;
-const CAMERA_DISTANCE = 32;
-const CAMERA_HEIGHT = 24;
+const CAMERA_DISTANCE = 40;
+const CAMERA_HEIGHT = 20;
 
 type Bounds = {
   width: number;
@@ -26,12 +26,30 @@ type RenderState = {
   userTank: Tank;
   remoteTanks: Tank[];
   mines: Mine[];
+  destructibleSegments: DestructibleSegment[];
+  destroyedSegmentIds: Set<string>;
+  projectiles: Array<{ id: string; x: number; y: number }>;
+  explosions: Array<{
+    id: string;
+    x: number;
+    y: number;
+    radius: number;
+    startedAt: number;
+    durationMs: number;
+  }>;
 };
 
 type TankMesh = {
   group: THREE.Group;
   hpFill: THREE.Mesh;
   accent: THREE.MeshStandardMaterial;
+};
+
+type ExplosionMesh = {
+  group: THREE.Group;
+  ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  flash: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  sparks: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>[];
 };
 
 const toRadians = (angle: number): number => THREE.MathUtils.degToRad(angle);
@@ -132,17 +150,24 @@ export const createThreeBattleScene = ({
   canvas,
   getBounds,
   walls,
+  waterFields,
 }: ThreeBattleSceneOptions) => {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(45, canvas.width / canvas.height, 0.1, 500);
+  const camera = new THREE.PerspectiveCamera(45, canvas.width / canvas.height, 0.1, 2200);
   const staticGroup = new THREE.Group();
   const wallsGroup = new THREE.Group();
   const waterGroup = new THREE.Group();
   const tanksGroup = new THREE.Group();
   const minesGroup = new THREE.Group();
+  const destructiblesGroup = new THREE.Group();
+  const projectilesGroup = new THREE.Group();
+  const explosionsGroup = new THREE.Group();
   const tankMeshes = new Map<string, TankMesh>();
   const mineMeshes = new Map<string, THREE.Mesh>();
+  const destructibleMeshes = new Map<string, THREE.Mesh>();
+  const projectileMeshes = new Map<string, THREE.Mesh>();
+  const explosionMeshes = new Map<string, ExplosionMesh>();
   let hasCameraSynced = false;
 
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -150,7 +175,16 @@ export const createThreeBattleScene = ({
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   scene.background = new THREE.Color(0x050806);
-  scene.add(staticGroup, wallsGroup, waterGroup, tanksGroup, minesGroup);
+  scene.add(
+    staticGroup,
+    wallsGroup,
+    waterGroup,
+    destructiblesGroup,
+    tanksGroup,
+    minesGroup,
+    projectilesGroup,
+    explosionsGroup,
+  );
 
   const hemi = new THREE.HemisphereLight(0xe8f0d2, 0x1c2419, 1.7);
   scene.add(hemi);
@@ -169,10 +203,13 @@ export const createThreeBattleScene = ({
     const bounds = getBounds();
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(bounds.width * WORLD_SCALE, bounds.height * WORLD_SCALE),
-      new THREE.MeshStandardMaterial({ color: 0x2f6532, roughness: 0.92 }),
+      new THREE.MeshBasicMaterial({
+        color: 0x3a7a3e,
+        side: THREE.DoubleSide,
+      }),
     );
     ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
+    ground.receiveShadow = false;
     staticGroup.add(ground);
 
     const grid = new THREE.GridHelper(
@@ -185,6 +222,29 @@ export const createThreeBattleScene = ({
     grid.material.opacity = 0.35;
     grid.position.y = 0.03;
     staticGroup.add(grid);
+
+    const sectorLines: number[] = [];
+    for (let x = 0; x <= bounds.width; x += 1000) {
+      const from = worldToThreePosition({ x, y: 0 }, bounds, 0.06);
+      const to = worldToThreePosition({ x, y: bounds.height }, bounds, 0.06);
+      sectorLines.push(from.x, from.y, from.z, to.x, to.y, to.z);
+    }
+    for (let y = 0; y <= bounds.height; y += 1000) {
+      const from = worldToThreePosition({ x: 0, y }, bounds, 0.06);
+      const to = worldToThreePosition({ x: bounds.width, y }, bounds, 0.06);
+      sectorLines.push(from.x, from.y, from.z, to.x, to.y, to.z);
+    }
+    const sectorGeometry = new THREE.BufferGeometry();
+    sectorGeometry.setAttribute('position', new THREE.Float32BufferAttribute(sectorLines, 3));
+    const sectorGrid = new THREE.LineSegments(
+      sectorGeometry,
+      new THREE.LineBasicMaterial({
+        color: 0xa0bc72,
+        transparent: true,
+        opacity: 0.26,
+      }),
+    );
+    staticGroup.add(sectorGrid);
 
     const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x263425, roughness: 0.86 });
     const capMaterial = new THREE.MeshStandardMaterial({ color: 0x544345, roughness: 0.9 });
@@ -199,7 +259,7 @@ export const createThreeBattleScene = ({
         wallMaterial,
       );
       wallMesh.position.copy(position);
-      wallMesh.castShadow = true;
+      wallMesh.castShadow = false;
       wallMesh.receiveShadow = true;
       wallsGroup.add(wallMesh);
 
@@ -213,11 +273,7 @@ export const createThreeBattleScene = ({
       wallsGroup.add(cap);
     });
 
-    [
-      { x: 280, y: 100, rx: 150, ry: 72 },
-      { x: 504, y: 412, rx: 118, ry: 184 },
-      { x: 476, y: 408, rx: 70, ry: 36 },
-    ].forEach((water) => {
+    waterFields.flatMap((waterField) => waterField.visuals).forEach((water) => {
       const mesh = new THREE.Mesh(
         new THREE.CircleGeometry(1, 64),
         new THREE.MeshStandardMaterial({
@@ -294,6 +350,167 @@ export const createThreeBattleScene = ({
     });
   };
 
+  const syncDestructibleSegments = (
+    segments: DestructibleSegment[],
+    destroyedSegmentIds: Set<string>,
+  ): void => {
+    const bounds = getBounds();
+    const activeIds = new Set<string>();
+    segments.forEach((segment) => {
+      if (destroyedSegmentIds.has(segment.id)) {
+        return;
+      }
+
+      activeIds.add(segment.id);
+      let mesh = destructibleMeshes.get(segment.id);
+      if (!mesh) {
+        mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(segment.width * WORLD_SCALE, 5.6, segment.height * WORLD_SCALE),
+          new THREE.MeshStandardMaterial({ color: 0x6f6b58, roughness: 0.82 }),
+        );
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        destructibleMeshes.set(segment.id, mesh);
+        destructiblesGroup.add(mesh);
+      }
+
+      mesh.position.copy(worldToThreePosition(
+        { x: segment.x + segment.width / 2, y: segment.y + segment.height / 2 },
+        bounds,
+        2.8,
+      ));
+    });
+
+    destructibleMeshes.forEach((mesh, id) => {
+      if (activeIds.has(id)) {
+        return;
+      }
+      disposeObject(mesh);
+      destructiblesGroup.remove(mesh);
+      destructibleMeshes.delete(id);
+    });
+  };
+
+  const syncProjectiles = (projectiles: RenderState['projectiles']): void => {
+    const bounds = getBounds();
+    const activeIds = new Set<string>();
+    projectiles.forEach((projectile) => {
+      activeIds.add(projectile.id);
+      let mesh = projectileMeshes.get(projectile.id);
+      if (!mesh) {
+        mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.42, 12, 8),
+          new THREE.MeshBasicMaterial({ color: 0xf6e15b }),
+        );
+        projectileMeshes.set(projectile.id, mesh);
+        projectilesGroup.add(mesh);
+      }
+      mesh.position.copy(worldToThreePosition(projectile, bounds, 1.4));
+    });
+
+    projectileMeshes.forEach((mesh, id) => {
+      if (activeIds.has(id)) {
+        return;
+      }
+      disposeObject(mesh);
+      projectilesGroup.remove(mesh);
+      projectileMeshes.delete(id);
+    });
+  };
+
+  const createExplosionMesh = (): ExplosionMesh => {
+    const group = new THREE.Group();
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.7, 1, 48),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd86b,
+        transparent: true,
+        opacity: 0.95,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+
+    const flash = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 16, 10),
+      new THREE.MeshBasicMaterial({
+        color: 0xfff2a3,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+      }),
+    );
+    flash.position.y = 2.2;
+
+    const sparks = Array.from({ length: 12 }, (_, index) => {
+      const spark = new THREE.Mesh(
+        new THREE.SphereGeometry(0.22, 8, 6),
+        new THREE.MeshBasicMaterial({
+          color: index % 3 === 0 ? 0xff6b3d : 0xffd86b,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+        }),
+      );
+      group.add(spark);
+      return spark;
+    });
+
+    group.add(ring, flash);
+    return { group, ring, flash, sparks };
+  };
+
+  const syncExplosions = (explosions: RenderState['explosions']): void => {
+    const bounds = getBounds();
+    const activeIds = new Set<string>();
+    const now = Date.now();
+
+    explosions.forEach((explosion) => {
+      activeIds.add(explosion.id);
+      let mesh = explosionMeshes.get(explosion.id);
+      if (!mesh) {
+        mesh = createExplosionMesh();
+        explosionMeshes.set(explosion.id, mesh);
+        explosionsGroup.add(mesh.group);
+      }
+
+      const progress = THREE.MathUtils.clamp(
+        (now - explosion.startedAt) / explosion.durationMs,
+        0,
+        1,
+      );
+      const eased = 1 - (1 - progress) ** 2;
+      const radius = explosion.radius * WORLD_SCALE;
+      mesh.group.position.copy(worldToThreePosition(explosion, bounds, 0.18));
+      mesh.ring.scale.setScalar(THREE.MathUtils.lerp(radius * 0.12, radius, eased));
+      mesh.ring.material.opacity = 0.85 * (1 - progress);
+      mesh.flash.scale.setScalar(THREE.MathUtils.lerp(2.5, 0.2, progress));
+      mesh.flash.material.opacity = 0.9 * (1 - progress);
+
+      mesh.sparks.forEach((spark, index) => {
+        const angle = (Math.PI * 2 * index) / mesh.sparks.length;
+        const distance = radius * THREE.MathUtils.lerp(0.15, 0.88, eased);
+        spark.position.set(
+          Math.cos(angle) * distance,
+          1.2 + Math.sin(progress * Math.PI) * 3.2,
+          Math.sin(angle) * distance,
+        );
+        spark.scale.setScalar(THREE.MathUtils.lerp(1.2, 0.15, progress));
+        spark.material.opacity = 0.9 * (1 - progress);
+      });
+    });
+
+    explosionMeshes.forEach((mesh, id) => {
+      if (activeIds.has(id)) {
+        return;
+      }
+      disposeObject(mesh.group);
+      explosionsGroup.remove(mesh.group);
+      explosionMeshes.delete(id);
+    });
+  };
+
   const syncCamera = (tank: Tank): void => {
     const bounds = getBounds();
     const target = worldToThreePosition(tank, bounds, 1.05);
@@ -318,9 +535,20 @@ export const createThreeBattleScene = ({
     camera.updateProjectionMatrix();
   };
 
-  const render = ({ userTank, remoteTanks, mines }: RenderState): void => {
+  const render = ({
+    userTank,
+    remoteTanks,
+    mines,
+    destructibleSegments,
+    destroyedSegmentIds,
+    projectiles,
+    explosions,
+  }: RenderState): void => {
+    syncDestructibleSegments(destructibleSegments, destroyedSegmentIds);
     syncTanks(userTank, remoteTanks);
     syncMines(mines);
+    syncProjectiles(projectiles);
+    syncExplosions(explosions);
     syncCamera(userTank);
     renderer.render(scene, camera);
   };

@@ -60,3 +60,19 @@ export function sanitizeMine(mine: any): Mine {
     ownerUid: typeof mine?.ownerUid === 'string' ? mine.ownerUid : null,
   };
 }
+
+export function sanitizeDestroyedSegmentIds(segmentIds: unknown): string[] {
+  if (!Array.isArray(segmentIds)) {
+    return [];
+  }
+
+  return Array.from(new Set(
+    segmentIds
+      .filter((segmentId): segmentId is string => (
+        typeof segmentId === 'string'
+        && segmentId.length > 0
+        && segmentId.length <= 80
+      ))
+      .slice(0, 2000),
+  ));
+}

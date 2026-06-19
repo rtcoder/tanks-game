@@ -16,6 +16,7 @@ import {
   markPlayerDisconnected,
   serializeBattle,
   tanksInBattle,
+  updateDestroyedSegments,
   updateMines,
   updateTank,
   upsertPlayer,
@@ -100,6 +101,9 @@ export function createGameWebSocketServer(server: Server): WebSocketServer {
             break;
           case ClientMessageType.UpdateMines:
             updateMines(ws, messageJson.payload.mines, sendBattleMessage);
+            break;
+          case ClientMessageType.UpdateDestroyedSegments:
+            updateDestroyedSegments(ws, messageJson.payload.destroyedSegmentIds, sendBattleMessage);
             break;
         }
       });

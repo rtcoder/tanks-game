@@ -11,7 +11,14 @@ import type {
   WebSocketClient,
   WsMessage,
 } from '../shared/types.ts';
-import {sanitizeMine, sanitizePlayerId, sanitizeTank, sanitizeText, clamp} from './sanitize.ts';
+import {
+  clamp,
+  sanitizeDestroyedSegmentIds,
+  sanitizeMine,
+  sanitizePlayerId,
+  sanitizeTank,
+  sanitizeText,
+} from './sanitize.ts';
 
 const battles = new Map<string, Battle>();
 
@@ -27,6 +34,7 @@ export function createBattle({title, maxPlayers, nick, playerId}: CreateBattlePa
     winnerUid: null,
     players: new Map(),
     mines: [],
+    destroyedSegmentIds: new Set(),
   };
   battles.set(id, battle);
   const player = upsertPlayer(battle, {nick, playerId});
@@ -124,11 +132,13 @@ export function addTank(
     return;
   }
 
-  player.tank = player.tank
-    ? sanitizeTank(player.tank, player.id)
-    : sanitizeTank(tank, player.id);
+  player.tank = sanitizeTank(tank, player.id);
   broadcastTanks(battle);
   sendBattleMessage(battle, {type: WsMessageType.MinesData, payload: {mines: battle.mines}});
+  sendBattleMessage(battle, {
+    type: WsMessageType.DestructiblesData,
+    payload: {destroyedSegmentIds: Array.from(battle.destroyedSegmentIds)},
+  });
   maybeFinishBattle(battle, broadcastBattleState);
 }
 
@@ -170,4 +180,22 @@ export function updateMines(
   }
   battle.mines = mines.slice(-80).map(sanitizeMine);
   sendBattleMessage(battle, {type: WsMessageType.MinesData, payload: {mines: battle.mines}});
+}
+
+export function updateDestroyedSegments(
+  ws: WebSocketClient,
+  destroyedSegmentIds: unknown,
+  sendBattleMessage: (battle: Battle, data: WsMessage) => void,
+): void {
+  const battle = ws.battle;
+  if (!battle) {
+    return;
+  }
+
+  sanitizeDestroyedSegmentIds(destroyedSegmentIds)
+    .forEach((segmentId) => battle.destroyedSegmentIds.add(segmentId));
+  sendBattleMessage(battle, {
+    type: WsMessageType.DestructiblesData,
+    payload: {destroyedSegmentIds: Array.from(battle.destroyedSegmentIds)},
+  });
 }

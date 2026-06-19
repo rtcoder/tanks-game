@@ -3,6 +3,7 @@ import {BattleStatus, ClientMessageType, WsMessageType} from '../shared/types';
 import type {
   BattleSummary,
   ClientMessage,
+  DestructibleSegment,
   GameConfig,
   KeysState,
   Mine,
@@ -11,28 +12,33 @@ import type {
 } from '../shared/types';
 import {circleRectColliding, isMineArmed, isPointInWater} from './game/collisions';
 import {
+  EXPLOSION_DURATION_MS,
   MINE_ARM_MS,
   MINE_COOLDOWN_MS,
   MINIMAP_WIDTH,
+  PROJECTILE_EXPLOSION_RADIUS,
+  PROJECTILE_MAX_DISTANCE,
+  PROJECTILE_SPEED,
+  SHOT_COOLDOWN_MS,
   STORAGE_KEYS,
   VIEWPORT_HEIGHT,
   VIEWPORT_WIDTH,
 } from './game/constants';
 import {clearKeys, switchKey} from './game/input';
-import {createWalls, createWaterFields} from './game/map';
+import {createDestructibleSegments, createWalls, createWaterFields} from './game/map';
 import {getRectangleCornerPointsAfterRotate, radiansToDegrees, round} from './game/math';
 import {getRandomColor, lighterColor} from './game/rendering';
 import {createThreeBattleScene} from './game/threeScene';
 import {createBattle, formatBattleStatus, joinBattle} from './network/battles';
 import {contexts, dom} from './ui/dom';
 
-let maxGameWidth = 3000;
-let maxGameHeight = 2200;
+let maxGameWidth = 10000;
+let maxGameHeight = 10000;
 let minimapHeight = MINIMAP_WIDTH * (maxGameHeight / maxGameWidth);
 let playerSpawn = {
-  x: 700,
-  y: 700,
-  angle: 0,
+  x: 5000,
+  y: 4350,
+  angle: 90,
 };
 let webSocketPath = '/ws';
 
@@ -68,8 +74,32 @@ const userTank: Tank = {
 
 const remoteTanks: Tank[] = [];
 const mines: Mine[] = [];
+const destructibleSegments = createDestructibleSegments();
+const destroyedSegmentIds = new Set<string>();
+
+type Projectile = {
+  id: string;
+  x: number;
+  y: number;
+  angle: number;
+  distance: number;
+  ownerUid: string | null;
+};
+
+type ExplosionEffect = {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  startedAt: number;
+  durationMs: number;
+};
+
+const projectiles: Projectile[] = [];
+const explosions: ExplosionEffect[] = [];
 
 let lastMineTime = 0;
+let lastShotTime = 0;
 let isTankOnWater = false;
 let isGameStarted = false;
 let isGameOver = false;
@@ -113,15 +143,18 @@ const {
   ctxWallsMinimap,
 } = contexts;
 
-const walls = createWalls(maxGameWidth, maxGameHeight);
+const walls = createWalls();
 const waterFields = createWaterFields();
 
-const syncBoundaryWalls = (): void => {
-  Object.assign(walls[0], { x: 0, y: 0, width: maxGameWidth, height: 20 });
-  Object.assign(walls[1], { x: 0, y: maxGameHeight - 20, width: maxGameWidth, height: 20 });
-  Object.assign(walls[2], { x: maxGameWidth - 20, y: 0, width: 20, height: maxGameHeight });
-  Object.assign(walls[3], { x: 0, y: 0, width: 20, height: maxGameHeight });
-};
+const getRenderState = () => ({
+  userTank,
+  remoteTanks,
+  mines,
+  destructibleSegments,
+  destroyedSegmentIds,
+  projectiles,
+  explosions,
+});
 
 const loadGameConfig = async (): Promise<void> => {
   try {
@@ -135,7 +168,6 @@ const loadGameConfig = async (): Promise<void> => {
     minimapHeight = MINIMAP_WIDTH * (maxGameHeight / maxGameWidth);
     playerSpawn = config.playerSpawn;
     webSocketPath = config.webSocketPath;
-    syncBoundaryWalls();
     threeScene?.rebuildStatic();
   } catch {
     // Dev mode can still run the canvas without backend config.
@@ -146,6 +178,33 @@ const sanitizeNick = (): string => nickInput.value.trim().slice(0, 24) || 'Playe
 
 const setBattleStatus = (message: string): void => {
   battleStatusText.textContent = message;
+};
+
+const isTankInsideGameBounds = (tank: Tank): boolean => (
+  tank.x >= 0
+  && tank.x <= maxGameWidth
+  && tank.y >= 0
+  && tank.y <= maxGameHeight
+);
+
+const isPointInRect = (point: { x: number; y: number }, rect: DestructibleSegment): boolean => (
+  point.x >= rect.x
+  && point.x <= rect.x + rect.width
+  && point.y >= rect.y
+  && point.y <= rect.y + rect.height
+);
+
+const getActiveDestructibleSegments = (): DestructibleSegment[] => (
+  destructibleSegments.filter((segment) => !destroyedSegmentIds.has(segment.id))
+);
+
+const isSegmentInExplosion = (
+  segment: DestructibleSegment,
+  explosion: { x: number; y: number; radius: number },
+): boolean => {
+  const centerX = segment.x + segment.width / 2;
+  const centerY = segment.y + segment.height / 2;
+  return Math.hypot(centerX - explosion.x, centerY - explosion.y) <= explosion.radius;
 };
 
 const persistSession = (battle: BattleSummary, playerId: string): void => {
@@ -235,12 +294,29 @@ const detectTankMineCollision = (): void => {
 
 const drawTankOnMinimap = (tank: Tank): void => {
   const { x, y, color } = tank;
+  const scaleX = MINIMAP_WIDTH / maxGameWidth;
+  const scaleY = minimapHeight / maxGameHeight;
+  const markerRadius = Math.max(4, tank.width * scaleX * 1.6);
   ctxMinimap.beginPath();
   ctxMinimap.fillStyle = color;
   ctxMinimap.strokeStyle = lighterColor(color, 30);
-  ctxMinimap.arc(x, y, 15, 0, 2 * Math.PI);
+  ctxMinimap.arc(x * scaleX, y * scaleY, markerRadius, 0, 2 * Math.PI);
   ctxMinimap.fill();
   ctxMinimap.stroke();
+};
+
+const drawDestructiblesOnMinimap = (): void => {
+  const scaleX = MINIMAP_WIDTH / maxGameWidth;
+  const scaleY = minimapHeight / maxGameHeight;
+  ctxMinimap.fillStyle = 'rgba(111, 107, 88, 0.82)';
+  getActiveDestructibleSegments().forEach((segment) => {
+    ctxMinimap.fillRect(
+      segment.x * scaleX,
+      segment.y * scaleY,
+      segment.width * scaleX,
+      segment.height * scaleY,
+    );
+  });
 };
 
 const drawWalls = (): void => {
@@ -252,7 +328,11 @@ const drawWalls = (): void => {
 };
 
 const drawWallsMinimap = (): void => {
-  ctxWallsMinimap.clearRect(0, 0, maxGameWidth, maxGameHeight);
+  const scaleX = MINIMAP_WIDTH / maxGameWidth;
+  const scaleY = minimapHeight / maxGameHeight;
+  ctxWallsMinimap.clearRect(0, 0, MINIMAP_WIDTH, minimapHeight);
+  ctxWallsMinimap.save();
+  ctxWallsMinimap.scale(scaleX, scaleY);
   walls.forEach((wall) => {
     ctxWallsMinimap.fillStyle = '#263425';
     wall.path = new Path2D();
@@ -264,15 +344,17 @@ const drawWallsMinimap = (): void => {
   waterFields.forEach((water) => {
     ctxWallsMinimap.fill(water.getPath());
   });
+  ctxWallsMinimap.restore();
 };
 
 const syncCameraToTank = (): void => {
-  threeScene?.render({ userTank, remoteTanks, mines });
+  threeScene?.render(getRenderState());
 };
 
 const draw = (): void => {
   ctxMinimap.clearRect(0, 0, canvasMinimap.width, canvasMinimap.height);
-  threeScene?.render({ userTank, remoteTanks, mines });
+  threeScene?.render(getRenderState());
+  drawDestructiblesOnMinimap();
   remoteTanks.forEach((tank) => drawTankOnMinimap(tank));
   drawTankOnMinimap(userTank);
 };
@@ -292,6 +374,100 @@ const putMine = (): void => {
   });
   lastMineTime = Date.now();
   sendMessage({ type: ClientMessageType.UpdateMines, payload: { mines } });
+};
+
+const canShoot = (): boolean => !isGameOver && Date.now() - lastShotTime > SHOT_COOLDOWN_MS;
+
+const shoot = (): void => {
+  if (!canShoot()) {
+    return;
+  }
+
+  const angleRadians = (Math.PI / 180) * userTank.angle;
+  projectiles.push({
+    id: crypto.randomUUID(),
+    x: userTank.x + Math.cos(angleRadians) * (userTank.width / 2 + 20),
+    y: userTank.y + Math.sin(angleRadians) * (userTank.width / 2 + 20),
+    angle: userTank.angle,
+    distance: 0,
+    ownerUid: userTank.uid,
+  });
+  lastShotTime = Date.now();
+};
+
+const syncDestroyedSegments = (): void => {
+  sendMessage({
+    type: ClientMessageType.UpdateDestroyedSegments,
+    payload: { destroyedSegmentIds: Array.from(destroyedSegmentIds) },
+  });
+};
+
+const destroySegmentsAt = (x: number, y: number, radius: number): boolean => {
+  let changed = false;
+  destructibleSegments.forEach((segment) => {
+    if (destroyedSegmentIds.has(segment.id) || !isSegmentInExplosion(segment, { x, y, radius })) {
+      return;
+    }
+    destroyedSegmentIds.add(segment.id);
+    changed = true;
+  });
+
+  if (changed) {
+    syncDestroyedSegments();
+  }
+  return changed;
+};
+
+const addExplosion = (x: number, y: number, radius: number): void => {
+  explosions.push({
+    id: crypto.randomUUID(),
+    x,
+    y,
+    radius,
+    startedAt: Date.now(),
+    durationMs: EXPLOSION_DURATION_MS,
+  });
+};
+
+const updateExplosions = (): void => {
+  const now = Date.now();
+  for (let index = explosions.length - 1; index >= 0; index--) {
+    const explosion = explosions[index];
+    if (now - explosion.startedAt > explosion.durationMs) {
+      explosions.splice(index, 1);
+    }
+  }
+};
+
+const updateProjectiles = (delta: number): void => {
+  for (let index = projectiles.length - 1; index >= 0; index--) {
+    const projectile = projectiles[index];
+    const angleRadians = (Math.PI / 180) * projectile.angle;
+    const step = PROJECTILE_SPEED * delta;
+    projectile.x += Math.cos(angleRadians) * step;
+    projectile.y += Math.sin(angleRadians) * step;
+    projectile.distance += step;
+
+    const hitSegment = getActiveDestructibleSegments()
+      .find((segment) => isPointInRect(projectile, segment));
+    const isOutOfBounds = (
+      projectile.x < 0
+      || projectile.x > maxGameWidth
+      || projectile.y < 0
+      || projectile.y > maxGameHeight
+    );
+
+    if (hitSegment) {
+      addExplosion(projectile.x, projectile.y, PROJECTILE_EXPLOSION_RADIUS);
+      destroySegmentsAt(projectile.x, projectile.y, PROJECTILE_EXPLOSION_RADIUS);
+      projectiles.splice(index, 1);
+      continue;
+    }
+
+    if (isOutOfBounds || projectile.distance > PROJECTILE_MAX_DISTANCE) {
+      projectiles.splice(index, 1);
+    }
+  }
 };
 
 const updateHud = (): void => {
@@ -316,6 +492,9 @@ const resetTankState = (): void => {
   userTank.velocity.y = 0;
   clearKeys(keys);
   lastMineTime = 0;
+  lastShotTime = 0;
+  projectiles.length = 0;
+  explosions.length = 0;
   isGameOver = false;
   gameOverPanel.classList.remove('opened');
   syncCameraToTank();
@@ -390,7 +569,7 @@ const runWsConnection = (): void => {
         case WsMessageType.TanksData:
           remoteTanks.length = 0;
           payload.tanks
-            .filter((tank) => tank.uid === userTank.uid)
+            .filter((tank) => tank.uid === userTank.uid && isTankInsideGameBounds(tank))
             .forEach((tank) => Object.assign(userTank, tank, { drawDot: false }));
           remoteTanks.push(...payload.tanks.filter((tank) => tank.uid !== userTank.uid));
           updateHud();
@@ -398,6 +577,10 @@ const runWsConnection = (): void => {
         case WsMessageType.MinesData:
           mines.length = 0;
           mines.push(...payload.mines);
+          break;
+        case WsMessageType.DestructiblesData:
+          destroyedSegmentIds.clear();
+          payload.destroyedSegmentIds.forEach((segmentId) => destroyedSegmentIds.add(segmentId));
           break;
       }
     };
@@ -448,17 +631,20 @@ const update = (delta: number): void => {
     userTank.mod = 0;
   }
   if (a) {
-    userTank.angle -= 300 * delta;
+    userTank.angle -= 180 * delta;
     userTank.tracksShift[0] -= 60 * delta;
     userTank.tracksShift[1] += 60 * delta;
   }
   if (d) {
-    userTank.angle += 300 * delta;
+    userTank.angle += 180 * delta;
     userTank.tracksShift[0] += 60 * delta;
     userTank.tracksShift[1] -= 60 * delta;
   }
   if (keys.shift) {
     putMine();
+  }
+  if (keys.space) {
+    shoot();
   }
 
   if (userTank.angle > 360) {
@@ -481,8 +667,11 @@ const update = (delta: number): void => {
   userTank.velocity.y += aY * delta;
   userTank.x += userTank.velocity.x * delta;
   userTank.y += userTank.velocity.y * delta;
+  userTank.x = Math.min(Math.max(userTank.x, 0), maxGameWidth);
+  userTank.y = Math.min(Math.max(userTank.y, 0), maxGameHeight);
 
   syncCameraToTank();
+  updateProjectiles(delta);
 
   const points = getRectangleCornerPointsAfterRotate(userTank);
   userTank.traces = userTank.traces.filter(({ time }) => now - time < 2000);
@@ -528,6 +717,21 @@ const update = (delta: number): void => {
     });
   });
 
+  getActiveDestructibleSegments().forEach((segment) => {
+    points.forEach((point) => {
+      if (!isPointInRect(point, segment)) {
+        return;
+      }
+      userTank.x = oldX;
+      userTank.y = oldY;
+      userTank.velocity.x = 0;
+      userTank.velocity.y = 0;
+      if (d || a) {
+        userTank.angle = oldAngle;
+      }
+    });
+  });
+
   let sendNewTankData = false;
   if (round(oldX) !== round(userTank.x) || round(oldY) !== round(userTank.y) || round(oldAngle) !== round(userTank.angle)) {
     userTank.traces.push({
@@ -554,6 +758,7 @@ const loop = (timestamp: number): void => {
   const delta = Math.min((timestamp - lastFrameTime) / 1000, 0.05);
   lastFrameTime = timestamp;
   update(delta);
+  updateExplosions();
   draw();
   detectTankMineCollision();
   updateHud();
@@ -569,16 +774,17 @@ const setupCanvas = (): void => {
     waterFields,
     getBounds: () => ({ width: maxGameWidth, height: maxGameHeight }),
   });
-  canvasWalls.width = maxGameWidth;
-  canvasWalls.height = maxGameHeight;
+  canvasWalls.width = 1;
+  canvasWalls.height = 1;
   canvasWalls.style.display = 'none';
-  canvasWallsMinimap.width = maxGameWidth;
-  canvasWallsMinimap.height = maxGameHeight;
-  canvasMinimap.width = maxGameWidth;
-  canvasMinimap.height = maxGameHeight;
-  const minimapScale = `scale(calc(1 / (${maxGameWidth} / ${MINIMAP_WIDTH})), calc(1 / (${maxGameHeight} / ${minimapHeight})))`;
-  canvasWallsMinimap.style.transform = minimapScale;
-  canvasMinimap.style.transform = minimapScale;
+  canvasWallsMinimap.width = MINIMAP_WIDTH;
+  canvasWallsMinimap.height = minimapHeight;
+  canvasWallsMinimap.style.width = `${MINIMAP_WIDTH}px`;
+  canvasWallsMinimap.style.height = `${minimapHeight}px`;
+  canvasMinimap.width = MINIMAP_WIDTH;
+  canvasMinimap.height = minimapHeight;
+  canvasMinimap.style.width = `${MINIMAP_WIDTH}px`;
+  canvasMinimap.style.height = `${minimapHeight}px`;
   const minimapInner = minimapContainer.querySelector<HTMLElement>('div');
   if (minimapInner) {
     minimapInner.style.height = `${minimapHeight}px`;
