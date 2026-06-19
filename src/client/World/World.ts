@@ -227,7 +227,48 @@ class World {
       texturePromise(`${groundBase}_roughness.png`),
     ]);
     this.textureDict['ground'] = {albedo, ao, height, metallic, normal, roughness};
-    this.textureDict['wall'] = {};
+
+    const wallTextureUrls = import.meta.glob('../../assets/textures/brick/*.png', {
+      eager: true,
+      query: '?url',
+      import: 'default',
+    }) as Record<string, string>;
+    const wallAlbedo = await texturePromise(wallTextureUrls['../../assets/textures/brick/tx.png']);
+    wallAlbedo.colorSpace = THREE.SRGBColorSpace;
+    wallAlbedo.wrapS = THREE.RepeatWrapping;
+    wallAlbedo.wrapT = THREE.RepeatWrapping;
+
+    const damagedWallUrl = wallTextureUrls['../../assets/textures/brick/tx_damaged.png'];
+    const damagedAlbedo = damagedWallUrl ? await texturePromise(damagedWallUrl) : undefined;
+    if (damagedAlbedo) {
+      damagedAlbedo.colorSpace = THREE.SRGBColorSpace;
+      damagedAlbedo.wrapS = THREE.RepeatWrapping;
+      damagedAlbedo.wrapT = THREE.RepeatWrapping;
+    }
+
+    const destroyAlbedos = await Promise.all(
+        [1, 2, 3]
+            .map((frame) => ({
+              frame,
+              url: wallTextureUrls[`../../assets/textures/brick/tx_destroy-${frame}.png`],
+            }))
+            .filter((entry): entry is { frame: number; url: string } => Boolean(entry.url))
+            .map(async ({frame, url}) => {
+              const texture = await texturePromise(url);
+              texture.colorSpace = THREE.SRGBColorSpace;
+              texture.wrapS = THREE.RepeatWrapping;
+              texture.wrapT = THREE.RepeatWrapping;
+              return {frame, texture};
+            }),
+    );
+
+    this.textureDict['wall'] = {albedo: wallAlbedo};
+    if (damagedAlbedo) {
+      this.textureDict['wall'].damagedAlbedo = damagedAlbedo;
+    }
+    destroyAlbedos.forEach(({frame, texture}) => {
+      this.textureDict['wall'][`destroyAlbedo${frame}`] = texture;
+    });
   }
 
   createPlayerTank(name: string): Tank {
@@ -387,7 +428,7 @@ class World {
   }
 
   configureTicks(): void {
-    this.loop.updatableLists.push([this.localTank], this.powerups, this.bullets);
+    this.loop.updatableLists.push([this.localTank], this.powerups, this.bullets, this.walls);
     Tank.onTick = (tank: Tank, delta: number) => {
       if (tank !== this.localTank) return;
       tank.update(this.keyboard, this.scene, this.tanks, this.walls, this.surrounding_walls, this.bullets, delta);
@@ -399,6 +440,9 @@ class World {
     };
     Powerup.onTick = (powerup: Powerup) => {
       powerup.update(this.powerups, this.localTank ? [this.localTank] : [], this.walls);
+    };
+    Wall.onTick = (wall: Wall, delta: number) => {
+      wall.update(delta);
     };
   }
 
@@ -413,7 +457,7 @@ class World {
     } catch {
       // Browsers can block audio before user interaction is fully registered.
     }
-    this.loop.updatableLists = [[this.localTank], this.powerups, this.bullets].filter(Boolean);
+    this.loop.updatableLists = [[this.localTank], this.powerups, this.bullets, this.walls].filter(Boolean);
   }
 
   registerBattleHandlers(): void {
@@ -594,7 +638,7 @@ class World {
         return;
       }
       wall.destroyed = true;
-      wall.destruct();
+      wall.startDestroyAnimation();
     });
   }
 

@@ -9,6 +9,16 @@ export class Wall extends BaseObject {
   health: number;
   size: THREE.Vector3;
   damageTexture: THREE.CanvasTexture | null = null;
+  wallTexture: THREE.Texture | null = null;
+  damagedWallTexture: THREE.Texture | null = null;
+  destroyWallTextures: THREE.Texture[] = [];
+  destroyAnimationActive = false;
+  destroyAnimationElapsed = 0;
+  destroyAnimationFrame = -1;
+  destroyAnimationFrameDuration = 0.16;
+  removed = false;
+
+  static onTick = (_wall: Wall, _delta: number) => {};
 
   constructor(name: string, texture: {
     [key: string]: THREE.Texture
@@ -32,20 +42,42 @@ export class Wall extends BaseObject {
     if (texture['albedo'] === undefined) {
       material.color.set(0x827b6c);
     } else {
-      const albedoTexture = texture['albedo'];
-      const aoTexture = texture['ao'];
-      const heightTexture = texture['height'];
-      const metallicTexture = texture['metallic'];
-      const normalTexture = texture['normal'];
-      const roughnessTexture = texture['roughness'];
+      const wallRepeatX = Math.max(1, size.y / 120);
+      const wallRepeatY = Math.max(1, size.z / 90);
+      const cloneWallTexture = (source?: THREE.Texture): THREE.Texture | null => {
+        if (!source) {
+          return null;
+        }
 
-      // Set the textures to your material's properties
+        const clonedTexture = source.clone();
+        clonedTexture.wrapS = THREE.RepeatWrapping;
+        clonedTexture.wrapT = THREE.RepeatWrapping;
+        clonedTexture.repeat.set(wallRepeatX, wallRepeatY);
+        clonedTexture.center.set(0.5, 0.5);
+        clonedTexture.rotation = Math.PI;
+        clonedTexture.needsUpdate = true;
+        return clonedTexture;
+      };
+
+      const albedoTexture = cloneWallTexture(texture['albedo']);
+      const aoTexture = cloneWallTexture(texture['ao']);
+      const heightTexture = cloneWallTexture(texture['height']);
+      const metallicTexture = cloneWallTexture(texture['metallic']);
+      const normalTexture = cloneWallTexture(texture['normal']);
+      const roughnessTexture = cloneWallTexture(texture['roughness']);
+      this.wallTexture = albedoTexture;
+      this.damagedWallTexture = cloneWallTexture(texture['damagedAlbedo']);
+      this.destroyWallTextures = [1, 2, 3]
+          .map((frame) => cloneWallTexture(texture[`destroyAlbedo${frame}`]))
+          .filter((frameTexture): frameTexture is THREE.Texture => Boolean(frameTexture));
+
       material.map = albedoTexture;
       material.aoMap = aoTexture;
       material.displacementMap = heightTexture;
       material.metalnessMap = metallicTexture;
       material.normalMap = normalTexture;
       material.roughnessMap = roughnessTexture;
+      material.color.set(0xffffff);
     }
 
     this.mesh = new THREE.Mesh(
@@ -66,7 +98,7 @@ export class Wall extends BaseObject {
     this.health = Math.max(0, this.health - amount);
     if (this.health <= 0) {
       this.destroyed = true;
-      this.destruct();
+      this.startDestroyAnimation();
       return true;
     }
 
@@ -79,8 +111,80 @@ export class Wall extends BaseObject {
     const materials = Array.isArray(this.mesh.material) ? this.mesh.material : [this.mesh.material];
     materials.forEach((material) => {
       if (material instanceof THREE.MeshStandardMaterial) {
-        material.color.set(new THREE.Color(0x827b6c).lerp(new THREE.Color(0x514331), damageRatio * 0.5));
-        material.map = this.createDamageTexture(damageRatio);
+        if (this.damagedWallTexture) {
+          material.map = this.damagedWallTexture;
+          material.transparent = true;
+          material.alphaTest = 0.35;
+          material.depthWrite = true;
+          material.side = THREE.DoubleSide;
+          material.color.set(new THREE.Color(0xffffff).lerp(new THREE.Color(0x8d8372), damageRatio * 0.12));
+        } else if (material.map && material.map !== this.damageTexture) {
+          material.color.set(new THREE.Color(0xffffff).lerp(new THREE.Color(0x5d4937), damageRatio * 0.55));
+        } else {
+          material.color.set(new THREE.Color(0x827b6c).lerp(new THREE.Color(0x514331), damageRatio * 0.5));
+          material.map = this.createDamageTexture(damageRatio);
+        }
+        material.needsUpdate = true;
+      }
+    });
+  }
+
+  tick(delta: number): void {
+    Wall.onTick(this, delta);
+  }
+
+  update(delta: number): void {
+    if (!this.destroyAnimationActive || this.removed) {
+      return;
+    }
+
+    this.destroyAnimationElapsed += delta;
+    const nextFrame = Math.min(
+        this.destroyWallTextures.length - 1,
+        Math.floor(this.destroyAnimationElapsed / this.destroyAnimationFrameDuration),
+    );
+
+    if (nextFrame !== this.destroyAnimationFrame) {
+      this.destroyAnimationFrame = nextFrame;
+      this.applyDestroyFrame(nextFrame);
+    }
+
+    if (this.destroyAnimationElapsed >= this.destroyWallTextures.length * this.destroyAnimationFrameDuration) {
+      this.removeMesh();
+    }
+  }
+
+  startDestroyAnimation(): void {
+    if (this.destroyAnimationActive || this.removed) {
+      return;
+    }
+
+    if (this.destroyWallTextures.length === 0) {
+      this.destruct();
+      return;
+    }
+
+    this.destroyAnimationActive = true;
+    this.destroyAnimationElapsed = 0;
+    this.destroyAnimationFrame = -1;
+    this.applyDestroyFrame(0);
+  }
+
+  applyDestroyFrame(frameIndex: number): void {
+    const frameTexture = this.destroyWallTextures[frameIndex];
+    if (!frameTexture) {
+      return;
+    }
+
+    const materials = Array.isArray(this.mesh.material) ? this.mesh.material : [this.mesh.material];
+    materials.forEach((material) => {
+      if (material instanceof THREE.MeshStandardMaterial) {
+        material.map = frameTexture;
+        material.transparent = true;
+        material.alphaTest = 0.35;
+        material.depthWrite = true;
+        material.side = THREE.DoubleSide;
+        material.color.set(0xffffff);
         material.needsUpdate = true;
       }
     });
@@ -177,10 +281,36 @@ export class Wall extends BaseObject {
   }
 
   destruct() {
-    if (!this.mesh.parent) {
+    this.removeMesh();
+  }
+
+  removeMesh() {
+    if (!this.mesh.parent || this.removed) {
       return;
     }
+    this.removed = true;
     this.damageTexture?.dispose();
+    this.wallTexture?.dispose();
+    this.damagedWallTexture?.dispose();
+    this.destroyWallTextures.forEach((texture) => texture.dispose());
+    const materials = Array.isArray(this.mesh.material) ? this.mesh.material : [this.mesh.material];
+    materials.forEach((material) => {
+      if (material instanceof THREE.MeshStandardMaterial) {
+        const textureSet = new Set([
+          material.map,
+          material.aoMap,
+          material.displacementMap,
+          material.metalnessMap,
+          material.normalMap,
+          material.roughnessMap,
+        ]);
+        textureSet.delete(this.wallTexture);
+        textureSet.delete(this.damagedWallTexture);
+        this.destroyWallTextures.forEach((texture) => textureSet.delete(texture));
+        textureSet.forEach((texture) => texture?.dispose());
+      }
+      material.dispose();
+    });
     this.mesh.geometry.dispose();
     this.mesh.parent?.remove(this.mesh);
   }
