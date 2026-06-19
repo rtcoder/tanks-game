@@ -1,107 +1,72 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>Tanks Arena</title>
-  <meta charset="UTF-8">
-  <meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Groundfire</title>
+  <link rel="stylesheet" href="/src/client/styles/main.css">
+  <link rel="stylesheet" href="/src/client/styles/pbar.css">
+  <link rel="stylesheet" href="/src/client/styles/menu.css">
 </head>
 <body>
-
-<div class="menu-board" id="menu-board">
-  <div class="menu-panel">
-    <p class="eyebrow">Multiplayer arena</p>
-    <h1>Tanks Arena</h1>
-    <p class="menu-copy">Create a free-for-all battle or join one by UUID. Last tank standing wins.</p>
-    <label class="field">
-      <span>Nick</span>
-      <input autocomplete="nickname" id="nick-input" maxlength="24" placeholder="Tank commander" type="text">
-    </label>
-    <div class="battle-grid">
-      <label class="field">
-        <span>Battle title</span>
-        <input id="battle-title-input" maxlength="40" placeholder="Friday skirmish" type="text">
-      </label>
-      <label class="field compact">
-        <span>Max players</span>
-        <input id="max-players-input" max="16" min="2" type="number" value="4">
-      </label>
-    </div>
-    <div class="menu-actions">
-      <button class="primary" id="create-battle-button">Create battle</button>
-      <button id="controls-button">Controls</button>
-    </div>
-    <label class="field join-field">
-      <span>Battle UUID</span>
-      <input id="battle-id-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" type="text">
-    </label>
-    <div class="menu-actions">
-      <button id="join-battle-button">Join battle</button>
-    </div>
-    <div class="battle-status" id="battle-status">
-      <span id="battle-status-text">No battle selected</span>
-    </div>
-    <div class="controls" id="controls-panel">
-      <span>Move: W/A/S/D or arrows</span>
-      <span>Mine: Shift</span>
-      <span>Minimap: hold M</span>
-    </div>
-  </div>
-</div>
-<div class="wrapper">
-
-  <canvas id="canvas-walls"></canvas>
-  <canvas height="900" id="canvas" width="1200"></canvas>
-
-  <div class="hud">
-    <div class="hud-panel hp-panel">
-      <span>HP</span>
-      <div class="hp-meter">
-        <div id="hp-fill"></div>
+  <script type="module" src="/src/client/main.ts"></script>
+  <div class="game-holder" id="gameHolder">
+    <div class="header" id="menu">
+      <div class="hero-copy" id="banner">
+        <p class="eyebrow">Online armored maze combat</p>
+        <h1>Groundfire</h1>
+        <h2>Break line of sight, grab the powerups, and hold the arena until every other tank is wreckage.</h2>
       </div>
-      <strong id="hp-value">100</strong>
+      <div class="online-menu">
+        <div class="panel-heading">
+          <strong>Battle room</strong>
+          <span>Free-for-all</span>
+        </div>
+        <label>
+          <span>Nick</span>
+          <input id="nick-input" maxlength="24" placeholder="Tank commander" autocomplete="nickname">
+        </label>
+        <div class="online-grid">
+          <label>
+            <span>Battle title</span>
+            <input id="battle-title-input" maxlength="40" placeholder="Groundfire room">
+          </label>
+          <label>
+            <span>Max players</span>
+            <input id="max-players-input" type="number" min="2" max="16" value="4">
+          </label>
+        </div>
+        <button id="create-battle-button">Create battle</button>
+        <label>
+          <span>Battle UUID</span>
+          <input id="battle-id-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        </label>
+        <button id="join-battle-button">Join battle</button>
+        <p id="battle-status-text">Create or join a battle</p>
+      </div>
     </div>
-    <div class="hud-panel">
-      <span>Mine</span>
-      <strong id="mine-status">Ready</strong>
+
+    <div class="container" id="scene-container">
+      <div class="sub-container" id="player1-container">
+        <div class="health" id="player1-health">
+          <div class="health__text" id="player1-health-bar_text">Health</div>
+          <div class="health__bar" id="player1-health-bar">
+            <div class="health__bar__fill" id="player1-health-bar-fill"></div>
+          </div>
+          <div class="health__value" id="player1-health-value">100</div>
+        </div>
+        <div class="powerups" id="player1-powerups"></div>
+        <div class="banner win-banner" id="player1-win-banner" style="display: none;">
+          <div class="banner_text"><h1>YOU WIN!</h1></div>
+        </div>
+        <div class="banner lose-banner" id="player1-lose-banner" style="display: none;">
+          <div class="banner_text"><h1>YOU LOSE!</h1></div>
+        </div>
+      </div>
     </div>
-    <div class="hud-panel">
-      <span>Players</span>
-      <strong id="players-count">1</strong>
-    </div>
+
+    <div class="message message--replay" id="replayMessage">W/A/S/D or arrows to move - Space to fire</div>
+    <div class="message message--instructions hidden" id="instructions"></div>
   </div>
-
-  <div class="game-over" id="game-over">
-    <div class="game-over-panel">
-      <h2>Tank disabled</h2>
-      <button id="respawn-button">Respawn</button>
-    </div>
-  </div>
-
-  <div id="info">
-    <div class="message connected">Connected to the server</div>
-    <div class="message error-connection">Error connecting to the server</div>
-  </div>
-
-  <div class="minimap">
-
-    <div>
-      <canvas id="canvas-walls-minimap"></canvas>
-      <canvas id="canvas-minimap"></canvas>
-    </div>
-
-  </div>
-
-  <div class="touch-controls">
-    <div class="joystick">
-      <div class="dot"></div>
-    </div>
-
-    <div class="actions">
-      <button class="mine" id="touch-mine">Mine</button>
-    </div>
-  </div>
-</div>
-
-<script src="/src/client/main.ts" type="module"></script>
 </body>
 </html>

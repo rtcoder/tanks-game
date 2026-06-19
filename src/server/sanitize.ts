@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type {Mine, Tank} from '../shared/types.ts';
+import type {BattleProjectile, Mine, Tank} from '../shared/types.ts';
 import {GAME_BOUNDS} from './config.ts';
 
 export function clamp(value: unknown, min: number, max: number): number {
@@ -58,6 +58,20 @@ export function sanitizeMine(mine: any): Mine {
     size: clamp(mine?.size, 8, 40),
     time: clamp(mine?.time, 0, Date.now()),
     ownerUid: typeof mine?.ownerUid === 'string' ? mine.ownerUid : null,
+  };
+}
+
+export function sanitizeProjectile(projectile: any): BattleProjectile {
+  return {
+    id: typeof projectile?.id === 'string' && projectile.id.length <= 80
+      ? projectile.id
+      : crypto.randomUUID(),
+    x: clamp(projectile?.x, 0, GAME_BOUNDS.width),
+    y: clamp(projectile?.y, 0, GAME_BOUNDS.height),
+    angle: clamp(projectile?.angle, 0, 360),
+    distance: clamp(projectile?.distance, 0, 5000),
+    ownerUid: typeof projectile?.ownerUid === 'string' ? projectile.ownerUid : null,
+    attack: clamp(projectile?.attack, 1, 50),
   };
 }
 

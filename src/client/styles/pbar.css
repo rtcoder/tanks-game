@@ -1,0 +1,146 @@
+.health {
+  /* position the health bar */
+  position: absolute;
+  left: 1%;
+  top: 2%;
+  width: 60%;
+  height: 2.5%;
+}
+
+.health__text {
+  /* position the health bar text */
+  position: absolute;
+  width: 25%;
+  height: 100%;
+
+  background-color: #86e21c;
+  border-radius: 1vh;
+
+  /* center the text */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* style the text */
+  font-size: 2vh;
+  font-weight: bold;
+  color: #444;
+}
+
+.health__bar {
+  position: absolute;
+  left: 25%;
+  width: 60%;
+  height: 100%;
+
+  border-radius: 1vh;
+}
+
+.health__value {
+  position: absolute;
+  right: 0;
+  width: 15%;
+  height: 100%;
+
+  background-color: #86e21c;
+  border-radius: 1vh;
+
+
+  /* center the text */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* style the text */
+  font-size: 2vh;
+  font-weight: bold;
+  color: #444;
+}
+
+.health__bar__fill {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #db0808;
+  border-radius: 5px;
+  transition: width 0.5s ease-in-out;
+}
+
+
+.powerups {
+  position: absolute;
+  left: 1%;
+  top: 4%;
+  width: 60%;
+  height: 100%;
+}
+
+.powerup {
+  /* position the weapon bar */
+  position: relative;
+
+  margin-top: 1vh;
+  width: 100%;
+  height: 2.5%;
+}
+
+
+.powerup__text {
+  /* position the weapon bar text */
+  position: absolute;
+  width: 25%;
+  height: 100%;
+
+  background-color: #86e21c;
+  border-radius: 1vh;
+
+  /* center the text */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* style the text */
+  font-size: 2vh;
+  font-weight: bold;
+  color: #444;
+}
+
+.powerup__bar {
+  position: absolute;
+  left: 25%;
+  width: 60%;
+  height: 100%;
+
+  border-radius: 1vh;
+}
+
+.powerup__value {
+  position: absolute;
+  right: 0;
+  width: 15%;
+  height: 100%;
+
+  background-color: #86e21c;
+  border-radius: 1vh;
+
+  /* center the text */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* style the text */
+  font-size: 2vh;
+  font-weight: bold;
+  color: #444;
+}
+
+.powerup__bar__fill {
+  position: absolute;
+  left: 0;
+  width: 0%;
+  height: 100%;
+  background-color: #db0808;
+  border-radius: 1vh;
+  transition: width 16.7ms ease-in-out;
+}

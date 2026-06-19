@@ -18,6 +18,7 @@ import {
   tanksInBattle,
   updateDestroyedSegments,
   updateMines,
+  updateProjectiles,
   updateTank,
   upsertPlayer,
 } from './battles.ts';
@@ -101,6 +102,9 @@ export function createGameWebSocketServer(server: Server): WebSocketServer {
             break;
           case ClientMessageType.UpdateMines:
             updateMines(ws, messageJson.payload.mines, sendBattleMessage);
+            break;
+          case ClientMessageType.UpdateProjectiles:
+            updateProjectiles(ws, messageJson.payload.projectiles, sendBattleMessage);
             break;
           case ClientMessageType.UpdateDestroyedSegments:
             updateDestroyedSegments(ws, messageJson.payload.destroyedSegmentIds, sendBattleMessage);

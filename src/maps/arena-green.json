@@ -1,0 +1,205 @@
+{
+  "version": 1,
+  "name": "arena-green",
+  "width": 10000,
+  "height": 10000,
+  "groundTexture": "bt-grassy-meadow",
+  "buildings": [
+    {
+      "id": "building-center",
+      "x": 4720,
+      "y": 4800,
+      "columns": 7,
+      "rows": 5,
+      "segmentSize": 80,
+      "levels": 1,
+      "texture": "bt-rockface"
+    },
+    {
+      "id": "building-fcab9b93",
+      "x": 6720,
+      "y": 2280,
+      "columns": 5,
+      "rows": 4,
+      "segmentSize": 80,
+      "levels": 1,
+      "texture": "building-concrete"
+    },
+    {
+      "id": "building-ff439832",
+      "x": 6240,
+      "y": 3320,
+      "columns": 5,
+      "rows": 4,
+      "segmentSize": 80,
+      "levels": 1,
+      "texture": "building-concrete"
+    },
+    {
+      "id": "building-fedeccf2",
+      "x": 4720,
+      "y": 3080,
+      "columns": 5,
+      "rows": 4,
+      "segmentSize": 80,
+      "levels": 1,
+      "texture": "building-concrete"
+    },
+    {
+      "id": "building-ce6ef591",
+      "x": 4800,
+      "y": 3040,
+      "columns": 5,
+      "rows": 4,
+      "segmentSize": 80,
+      "levels": 1,
+      "texture": "building-concrete"
+    },
+    {
+      "id": "building-a28a7e07",
+      "x": 4800,
+      "y": 4760,
+      "columns": 5,
+      "rows": 4,
+      "segmentSize": 80,
+      "levels": 1,
+      "texture": "building-concrete"
+    },
+    {
+      "id": "building-8fb6b3f0",
+      "x": 4800,
+      "y": 4760,
+      "columns": 5,
+      "rows": 4,
+      "segmentSize": 80,
+      "levels": 1,
+      "texture": "building-concrete"
+    }
+  ],
+  "obstacles": [
+    {
+      "id": "obstacle-f68dcc8a",
+      "x": 3260,
+      "y": 1550,
+      "width": 360,
+      "height": 100,
+      "levels": 1,
+      "texture": "obstacle-metal"
+    },
+    {
+      "id": "obstacle-3e82e2b9",
+      "x": 3540,
+      "y": 1550,
+      "width": 360,
+      "height": 100,
+      "levels": 1,
+      "texture": "obstacle-metal"
+    },
+    {
+      "id": "obstacle-0df08a5d",
+      "x": 3820,
+      "y": 1550,
+      "width": 360,
+      "height": 100,
+      "levels": 1,
+      "texture": "obstacle-metal"
+    },
+    {
+      "id": "obstacle-e46eb50b",
+      "x": 4020,
+      "y": 1830,
+      "width": 360,
+      "height": 100,
+      "levels": 1,
+      "texture": "obstacle-metal"
+    },
+    {
+      "id": "obstacle-38bd8a2e",
+      "x": 4060,
+      "y": 1710,
+      "width": 360,
+      "height": 100,
+      "levels": 1,
+      "texture": "obstacle-metal"
+    }
+  ],
+  "terrainPatches": [
+    {
+      "id": "terrain-d40c524f",
+      "x": 2200,
+      "y": 4680,
+      "radius": 220,
+      "kind": "hill"
+    },
+    {
+      "id": "terrain-02b63e38",
+      "x": 2200,
+      "y": 4680,
+      "radius": 220,
+      "kind": "hill"
+    },
+    {
+      "id": "terrain-ea71f035",
+      "x": 2200,
+      "y": 4680,
+      "radius": 220,
+      "kind": "hill"
+    },
+    {
+      "id": "terrain-284016fc",
+      "x": 2200,
+      "y": 4680,
+      "radius": 220,
+      "kind": "hill"
+    },
+    {
+      "id": "terrain-e773a2c3",
+      "x": 1920,
+      "y": 3480,
+      "radius": 300,
+      "kind": "rough"
+    },
+    {
+      "id": "terrain-ac996f25",
+      "x": 1920,
+      "y": 3480,
+      "radius": 300,
+      "kind": "rough"
+    },
+    {
+      "id": "terrain-6c730581",
+      "x": 1920,
+      "y": 3480,
+      "radius": 300,
+      "kind": "rough"
+    },
+    {
+      "id": "terrain-8c97313a",
+      "x": 2840,
+      "y": 3240,
+      "radius": 300,
+      "kind": "rough"
+    },
+    {
+      "id": "terrain-f63c4133",
+      "x": 2840,
+      "y": 3240,
+      "radius": 300,
+      "kind": "rough"
+    },
+    {
+      "id": "terrain-cddff648",
+      "x": 2840,
+      "y": 3240,
+      "radius": 300,
+      "kind": "rough"
+    },
+    {
+      "id": "terrain-93e9f2bc",
+      "x": 2840,
+      "y": 3240,
+      "radius": 300,
+      "kind": "rough"
+    }
+  ]
+}

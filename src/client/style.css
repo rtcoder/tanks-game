@@ -39,18 +39,24 @@ body {
   color: var(--ui-text);
 }
 
-button {
+button,
+.button-link {
   border: 1px solid var(--ui-border);
   background: rgba(24, 31, 24, 0.9);
   color: var(--ui-text);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font: inherit;
   font-weight: 700;
   min-height: 42px;
   padding: 0 18px;
+  text-decoration: none;
 }
 
-button:hover {
+button:hover,
+.button-link:hover {
   border-color: rgba(208, 240, 95, 0.65);
 }
 
@@ -60,17 +66,31 @@ button.primary {
   color: #17200d;
 }
 
-input {
+input,
+select,
+textarea {
   background: rgba(4, 7, 5, 0.82);
   border: 1px solid var(--ui-border);
   color: var(--ui-text);
   font: inherit;
-  min-height: 42px;
   padding: 0 12px;
   width: 100%;
 }
 
-input:focus {
+input,
+select {
+  min-height: 42px;
+}
+
+textarea {
+  min-height: 170px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
   border-color: rgba(208, 240, 95, 0.85);
   outline: none;
 }
@@ -190,6 +210,11 @@ input:focus {
   position: absolute;
   top: 14px;
   z-index: 5;
+}
+
+.hud-button {
+  min-height: 36px;
+  padding: 0 12px;
 }
 
 .hud-panel {
@@ -363,6 +388,88 @@ input:focus {
   pointer-events: none;
   display: none;
   z-index: 7;
+}
+
+.editor-page {
+  background: #070908;
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  height: 100vh;
+  overflow: hidden;
+  width: 100vw;
+}
+
+.editor-sidebar {
+  background: rgba(16, 20, 16, 0.94);
+  border-right: 1px solid var(--ui-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 22px;
+  z-index: 2;
+}
+
+.editor-sidebar h1 {
+  font-size: 34px;
+  line-height: 1;
+  margin-top: 4px;
+}
+
+.editor-tool-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.editor-tool-grid button,
+.editor-actions button,
+#editor-back {
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.editor-tool-grid button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #17200d;
+}
+
+.editor-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.editor-actions .primary,
+#editor-back {
+  grid-column: span 2;
+}
+
+#editor-json-output {
+  color: #d9e4ca;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+#editor-status {
+  color: var(--ui-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.editor-viewport {
+  min-width: 0;
+  position: relative;
+}
+
+#editor-canvas {
+  display: block;
+  height: 100%;
+  position: static;
+  width: 100%;
 }
 
 /*Touch devices*/

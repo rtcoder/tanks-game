@@ -47,12 +47,64 @@ export type Mine = {
   ownerUid?: string | null;
 };
 
+export type BattleProjectile = {
+  id: string;
+  x: number;
+  y: number;
+  angle: number;
+  distance: number;
+  ownerUid: string | null;
+  attack?: number;
+};
+
 export type DestructibleSegment = {
   id: string;
   x: number;
   y: number;
   width: number;
   height: number;
+  level: number;
+  texture: string;
+};
+
+export type MapBuilding = {
+  id: string;
+  x: number;
+  y: number;
+  columns: number;
+  rows: number;
+  segmentSize: number;
+  levels: number;
+  texture: string;
+};
+
+export type MapObstacle = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  levels: number;
+  texture: string;
+};
+
+export type TerrainPatch = {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  kind: 'hill' | 'pit' | 'rough';
+};
+
+export type MapDefinition = {
+  version: 1;
+  name: string;
+  width: number;
+  height: number;
+  groundTexture: string;
+  buildings: MapBuilding[];
+  obstacles: MapObstacle[];
+  terrainPatches: TerrainPatch[];
 };
 
 export const BattleMode = {
@@ -91,6 +143,8 @@ export type Wall = {
   y: number;
   width: number;
   height: number;
+  levels?: number;
+  texture?: string;
   path: Path2D;
 };
 
@@ -117,6 +171,7 @@ export const WsMessageType = {
   BattleState: 'BATTLE_STATE',
   TanksData: 'TANKS_DATA',
   MinesData: 'MINES_DATA',
+  ProjectilesData: 'PROJECTILES_DATA',
   DestructiblesData: 'DESTRUCTIBLES_DATA',
 } as const;
 export type WsMessageType = typeof WsMessageType[keyof typeof WsMessageType];
@@ -124,6 +179,10 @@ export type WsMessageSetId = { type: typeof WsMessageType.SetId; payload: { id: 
 export type WsMessageBattleState = { type: typeof WsMessageType.BattleState; payload: { battle: BattleSummary } };
 export type WsMessageTanksData = { type: typeof WsMessageType.TanksData; payload: { tanks: Tank[] } };
 export type WsMessageMinesData = { type: typeof WsMessageType.MinesData; payload: { mines: Mine[] } };
+export type WsMessageProjectilesData = {
+  type: typeof WsMessageType.ProjectilesData;
+  payload: { projectiles: BattleProjectile[] };
+};
 export type WsMessageDestructiblesData = {
   type: typeof WsMessageType.DestructiblesData;
   payload: { destroyedSegmentIds: string[] };
@@ -134,6 +193,7 @@ export type WsMessage =
   | WsMessageBattleState
   | WsMessageTanksData
   | WsMessageMinesData
+  | WsMessageProjectilesData
   | WsMessageDestructiblesData;
 
 export const ClientMessageType = {
@@ -141,6 +201,7 @@ export const ClientMessageType = {
   LeftGame: 'LEFT_GAME',
   UpdateTank: 'UPDATE_TANK',
   UpdateMines: 'UPDATE_MINES',
+  UpdateProjectiles: 'UPDATE_PROJECTILES',
   UpdateDestroyedSegments: 'UPDATE_DESTROYED_SEGMENTS',
 } as const;
 export type ClientMessageType = typeof ClientMessageType[keyof typeof ClientMessageType];
@@ -148,6 +209,10 @@ export type ClientMessageAddTank = { type: typeof ClientMessageType.AddTank; pay
 export type ClientMessageLeftGame = { type: typeof ClientMessageType.LeftGame; payload: { uid: string | null } };
 export type ClientMessageUpdateTank = { type: typeof ClientMessageType.UpdateTank; payload: { tank: Tank } };
 export type ClientMessageUpdateMines = { type: typeof ClientMessageType.UpdateMines; payload: { mines: Mine[] } };
+export type ClientMessageUpdateProjectiles = {
+  type: typeof ClientMessageType.UpdateProjectiles;
+  payload: { projectiles: BattleProjectile[] };
+};
 export type ClientMessageUpdateDestroyedSegments = {
   type: typeof ClientMessageType.UpdateDestroyedSegments;
   payload: { destroyedSegmentIds: string[] };
@@ -158,6 +223,7 @@ export type ClientMessage =
   | ClientMessageLeftGame
   | ClientMessageUpdateTank
   | ClientMessageUpdateMines
+  | ClientMessageUpdateProjectiles
   | ClientMessageUpdateDestroyedSegments;
 
 export type RadiusConfig = {
@@ -241,6 +307,7 @@ export type Battle = {
   winnerUid: string | null;
   players: Map<string, Player>;
   mines: Mine[];
+  projectiles: BattleProjectile[];
   destroyedSegmentIds: Set<string>;
 };
 

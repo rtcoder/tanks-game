@@ -9,9 +9,12 @@ const distDir = path.resolve(dirname, '..', '..', 'dist');
 
 const contentTypes: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
+  '.bin': 'application/octet-stream',
+  '.gltf': 'model/gltf+json; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.mp3': 'audio/mpeg',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',

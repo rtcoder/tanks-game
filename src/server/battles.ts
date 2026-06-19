@@ -16,6 +16,7 @@ import {
   sanitizeDestroyedSegmentIds,
   sanitizeMine,
   sanitizePlayerId,
+  sanitizeProjectile,
   sanitizeTank,
   sanitizeText,
 } from './sanitize.ts';
@@ -34,6 +35,7 @@ export function createBattle({title, maxPlayers, nick, playerId}: CreateBattlePa
     winnerUid: null,
     players: new Map(),
     mines: [],
+    projectiles: [],
     destroyedSegmentIds: new Set(),
   };
   battles.set(id, battle);
@@ -135,6 +137,7 @@ export function addTank(
   player.tank = sanitizeTank(tank, player.id);
   broadcastTanks(battle);
   sendBattleMessage(battle, {type: WsMessageType.MinesData, payload: {mines: battle.mines}});
+  sendBattleMessage(battle, {type: WsMessageType.ProjectilesData, payload: {projectiles: battle.projectiles}});
   sendBattleMessage(battle, {
     type: WsMessageType.DestructiblesData,
     payload: {destroyedSegmentIds: Array.from(battle.destroyedSegmentIds)},
@@ -180,6 +183,29 @@ export function updateMines(
   }
   battle.mines = mines.slice(-80).map(sanitizeMine);
   sendBattleMessage(battle, {type: WsMessageType.MinesData, payload: {mines: battle.mines}});
+}
+
+export function updateProjectiles(
+  ws: WebSocketClient,
+  projectiles: unknown,
+  sendBattleMessage: (battle: Battle, data: WsMessage) => void,
+): void {
+  const battle = ws.battle;
+  if (!battle || !Array.isArray(projectiles)) {
+    return;
+  }
+  const ownProjectiles = projectiles
+    .slice(-80)
+    .map(sanitizeProjectile)
+    .filter((projectile) => projectile.ownerUid === ws.uid);
+  battle.projectiles = [
+    ...battle.projectiles.filter((projectile) => projectile.ownerUid !== ws.uid),
+    ...ownProjectiles,
+  ].slice(-240);
+  sendBattleMessage(battle, {
+    type: WsMessageType.ProjectilesData,
+    payload: {projectiles: battle.projectiles},
+  });
 }
 
 export function updateDestroyedSegments(
