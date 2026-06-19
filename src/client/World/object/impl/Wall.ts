@@ -24,10 +24,14 @@ class Wall extends BaseObject {
     this.maxHealth = options.health ?? 20;
     this.health = this.maxHealth;
     this.size = size.clone();
-    const material = new THREE.MeshStandardMaterial();
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x827b6c,
+      roughness: 0.88,
+      metalness: 0.02,
+    });
 
     if (texture['albedo'] === undefined) {
-      material.color.set(0x808080);
+      material.color.set(0x827b6c);
     } else {
       const albedoTexture = texture['albedo'];
       const aoTexture = texture['ao'];

@@ -4,7 +4,7 @@ import type {BattleSummary, ClientMessage, GameConfig, Tank as NetworkTank, WsMe
 import {BattleStatus, ClientMessageType, WsMessageType} from '../../shared/types';
 import {Bullet} from './object/impl/Bullet';
 import {Ground} from './object/impl/Ground';
-import {DirectionalLight, HemiSphereLight} from './object/impl/lights';
+import {DirectionalLight, HemiSphereLight, SkyDome} from './object/impl/lights';
 import {
   AttackPowerup,
   DefensePowerup,
@@ -67,6 +67,7 @@ class World {
   ground!: Ground;
   hemiLight!: HemiSphereLight;
   directLight!: DirectionalLight;
+  skyDome!: SkyDome;
   walls: Wall[] = [];
   surrounding_walls: Wall[] = [];
   powerups: Powerup[] = [];
@@ -130,6 +131,8 @@ class World {
     await this.loadGameConfig();
     await this.loadAssets();
     this.scene = new Scene();
+    this.skyDome = new SkyDome('main');
+    this.scene.add(this.skyDome);
     this.ground = new Ground('main', this.textureDict['ground']);
     this.scene.add(this.ground);
     this.hemiLight = new HemiSphereLight('main');
