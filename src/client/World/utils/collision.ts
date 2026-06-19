@@ -7,6 +7,9 @@ import {Wall} from '../object/impl/Wall';
 import {OBB} from './OBB';
 
 function checkCollisionTankWithWall(tank: Tank, wall: Wall) {
+  if (wall.destroyed) {
+    return false;
+  }
   const {width, height, depth} = tank.bboxParameter;
   const obb = new OBB(
       tank.mesh.position,
@@ -44,6 +47,9 @@ function checkCollisionBulletWithTank(bullet: Bullet, tank: Tank) {
 }
 
 function checkCollisionBulletWithWall(bullet: Bullet, wall: Wall) {
+  if (wall.destroyed) {
+    return false;
+  }
   const box3 = new THREE.Box3().setFromObject(bullet.mesh);
   const box3Wall = new THREE.Box3().setFromObject(wall.mesh);
   return box3.intersectsBox(box3Wall);
@@ -62,6 +68,9 @@ function checkCollisionPowerupWithTank(powerup: Powerup, tank: Tank) {
 
 
 function checkCollisionPowerupWithWall(powerup: Powerup, wall: Wall) {
+  if (wall.destroyed) {
+    return false;
+  }
   const powerup_box = new THREE.Box3().setFromObject(powerup.mesh);
   const wall_box = new THREE.Box3().setFromObject(wall.mesh);
   return powerup_box.intersectsBox(wall_box);

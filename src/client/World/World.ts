@@ -73,6 +73,7 @@ class World {
   tanks: Tank[] = [];
   remoteTanks = new Map<string, Tank>();
   bullets: Bullet[] = [];
+  destroyedWallIds = new Set<string>();
   sceneContainer: HTMLElement;
   menu: HTMLElement;
   replay: HTMLElement;
@@ -249,6 +250,12 @@ class World {
   resetArena(): void {
     this.bullets.forEach((bullet) => bullet.destruct());
     this.bullets = [];
+    this.walls.forEach((wall) => wall.destruct());
+    this.walls = [];
+    this.surrounding_walls = [];
+    this.destroyedWallIds.clear();
+    this.initializeWalls(this.walls, this.surrounding_walls);
+    this.walls.forEach((wall) => this.scene.add(wall));
     this.powerups.forEach((powerup) => powerup.destruct());
     this.powerups = [];
     this.initializePowerups(this.powerups);
@@ -257,6 +264,32 @@ class World {
   }
 
   initializeWalls(walls: Wall[], surrounding_walls: Wall[]): void {
+    const createSegmentedWall = (
+        idPrefix: string,
+        textureDict: { [key: string]: THREE.Texture },
+        size: THREE.Vector3,
+        position: THREE.Vector3,
+        rotation: THREE.Euler,
+    ): void => {
+      const maxBlockLength = 48;
+      const blockCount = Math.max(1, Math.ceil(size.y / maxBlockLength));
+      const blockLength = size.y / blockCount;
+      const direction = new THREE.Vector3(0, 1, 0).applyEuler(rotation);
+      const firstOffset = -(size.y - blockLength) / 2;
+
+      for (let blockIndex = 0; blockIndex < blockCount; blockIndex++) {
+        const blockPosition = position.clone().addScaledVector(direction, firstOffset + blockIndex * blockLength);
+        walls.push(new Wall(
+            'main',
+            textureDict,
+            new THREE.Vector3(size.x, blockLength, size.z),
+            blockPosition,
+            rotation.clone(),
+            {id: `${idPrefix}-${blockIndex}`, destructible: true, health: 20},
+        ));
+      }
+    };
+
     const randomFactory = (seed: number): (() => number) => {
       let value = seed;
       return () => {
@@ -310,17 +343,17 @@ class World {
             position.y = marginSize / 2 - gridSize * Math.floor(j / size);
             rotation.z = Math.PI / 2;
           }
-          walls.push(new Wall('main', textureDict, new THREE.Vector3(20, gridSize + 20, 50), position, rotation));
+          createSegmentedWall(`maze-${i}-${j}`, textureDict, new THREE.Vector3(20, gridSize + 20, 50), position, rotation);
         }
       }
     };
 
     const marginSize = ARENA_SIZE;
     mazeInitialize(8, marginSize, this.textureDict['wall']);
-    const wall1 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(marginSize / 2, 0, 0), new THREE.Euler(0, 0, 0));
-    const wall2 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(-marginSize / 2, 0, 0), new THREE.Euler(0, 0, 0));
-    const wall3 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize - 200, 100), new THREE.Vector3(100, marginSize / 2, 0), new THREE.Euler(0, 0, Math.PI / 2));
-    const wall4 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(0, -marginSize / 2, 0), new THREE.Euler(0, 0, Math.PI / 2));
+    const wall1 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(marginSize / 2, 0, 0), new THREE.Euler(0, 0, 0), {id: 'boundary-east', destructible: false});
+    const wall2 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(-marginSize / 2, 0, 0), new THREE.Euler(0, 0, 0), {id: 'boundary-west', destructible: false});
+    const wall3 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize - 200, 100), new THREE.Vector3(100, marginSize / 2, 0), new THREE.Euler(0, 0, Math.PI / 2), {id: 'boundary-north', destructible: false});
+    const wall4 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(0, -marginSize / 2, 0), new THREE.Euler(0, 0, Math.PI / 2), {id: 'boundary-south', destructible: false});
     walls.push(wall1, wall2, wall3, wall4);
     surrounding_walls.push(wall1, wall2, wall3, wall4);
   }
@@ -343,6 +376,7 @@ class World {
     Tank.onTick = (tank: Tank, delta: number) => {
       if (tank !== this.localTank) return;
       tank.update(this.keyboard, this.scene, this.tanks, this.walls, this.surrounding_walls, this.bullets, delta);
+      this.attachDestructionHooks();
       this.syncLocalTank(false);
     };
     Bullet.onTick = (bullet: Bullet, delta: number) => {
@@ -507,9 +541,56 @@ class World {
         break;
       case WsMessageType.MinesData:
       case WsMessageType.ProjectilesData:
+        break;
       case WsMessageType.DestructiblesData:
+        this.applyDestroyedWalls(message.payload.destroyedSegmentIds);
         break;
     }
+  }
+
+  attachDestructionHooks(): void {
+    this.bullets.forEach((bullet) => {
+      bullet.onWallHit ??= (wall) => this.damageWall(wall, bullet.attack);
+    });
+  }
+
+  damageWall(wall: Wall, attack: number): void {
+    if (this.destroyedWallIds.has(wall.id)) {
+      return;
+    }
+
+    const destroyed = wall.damage(attack);
+    if (!destroyed) {
+      return;
+    }
+
+    this.destroyedWallIds.add(wall.id);
+    this.syncDestroyedWalls();
+  }
+
+  applyDestroyedWalls(wallIds: string[]): void {
+    wallIds.forEach((wallId) => {
+      if (this.destroyedWallIds.has(wallId)) {
+        return;
+      }
+      this.destroyedWallIds.add(wallId);
+      const wall = this.walls.find((item) => item.id === wallId);
+      if (!wall) {
+        return;
+      }
+      wall.destroyed = true;
+      wall.destruct();
+    });
+  }
+
+  syncDestroyedWalls(): void {
+    if (!this.webSocket || this.webSocket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    this.webSocket.send(encodeMessage({
+      type: ClientMessageType.UpdateDestroyedSegments,
+      payload: {destroyedSegmentIds: Array.from(this.destroyedWallIds)},
+    }));
   }
 
   syncRemoteTanks(tanks: NetworkTank[]): void {

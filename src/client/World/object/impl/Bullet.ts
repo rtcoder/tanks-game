@@ -14,11 +14,12 @@ class Bullet extends MovableObject {
   vel: THREE.Vector3;
   accel: THREE.Vector3;
   attack: number;
+  onWallHit?: (wall: Wall, bullet: Bullet) => void;
 
   constructor(name: string, pos: THREE.Vector3, vel: THREE.Vector3, attack: number,
               mesh: THREE.Object3D, rotation: THREE.Euler, listeners: THREE.AudioListener[], audio: {
         [key: string]: AudioBuffer
-      }) {
+      }, onWallHit?: (wall: Wall, bullet: Bullet) => void) {
     super('bullet', name);
 
     this.mesh = new THREE.Group();
@@ -38,16 +39,21 @@ class Bullet extends MovableObject {
     this.accel = new THREE.Vector3(0, 0, 0);
 
     this.attack = attack;
+    this.onWallHit = onWallHit;
   }
 
   update(ground: Ground, bullets: Bullet[], walls: Wall[], tanks: Tank[], _delta: number) {
     // Keep this flat projectile API ready for later ground-to-ground rockets.
-    if (this.mesh.position.z < 0 || walls.some(wall => checkCollisionBulletWithWall(this, wall) || !ground.inBoundary(this.mesh.position))) {
+    const hitWall = walls.find(wall => checkCollisionBulletWithWall(this, wall));
+    if (this.mesh.position.z < 0 || hitWall || !ground.inBoundary(this.mesh.position)) {
       this.listeners.forEach(listener => {
         const sound = new THREE.PositionalAudio(listener);
         sound.setBuffer(this.audio['Bullet_hit']).setVolume(20).play();
       });
 
+      if (hitWall) {
+        this.onWallHit?.(hitWall, this);
+      }
       this.destruct();
       bullets.splice(bullets.indexOf(this), 1);
       return;

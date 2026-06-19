@@ -9,8 +9,9 @@ abstract class Camera {
 
 
 class ThirdPersonViewCamera extends Camera {
-  cameraDistance: number = 300;
-  cameraAngle: number = THREE.MathUtils.degToRad(50);
+  cameraDistance: number = 185;
+  cameraHeight: number = 72;
+  lookAheadDistance: number = 95;
 
   constructor(tank: Tank, aspect: number) {
     super();
@@ -22,12 +23,9 @@ class ThirdPersonViewCamera extends Camera {
     );
     // add camera to the tank's local coordinate frame
     tank.mesh.add(this._camera);
-    let cameraX = 0;
-    let cameraY = -this.cameraDistance * Math.cos(this.cameraAngle);
-    let cameraZ = this.cameraDistance * Math.sin(this.cameraAngle);
-    this._camera.position.set(cameraX, cameraY, cameraZ);
-    this._camera.lookAt(tank.mesh.position);
     this._camera.up.set(0, 0, 1);
+    this._camera.position.set(0, -this.cameraDistance, this.cameraHeight);
+    this._camera.lookAt(new THREE.Vector3(0, this.lookAheadDistance, 24));
   }
 
   get camera() {
