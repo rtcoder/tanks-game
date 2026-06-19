@@ -6,8 +6,7 @@ class HemiSphereLight extends BaseObject {
 
   constructor(name: string) {
     super('hemi-sphere-light', name);
-    const light = new THREE.HemisphereLight(0xb9d9ff, 0x5d6244, 1.1);
-    this.mesh = light;
+    this.mesh = new THREE.HemisphereLight(0xb9d9ff, 0x5d6244, 1.1);
   }
 }
 

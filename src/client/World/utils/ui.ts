@@ -1,8 +1,8 @@
 function fadeElement(element: HTMLElement, init_opacity: number, final_opacity: number, remove: boolean, duration: number) {
-  var op = init_opacity;  // initial opacity
+  let op = init_opacity;  // initial opacity
   const timeInterval = 10; // in ms
-  var decrement = (init_opacity - final_opacity) * timeInterval / duration;
-  var timer = setInterval(function () {
+  const decrement = (init_opacity - final_opacity) * timeInterval / duration;
+  const timer = setInterval(function () {
     if (op <= final_opacity) {
       element.style.opacity = final_opacity.toString();
       element.style.filter = 'alpha(opacity=' + final_opacity * 100 + ')';
@@ -18,13 +18,13 @@ function fadeElement(element: HTMLElement, init_opacity: number, final_opacity: 
 }
 
 function displayElement(element: HTMLElement, init_opacity: number, final_opacity: number, removed: boolean, duration: number) {
-  var op = init_opacity;  // initial opacity
+  let op = init_opacity;  // initial opacity
   const timeInterval = 10; // in ms
-  var increment = (final_opacity - init_opacity) * timeInterval / duration;
+  const increment = (final_opacity - init_opacity) * timeInterval / duration;
   if (removed) {
     element.style.display = 'block';
   }
-  var timer = setInterval(function () {
+  const timer = setInterval(function () {
     if (op >= final_opacity) {
       element.style.opacity = final_opacity.toString();
       element.style.filter = 'alpha(opacity=' + final_opacity * 100 + ')';
@@ -38,7 +38,7 @@ function displayElement(element: HTMLElement, init_opacity: number, final_opacit
 
 
 function fadeBackGround(element: HTMLElement, init_opacity: number, final_opacity: number, remove: boolean, duration: number) {
-  var op = init_opacity;  // initial opacity
+  let op = init_opacity;  // initial opacity
 
   // initial rgb
   const bgColor = window.getComputedStyle(element).backgroundColor;
@@ -52,8 +52,8 @@ function fadeBackGround(element: HTMLElement, init_opacity: number, final_opacit
   const b = match[3];
 
   const timeInterval = 2; //in ms
-  var decrement = (init_opacity - final_opacity) * timeInterval / duration;
-  var timer = setInterval(function () {
+  const decrement = (init_opacity - final_opacity) * timeInterval / duration;
+  const timer = setInterval(function () {
     if (op <= final_opacity) {
       element.style.background = 'rgba(' + r + ', ' + g + ', ' + b + ', ' + final_opacity + ')';
       clearInterval(timer);
