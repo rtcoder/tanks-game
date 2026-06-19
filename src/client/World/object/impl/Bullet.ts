@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 
 import {checkCollisionBulletWithTank, checkCollisionBulletWithWall} from '../../utils/collision';
-import {MovableObject} from '../BaseObject';
+import {MovableObject} from '../MovableObject';
 import {Ground} from './Ground';
 import {Tank} from './Tank';
 import {Wall} from './Wall';
 
-class Bullet extends MovableObject {
+export class Bullet extends MovableObject {
   mesh: THREE.Group;
   listeners: THREE.AudioListener[];
   audio: { [key: string]: AudioBuffer };
@@ -89,5 +89,3 @@ class Bullet extends MovableObject {
     Bullet.onTick(this, delta);
   }
 }
-
-export {Bullet};

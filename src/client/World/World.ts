@@ -4,17 +4,17 @@ import type {BattleSummary, ClientMessage, GameConfig, Tank as NetworkTank, WsMe
 import {BattleStatus, ClientMessageType, WsMessageType} from '../../shared/types';
 import {Bullet} from './object/impl/Bullet';
 import {Ground} from './object/impl/Ground';
-import {DirectionalLight, HemiSphereLight, SkyDome} from './object/impl/lights';
-import {
-  AttackPowerup,
-  DefensePowerup,
-  GoalPowerup,
-  HealthPowerup,
-  PenetrationPowerup,
-  Powerup,
-  SpeedPowerup,
-  WeaponPowerup,
-} from './object/impl/powerups';
+import {DirectionalLight} from './object/impl/Light/DirectionalLight';
+import {HemiSphereLight} from './object/impl/Light/HemiSphereLight';
+import {SkyDome} from './object/impl/Light/SkyDome';
+import {PenetrationPowerup} from './object/impl/Powerups/PenetrationPowerup';
+import {AttackPowerup} from './object/impl/Powerups/AttackPowerup';
+import {DefensePowerup} from './object/impl/Powerups/DefensePowerup';
+import {GoalPowerup} from './object/impl/powerups/GoalPowerup';
+import {HealthPowerup} from './object/impl/powerups/HealthPowerup';
+import {Powerup} from './object/impl/Powerups/Powerup';
+import {SpeedPowerup} from './object/impl/Powerups/SpeedPowerup';
+import {WeaponPowerup} from './object/impl/Powerups/WeaponPowerup';
 import {Tank} from './object/impl/Tank';
 import {Wall} from './object/impl/Wall';
 import {ThirdPersonViewCamera} from './system/Camera';
@@ -353,10 +353,22 @@ class World {
 
     const marginSize = ARENA_SIZE;
     mazeInitialize(8, marginSize, this.textureDict['wall']);
-    const wall1 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(marginSize / 2, 0, 0), new THREE.Euler(0, 0, 0), {id: 'boundary-east', destructible: false});
-    const wall2 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(-marginSize / 2, 0, 0), new THREE.Euler(0, 0, 0), {id: 'boundary-west', destructible: false});
-    const wall3 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize - 200, 100), new THREE.Vector3(100, marginSize / 2, 0), new THREE.Euler(0, 0, Math.PI / 2), {id: 'boundary-north', destructible: false});
-    const wall4 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(0, -marginSize / 2, 0), new THREE.Euler(0, 0, Math.PI / 2), {id: 'boundary-south', destructible: false});
+    const wall1 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(marginSize / 2, 0, 0), new THREE.Euler(0, 0, 0), {
+      id: 'boundary-east',
+      destructible: false,
+    });
+    const wall2 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(-marginSize / 2, 0, 0), new THREE.Euler(0, 0, 0), {
+      id: 'boundary-west',
+      destructible: false,
+    });
+    const wall3 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize - 200, 100), new THREE.Vector3(100, marginSize / 2, 0), new THREE.Euler(0, 0, Math.PI / 2), {
+      id: 'boundary-north',
+      destructible: false,
+    });
+    const wall4 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(0, -marginSize / 2, 0), new THREE.Euler(0, 0, Math.PI / 2), {
+      id: 'boundary-south',
+      destructible: false,
+    });
     walls.push(wall1, wall2, wall3, wall4);
     surrounding_walls.push(wall1, wall2, wall3, wall4);
   }

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {BaseObject} from '../BaseObject';
 
-class Ground extends BaseObject {
+export class Ground extends BaseObject {
   mesh: THREE.Mesh;
   planeSize: number;
 
@@ -49,9 +49,7 @@ class Ground extends BaseObject {
     const planeGeometry = new THREE.PlaneGeometry(this.planeSize, this.planeSize);
 
     // Add your material to a mesh and add it to the scene
-    const mesh = new THREE.Mesh(planeGeometry, planeMaterial);
-
-    this.mesh = mesh;
+    this.mesh = new THREE.Mesh(planeGeometry, planeMaterial);
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = true;
   }
@@ -65,5 +63,3 @@ class Ground extends BaseObject {
     );
   }
 }
-
-export {Ground};

@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import {BaseObject} from '../BaseObject';
-
-class Wall extends BaseObject {
+export class Wall extends BaseObject {
   mesh: THREE.Mesh;
   id: string;
   destructible: boolean;
@@ -147,5 +146,3 @@ class Wall extends BaseObject {
     this.mesh.parent?.remove(this.mesh);
   }
 }
-
-export {Wall};

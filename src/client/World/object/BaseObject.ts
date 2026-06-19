@@ -10,7 +10,7 @@ Its interaction with other componenets in the scene are listed below:
 import * as THREE from 'three';
 import {disposeMeshes} from '../utils/mesh';
 
-abstract class BaseObject {
+export abstract class BaseObject {
   type: string;
   name: string;
   mesh!: THREE.Object3D;
@@ -25,13 +25,3 @@ abstract class BaseObject {
     disposeMeshes(this.mesh);
   }
 }
-
-abstract class MovableObject extends BaseObject {
-  constructor(type: string, name: string) {
-    super(type, name);
-  }
-
-  abstract tick(delta: number): void;
-}
-
-export {BaseObject, MovableObject};

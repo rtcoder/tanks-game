@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {Bullet} from '../object/impl/Bullet';
-import {Powerup} from '../object/impl/powerups';
+import {Powerup} from '../object/impl/Powerups/Powerup';
 
 import {Tank} from '../object/impl/Tank';
 import {Wall} from '../object/impl/Wall';

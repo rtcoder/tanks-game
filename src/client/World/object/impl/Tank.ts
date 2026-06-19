@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import {Scene} from '../../system/Scene.js';
-import {checkCollisionTankWithTank, checkCollisionTankWithWall} from '../../utils/collision.js';
-import {PBar} from '../../utils/PBar.js';
-import {MovableObject} from '../BaseObject.js';
-import {Bullet} from './Bullet.js';
-import {Wall} from './Wall.js';
+import {Scene} from '../../system/Scene';
+import {checkCollisionTankWithTank, checkCollisionTankWithWall} from '../../utils/collision';
+import {PBar} from '../../utils/PBar';
+import {MovableObject} from '../MovableObject';
+import {Bullet} from './Bullet';
+import {Wall} from './Wall';
 
-class Tank extends MovableObject {
+export class Tank extends MovableObject {
   mesh: THREE.Group;
   bboxParameter = {width: 30, height: 50, depth: 30};
   health: number = 100;
@@ -290,5 +290,3 @@ class Tank extends MovableObject {
     }
   }
 }
-
-export {Tank};
