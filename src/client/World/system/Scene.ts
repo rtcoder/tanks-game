@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {BaseObject} from '../object/BaseObject';
 
-class Scene {
+export class Scene {
   scene: THREE.Scene;
 
   constructor() {
@@ -16,5 +16,3 @@ class Scene {
     }
   }
 }
-
-export {Scene};

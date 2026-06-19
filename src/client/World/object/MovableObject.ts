@@ -1,5 +1,3 @@
-import * as THREE from 'three';
-import {disposeMeshes} from '../utils/mesh';
 import {BaseObject} from './BaseObject';
 
 abstract class MovableObject extends BaseObject {

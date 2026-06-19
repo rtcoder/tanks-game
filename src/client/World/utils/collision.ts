@@ -66,7 +66,6 @@ function checkCollisionPowerupWithTank(powerup: Powerup, tank: Tank) {
   return obb.intersectsBox3(box3);
 }
 
-
 function checkCollisionPowerupWithWall(powerup: Powerup, wall: Wall) {
   if (wall.destroyed) {
     return false;

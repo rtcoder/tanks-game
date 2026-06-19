@@ -1,9 +1,9 @@
 import {Clock} from 'three';
-import {Camera} from './Camera';
+import {Camera} from './Camera/Camera';
 import {Renderer} from './Renderer';
 import {Scene} from './Scene';
 
-class Loop {
+export class Loop {
   scene: Scene;
   cameras: Camera[];
   renderers: Renderer[];
@@ -42,5 +42,3 @@ class Loop {
     this.renderers.forEach(renderer => renderer.renderer.setAnimationLoop(null));
   }
 }
-
-export {Loop};

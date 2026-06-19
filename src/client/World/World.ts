@@ -17,7 +17,7 @@ import {SpeedPowerup} from './object/impl/Powerups/SpeedPowerup';
 import {WeaponPowerup} from './object/impl/Powerups/WeaponPowerup';
 import {Tank} from './object/impl/Tank';
 import {Wall} from './object/impl/Wall';
-import {ThirdPersonViewCamera} from './system/Camera';
+import {ThirdPersonViewCamera} from './system/Camera/ThirdPersonViewCamera';
 import {Loop} from './system/Loop';
 import {Renderer} from './system/Renderer';
 import {Scene} from './system/Scene';

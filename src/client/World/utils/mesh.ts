@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-function disposeMeshes(obj: THREE.Object3D) {
+export function disposeMeshes(obj: THREE.Object3D) {
 
   if (obj instanceof THREE.Mesh) {
     obj.geometry.dispose();
@@ -13,5 +13,3 @@ function disposeMeshes(obj: THREE.Object3D) {
   }
 
 }
-
-export {disposeMeshes};

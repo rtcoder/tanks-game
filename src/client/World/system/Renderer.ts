@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-class Renderer {
+export class Renderer {
   renderer: THREE.WebGLRenderer;
 
   constructor() {
@@ -13,5 +13,3 @@ class Renderer {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   }
 }
-
-export {Renderer};

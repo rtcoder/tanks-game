@@ -1,14 +1,8 @@
 import * as THREE from 'three';
-import {Tank} from '../object/impl/Tank';
+import {Tank} from '../../object/impl/Tank';
+import {Camera} from './Camera.ts';
 
-abstract class Camera {
-  _camera!: THREE.PerspectiveCamera;
-
-  abstract get camera(): THREE.PerspectiveCamera;
-}
-
-
-class ThirdPersonViewCamera extends Camera {
+export class ThirdPersonViewCamera extends Camera {
   cameraDistance: number = 185;
   cameraHeight: number = 72;
   lookAheadDistance: number = 95;
@@ -32,5 +26,3 @@ class ThirdPersonViewCamera extends Camera {
     return this._camera;
   }
 }
-
-export {Camera, ThirdPersonViewCamera};
