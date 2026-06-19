@@ -22,7 +22,12 @@ canvas {
 }
 
 #canvas-walls {
-  background: #fff url("../assets/img/grass.png");
+  display: none;
+}
+
+#canvas {
+  background: #050806;
+  display: block;
 }
 
 body {

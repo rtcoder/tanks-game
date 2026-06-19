@@ -51,7 +51,6 @@ export const dom = {
 };
 
 export const contexts = {
-  ctx: getContext(dom.canvas),
   ctxMinimap: getContext(dom.canvasMinimap),
   ctxWalls: getContext(dom.canvasWalls),
   ctxWallsMinimap: getContext(dom.canvasWallsMinimap),

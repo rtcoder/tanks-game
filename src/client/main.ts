@@ -1,16 +1,14 @@
 import './style.css';
-import {BattleStatus, ClientMessageType, ImageKey, WsMessageType} from '../shared/types';
+import {BattleStatus, ClientMessageType, WsMessageType} from '../shared/types';
 import type {
   BattleSummary,
   ClientMessage,
   GameConfig,
   KeysState,
   Mine,
-  Point,
   Tank,
   WsMessage,
 } from '../shared/types';
-import {loadAssets} from './game/assets';
 import {circleRectColliding, isMineArmed, isPointInWater} from './game/collisions';
 import {
   MINE_ARM_MS,
@@ -23,7 +21,8 @@ import {
 import {clearKeys, switchKey} from './game/input';
 import {createWalls, createWaterFields} from './game/map';
 import {getRectangleCornerPointsAfterRotate, radiansToDegrees, round} from './game/math';
-import {getRandomColor, lighterColor, roundRect} from './game/rendering';
+import {getRandomColor, lighterColor} from './game/rendering';
+import {createThreeBattleScene} from './game/threeScene';
 import {createBattle, formatBattleStatus, joinBattle} from './network/battles';
 import {contexts, dom} from './ui/dom';
 
@@ -69,18 +68,16 @@ const userTank: Tank = {
 
 const remoteTanks: Tank[] = [];
 const mines: Mine[] = [];
-const images: Partial<Record<ImageKey, HTMLImageElement>> = {};
-const canvasShift: Point = { x: 0, y: 0 };
 
 let lastMineTime = 0;
 let isTankOnWater = false;
 let isGameStarted = false;
 let isGameOver = false;
 let lastFrameTime = 0;
-let areAssetsReady = false;
 let webSocket: WebSocket | null = null;
 let currentBattle: BattleSummary | null = null;
 let currentPlayerId = localStorage.getItem(STORAGE_KEYS.playerId) || crypto.randomUUID();
+let threeScene: ReturnType<typeof createThreeBattleScene> | null = null;
 
 const {
   joyStick,
@@ -111,7 +108,6 @@ const {
 } = dom;
 
 const {
-  ctx,
   ctxMinimap,
   ctxWalls,
   ctxWallsMinimap,
@@ -140,6 +136,7 @@ const loadGameConfig = async (): Promise<void> => {
     playerSpawn = config.playerSpawn;
     webSocketPath = config.webSocketPath;
     syncBoundaryWalls();
+    threeScene?.rebuildStatic();
   } catch {
     // Dev mode can still run the canvas without backend config.
   }
@@ -191,14 +188,6 @@ const joinBattleSession = async (battleId = battleIdInput.value): Promise<void> 
   await newGame();
 };
 
-const getPattern = (
-  context: CanvasRenderingContext2D,
-  imageKey: ImageKey,
-): CanvasPattern | string => {
-  const image = images[imageKey];
-  return image ? context.createPattern(image, 'repeat') ?? '#333333' : '#333333';
-};
-
 const resize = (): void => {
   const width = window.innerWidth;
   const height = window.innerHeight;
@@ -244,119 +233,6 @@ const detectTankMineCollision = (): void => {
   sendMessage({ type: ClientMessageType.UpdateMines, payload: { mines } });
 };
 
-const drawTankTraces = (tank: Tank): void => {
-  const { width, height, traces } = tank;
-  const now = Date.now();
-
-  traces.forEach((trace) => {
-    let color: string;
-    if (now - trace.time < 1000) {
-      color = 'rgba(54, 54, 54, 0.15)';
-    } else if (now - trace.time < 1500) {
-      color = 'rgba(54, 54, 54, 0.1)';
-    } else {
-      color = 'rgba(54, 54, 54, 0.05)';
-    }
-    ctx.save();
-    ctx.translate(trace.x + canvasShift.x, trace.y + canvasShift.y);
-    ctx.rotate((Math.PI / 180) * trace.angle);
-    roundRect(ctx, 0 - width / 2, 0 - height / 2, 25, 10, 5, color);
-    roundRect(ctx, 0 - width / 2, 30 - height / 2, 25, 10, 5, color);
-    ctx.restore();
-  });
-};
-
-const drawMines = (): void => {
-  mines.forEach((mine) => {
-    const { x, y, size } = mine;
-    ctx.save();
-    ctx.translate(x + canvasShift.x, y + canvasShift.y);
-    ctx.fillStyle = isMineArmed(mine, MINE_ARM_MS) ? '#850000' : '#067200';
-    ctx.beginPath();
-    ctx.strokeStyle = '#a2a2a2';
-    ctx.arc(0, 0, size, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
-  });
-};
-
-const shouldDrawDotTank = (tank: Tank): { newX: number; newY: number } | null => {
-  const { x, y, width, height } = tank;
-  let newX = x + canvasShift.x;
-  let newY = y + canvasShift.y;
-  if (y === userTank.y) {
-    return null;
-  }
-
-  if (!(y + canvasShift.y < -height / 2 || x + canvasShift.x < -width / 2)) {
-    tank.drawDot = false;
-  }
-  if (y + canvasShift.y < -height / 2 || (tank.drawDot && y + canvasShift.y < 0)) {
-    newY = userTank.y > y ? 5 : canvas.height - 5;
-    tank.drawDot = true;
-  }
-  if (x + canvasShift.x < -width / 2 || (tank.drawDot && x + canvasShift.x < 0)) {
-    newX = userTank.x > x ? 5 : canvas.width - 5;
-    tank.drawDot = true;
-  }
-  return tank.drawDot ? { newX, newY } : null;
-};
-
-const drawDotTank = (newX: number, newY: number, color: string): void => {
-  ctx.beginPath();
-  ctx.fillStyle = color;
-  ctx.strokeStyle = lighterColor(color, 30);
-  ctx.arc(newX, newY, 5, 0, 2 * Math.PI);
-  ctx.fill();
-  ctx.stroke();
-};
-
-const drawTank = (tank: Tank): void => {
-  const { x, y, width, height, angle, color, tracksShift, lives } = tank;
-  const drawDotTankVal = shouldDrawDotTank(tank);
-  if (drawDotTankVal) {
-    drawDotTank(drawDotTankVal.newX, drawDotTankVal.newY, color);
-    return;
-  }
-
-  ctx.save();
-  ctx.translate(x + canvasShift.x, y + canvasShift.y);
-  ctx.rotate((Math.PI / 180) * angle);
-  ctx.beginPath();
-  ctx.fillStyle = color;
-  ctx.fillRect(5 - width / 2, 0 - height / 2, 40, 40);
-  ctx.fill();
-
-  roundRect(ctx, 30 - width / 2, 15 - height / 2, 30, 10, { tl: 3, tr: 3, bl: 5, br: 5 }, lighterColor(color, 50), '#9dbed5');
-  roundRect(ctx, 0 - width / 2, 0 - height / 2, 50, 10, 5, '#363636');
-  roundRect(ctx, 0 - width / 2, 30 - height / 2, 50, 10, 5, '#363636');
-
-  ctx.beginPath();
-  ctx.fillStyle = '#676767';
-  const track1Shift = tracksShift[0] % 10;
-  const track2Shift = tracksShift[1] % 10;
-  const from = 0 - width / 2;
-  const to = 0 - width / 2 + 50;
-  for (let i = 0; i < 5; i++) {
-    const linePos = i * 10;
-    if (from <= from + linePos + track1Shift && to >= from + linePos + track1Shift + 2) {
-      ctx.fillRect(from + linePos + track1Shift, 2 - height / 2, 2, 6);
-    }
-    if (from <= from + linePos + track2Shift && to >= from + linePos + track2Shift + 2) {
-      ctx.fillRect(from + linePos + track2Shift, 32 - height / 2, 2, 6);
-    }
-  }
-  ctx.fill();
-  ctx.restore();
-
-  ctx.save();
-  ctx.translate(x + canvasShift.x, y + canvasShift.y);
-  roundRect(ctx, 0 - width / 2, 0 - height / 2 - 20, 50, 10, 5, '#363636', '#fff');
-  roundRect(ctx, 0 - width / 2, 0 - height / 2 - 19, 50 * (lives / 100), 8, 5, '#679d37');
-  ctx.restore();
-};
-
 const drawTankOnMinimap = (tank: Tank): void => {
   const { x, y, color } = tank;
   ctxMinimap.beginPath();
@@ -370,59 +246,33 @@ const drawTankOnMinimap = (tank: Tank): void => {
 const drawWalls = (): void => {
   ctxWalls.clearRect(0, 0, maxGameWidth, maxGameHeight);
   walls.forEach((wall) => {
-    ctxWalls.fillStyle = getPattern(ctxWalls, ImageKey.BLOCK_2);
     wall.path = new Path2D();
     wall.path.rect(wall.x, wall.y, wall.width, wall.height);
-    ctxWalls.fill(wall.path);
-  });
-
-  ctxWalls.fillStyle = getPattern(ctxWalls, ImageKey.WATER);
-  waterFields.forEach((water) => {
-    ctxWalls.fill(water.getPath());
   });
 };
 
 const drawWallsMinimap = (): void => {
   ctxWallsMinimap.clearRect(0, 0, maxGameWidth, maxGameHeight);
   walls.forEach((wall) => {
-    ctxWallsMinimap.fillStyle = getPattern(ctxWallsMinimap, ImageKey.BLOCK_2);
+    ctxWallsMinimap.fillStyle = '#263425';
     wall.path = new Path2D();
     wall.path.rect(wall.x, wall.y, wall.width, wall.height);
     ctxWallsMinimap.fill(wall.path);
   });
 
-  ctxWallsMinimap.fillStyle = getPattern(ctxWallsMinimap, ImageKey.WATER);
+  ctxWallsMinimap.fillStyle = '#26bfd0';
   waterFields.forEach((water) => {
     ctxWallsMinimap.fill(water.getPath());
   });
 };
 
-const translateWalls = (): void => {
-  canvasWalls.style.transform = `translate(${canvasShift.x}px, ${canvasShift.y}px)`;
-};
-
 const syncCameraToTank = (): void => {
-  canvasShift.x = 0;
-  canvasShift.y = 0;
-
-  if (userTank.x > canvas.width / 2 && userTank.x < maxGameWidth - canvas.width / 2) {
-    canvasShift.x = canvas.width / 2 - userTank.x;
-  }
-  if (userTank.y > canvas.height / 2 && userTank.y < maxGameHeight - canvas.height / 2) {
-    canvasShift.y = canvas.height / 2 - userTank.y;
-  }
-
-  translateWalls();
+  threeScene?.render({ userTank, remoteTanks, mines });
 };
 
 const draw = (): void => {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctxMinimap.clearRect(0, 0, canvasMinimap.width, canvasMinimap.height);
-  drawMines();
-  remoteTanks.forEach((tank) => drawTankTraces(tank));
-  drawTankTraces(userTank);
-  remoteTanks.forEach((tank) => drawTank(tank));
-  drawTank(userTank);
+  threeScene?.render({ userTank, remoteTanks, mines });
   remoteTanks.forEach((tank) => drawTankOnMinimap(tank));
   drawTankOnMinimap(userTank);
 };
@@ -582,7 +432,7 @@ const update = (delta: number): void => {
     return;
   }
 
-  isTankOnWater = isPointInWater(ctx, waterFields, getRectangleCornerPointsAfterRotate(userTank));
+  isTankOnWater = isPointInWater(ctxWalls, waterFields, getRectangleCornerPointsAfterRotate(userTank));
 
   if (w) {
     userTank.mod = 1;
@@ -632,35 +482,14 @@ const update = (delta: number): void => {
   userTank.x += userTank.velocity.x * delta;
   userTank.y += userTank.velocity.y * delta;
 
-  let redrawWalls = false;
-  if (userTank.x > canvas.width / 2) {
-    if (userTank.x < maxGameWidth - canvas.width / 2) {
-      canvasShift.x = canvas.width / 2 - userTank.x;
-      redrawWalls = true;
-    }
-  } else if (canvasShift.x !== 0) {
-    canvasShift.x = 0;
-    redrawWalls = true;
-  }
-  if (userTank.y > canvas.height / 2) {
-    if (userTank.y < maxGameHeight - canvas.height / 2) {
-      canvasShift.y = canvas.height / 2 - userTank.y;
-      redrawWalls = true;
-    }
-  } else if (canvasShift.y !== 0) {
-    canvasShift.y = 0;
-    redrawWalls = true;
-  }
-  if (redrawWalls) {
-    translateWalls();
-  }
+  syncCameraToTank();
 
   const points = getRectangleCornerPointsAfterRotate(userTank);
   userTank.traces = userTank.traces.filter(({ time }) => now - time < 2000);
 
   walls.forEach((wall) => {
     points.forEach((point) => {
-      if (!ctx.isPointInPath(wall.path, point.x, point.y, 'nonzero')) {
+      if (!ctxWalls.isPointInPath(wall.path, point.x, point.y, 'nonzero')) {
         return;
       }
 
@@ -734,8 +563,15 @@ const loop = (timestamp: number): void => {
 const setupCanvas = (): void => {
   canvas.width = VIEWPORT_WIDTH;
   canvas.height = VIEWPORT_HEIGHT;
+  threeScene = createThreeBattleScene({
+    canvas,
+    walls,
+    waterFields,
+    getBounds: () => ({ width: maxGameWidth, height: maxGameHeight }),
+  });
   canvasWalls.width = maxGameWidth;
   canvasWalls.height = maxGameHeight;
+  canvasWalls.style.display = 'none';
   canvasWallsMinimap.width = maxGameWidth;
   canvasWallsMinimap.height = maxGameHeight;
   canvasMinimap.width = maxGameWidth;
@@ -760,6 +596,7 @@ const startGameWorld = (): void => {
   resize();
   drawWallsMinimap();
   drawWalls();
+  threeScene?.rebuildStatic();
   updateHud();
 
   if (!webSocket) {
@@ -778,10 +615,6 @@ const newGame = async (): Promise<void> => {
     return;
   }
 
-  if (!areAssetsReady) {
-    Object.assign(images, await loadAssets());
-    areAssetsReady = true;
-  }
   startGameWorld();
 };
 
