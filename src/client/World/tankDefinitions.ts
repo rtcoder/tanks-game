@@ -19,6 +19,21 @@ export type TankDefinition = {
 
 export const TANK_DEFINITIONS: TankDefinition[] = [
   {
+    id: 'prototype-mk1',
+    name: 'Prototype Mk I',
+    role: 'Test Platform',
+    description: 'Generated training tank with separated hull, turret, barrel, and track nodes.',
+    modelPath: '/battletanks/tanks/prototype-mk1/scene.gltf',
+    visualTargetLength: 78,
+    visualRotation: new THREE.Euler(0, 0, 0),
+    parts: {
+      turret: ['turret'],
+      barrel: ['barrel'],
+      leftTrack: ['left_track'],
+      rightTrack: ['right_track'],
+    },
+  },
+  {
     id: 't55am1',
     name: 'T-55AM-1',
     role: 'Modernized MBT',
