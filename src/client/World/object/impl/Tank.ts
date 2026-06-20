@@ -20,7 +20,7 @@ export class Tank extends MovableObject {
   // bullet configuration
   bulletLocalPos: THREE.Vector3 = new THREE.Vector3(0, 65, 18);
   bulletLocalDir: THREE.Vector3 = new THREE.Vector3(0, 1, 0);
-  bulletSpeed: number = 520;
+  bulletSpeed: number = 680;
 
   // key bindings
   proceedUpKey: string = 'KeyW';
@@ -205,6 +205,16 @@ export class Tank extends MovableObject {
     };
   }
 
+  getBulletVelocity(yawOffset = 0): THREE.Vector3 {
+    const localDir = new THREE.Vector3(
+        Math.sin(yawOffset),
+        Math.cos(yawOffset) * Math.cos(this.aimPitch),
+        Math.sin(this.aimPitch),
+    ).normalize();
+    this.aimAnchor.updateMatrixWorld(true);
+    return localDir.transformDirection(this.aimAnchor.matrixWorld).multiplyScalar(this.bulletSpeed);
+  }
+
   getAimWorldPoint(distance = 420): THREE.Vector3 {
     const {pos, vel} = this._getBulletInitState();
     return pos.add(vel.normalize().multiplyScalar(distance));
@@ -232,8 +242,8 @@ export class Tank extends MovableObject {
           scene.add(bullet);
         } else {
           // TODO: make it more standard
-          let vel2 = new THREE.Vector3(-0.22, Math.cos(this.aimPitch), Math.sin(this.aimPitch)).normalize().applyEuler(this.mesh.rotation).multiplyScalar(this.bulletSpeed);
-          let vel3 = new THREE.Vector3(0.22, Math.cos(this.aimPitch), Math.sin(this.aimPitch)).normalize().applyEuler(this.mesh.rotation).multiplyScalar(this.bulletSpeed);
+          let vel2 = this.getBulletVelocity(-Math.PI / 6);
+          let vel3 = this.getBulletVelocity(Math.PI / 6);
           const bullet1 = new Bullet('main', pos, vel.add(tankVel), this.attack, this.bullet_mesh,
               this.getBulletRotation(), this.listeners, this.audio);
           const bullet2 = new Bullet('main', pos, vel2.add(tankVel), this.attack, this.bullet_mesh,
