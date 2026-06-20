@@ -134,6 +134,8 @@ class World {
   createButton: HTMLButtonElement;
   joinButton: HTMLButtonElement;
   healthContainer: HTMLElement;
+  minimapCanvas: HTMLCanvasElement;
+  minimapContext: CanvasRenderingContext2D | null;
   playerWinBanner: HTMLElement;
   playerLoseBanner: HTMLElement;
   keyboard: KeyboardState = {};
@@ -185,6 +187,8 @@ class World {
     this.createButton = document.getElementById('create-battle-button') as HTMLButtonElement;
     this.joinButton = document.getElementById('join-battle-button') as HTMLButtonElement;
     this.healthContainer = document.getElementById('player1-container') as HTMLElement;
+    this.minimapCanvas = document.getElementById('minimap-canvas') as HTMLCanvasElement;
+    this.minimapContext = this.minimapCanvas.getContext('2d');
     this.playerWinBanner = document.getElementById('player1-win-banner') as HTMLElement;
     this.playerLoseBanner = document.getElementById('player1-lose-banner') as HTMLElement;
     this.init();
@@ -651,6 +655,7 @@ class World {
       tank.update(this.keyboard, this.scene, this.tanks, this.walls, this.surrounding_walls, this.bullets, delta);
       this.updateCrosshairPosition();
       this.updateLocalOcclusionFade();
+      this.updateMinimap();
       this.attachDestructionHooks();
       this.syncLocalTank(false);
     };
@@ -725,6 +730,138 @@ class World {
     }
 
     return origin.clone().add(direction.multiplyScalar(ARENA_SIZE));
+  }
+
+  updateMinimap(): void {
+    const context = this.minimapContext;
+    if (!context || !this.localTank) {
+      return;
+    }
+
+    const rect = this.minimapCanvas.getBoundingClientRect();
+    const cssWidth = Math.max(1, Math.floor(rect.width));
+    const cssHeight = Math.max(1, Math.floor(rect.height));
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const pixelWidth = Math.floor(cssWidth * dpr);
+    const pixelHeight = Math.floor(cssHeight * dpr);
+    if (this.minimapCanvas.width !== pixelWidth || this.minimapCanvas.height !== pixelHeight) {
+      this.minimapCanvas.width = pixelWidth;
+      this.minimapCanvas.height = pixelHeight;
+    }
+
+    context.save();
+    context.scale(dpr, dpr);
+    context.clearRect(0, 0, cssWidth, cssHeight);
+
+    const padding = 14;
+    const topPadding = 30;
+    const mapSize = Math.max(1, Math.min(cssWidth - padding * 2, cssHeight - padding - topPadding));
+    const mapLeft = (cssWidth - mapSize) / 2;
+    const mapTop = topPadding;
+    const scale = mapSize / ARENA_SIZE;
+    const toMap = (position: THREE.Vector3): {x: number; y: number} => ({
+      x: mapLeft + (position.x + ARENA_HALF) * scale,
+      y: mapTop + (ARENA_HALF - position.y) * scale,
+    });
+
+    context.fillStyle = 'rgba(32, 48, 28, 0.92)';
+    context.fillRect(mapLeft, mapTop, mapSize, mapSize);
+    context.strokeStyle = 'rgba(215, 230, 92, 0.38)';
+    context.lineWidth = 1;
+    context.strokeRect(mapLeft + 0.5, mapTop + 0.5, mapSize - 1, mapSize - 1);
+
+    context.save();
+    context.beginPath();
+    context.rect(mapLeft, mapTop, mapSize, mapSize);
+    context.clip();
+
+    context.strokeStyle = 'rgba(215, 230, 92, 0.08)';
+    context.lineWidth = 1;
+    const gridStep = mapSize / 5;
+    for (let index = 1; index < 5; index += 1) {
+      const offset = mapLeft + index * gridStep;
+      context.beginPath();
+      context.moveTo(offset, mapTop);
+      context.lineTo(offset, mapTop + mapSize);
+      context.stroke();
+
+      const y = mapTop + index * gridStep;
+      context.beginPath();
+      context.moveTo(mapLeft, y);
+      context.lineTo(mapLeft + mapSize, y);
+      context.stroke();
+    }
+
+    this.drawMinimapWalls(context, toMap, scale);
+    this.remoteTanks.forEach((tank) => this.drawMinimapTank(context, tank, toMap, '#ff6048', 4.5));
+    this.drawMinimapTank(context, this.localTank, toMap, '#d7ff58', 5.5);
+
+    context.restore();
+    context.restore();
+  }
+
+  drawMinimapWalls(
+      context: CanvasRenderingContext2D,
+      toMap: (position: THREE.Vector3) => {x: number; y: number},
+      scale: number,
+  ): void {
+    context.fillStyle = 'rgba(226, 224, 194, 0.24)';
+    this.walls.forEach((wall) => {
+      if (wall.destroyed || !wall.mesh.parent) {
+        return;
+      }
+
+      const point = toMap(wall.mesh.position);
+      context.save();
+      context.translate(point.x, point.y);
+      context.rotate(-wall.mesh.rotation.z);
+      context.fillRect(
+          -wall.size.x * scale / 2,
+          -wall.size.y * scale / 2,
+          Math.max(1, wall.size.x * scale),
+          Math.max(1, wall.size.y * scale),
+      );
+      context.restore();
+    });
+  }
+
+  drawMinimapTank(
+      context: CanvasRenderingContext2D,
+      tank: Tank,
+      toMap: (position: THREE.Vector3) => {x: number; y: number},
+      color: string,
+      radius: number,
+  ): void {
+    const point = toMap(tank.mesh.position);
+    const heading = Math.PI / 2 - tank.mesh.rotation.z;
+    const aimHeading = Math.PI / 2 - (tank.mesh.rotation.z + tank.aimYaw);
+
+    context.save();
+    context.translate(point.x, point.y);
+    context.rotate(heading);
+    context.fillStyle = color;
+    context.strokeStyle = 'rgba(4, 8, 5, 0.86)';
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(0, -radius - 3);
+    context.lineTo(radius + 3, radius + 3);
+    context.lineTo(0, radius);
+    context.lineTo(-radius - 3, radius + 3);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    context.restore();
+
+    context.save();
+    context.translate(point.x, point.y);
+    context.rotate(aimHeading);
+    context.strokeStyle = color;
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(0, 0);
+    context.lineTo(0, -radius * 2.5);
+    context.stroke();
+    context.restore();
   }
 
   updateLocalOcclusionFade(): void {
@@ -996,6 +1133,7 @@ class World {
       this.renderer.renderer.setSize(window.innerWidth, window.innerHeight);
       this.renderer.renderer.setPixelRatio(window.devicePixelRatio);
       this.resizeTankPreview();
+      this.updateMinimap();
     });
   }
 
@@ -1059,6 +1197,7 @@ class World {
     this.instructions.classList.add('hidden');
     this.status = 'playing';
     this.resume();
+    requestAnimationFrame(() => this.updateMinimap());
     this.connectWebSocket();
   }
 
