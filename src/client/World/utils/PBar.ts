@@ -13,14 +13,21 @@ class PBar {
     this.id = `${class_name}-${type}`;
     this.totalTime = totalTime;
     this.timeout = totalTime;
+    const label = this.getLabel(type);
+    const shortLabel = this.getShortLabel(type);
 
-    let html = `
-    <div class="${class_name}" id="${class_name}-${type}">
-      <div class="${class_name}__text">${type}</div>
-      <div class="${class_name}__bar">
-        <div class="${class_name}__bar__fill"></div>
+    const html = `
+    <div class="${class_name} ${class_name}--${type}" id="${class_name}-${type}" data-powerup="${type}">
+      <div class="${class_name}__icon" aria-hidden="true">${shortLabel}</div>
+      <div class="${class_name}__body">
+        <div class="${class_name}__meta">
+          <div class="${class_name}__text">${label}</div>
+          <div class="${class_name}__value">${(totalTime / 1000).toFixed(1)}s</div>
+        </div>
+        <div class="${class_name}__bar">
+          <div class="${class_name}__bar__fill"></div>
+        </div>
       </div>
-      <div class="${class_name}__value">${(totalTime / 1000).toFixed(1)}s</div>
     </div>
   `;
     container.insertAdjacentHTML('beforeend', html);
@@ -32,10 +39,33 @@ class PBar {
     this.update(this.timeout);
   }
 
+  getLabel(type: string): string {
+    const labels: Record<string, string> = {
+      attack: 'Attack',
+      defense: 'Armor',
+      penetration: 'Pierce',
+      speed: 'Boost',
+      weapon: 'Weapon',
+    };
+    return labels[type] ?? type;
+  }
+
+  getShortLabel(type: string): string {
+    const labels: Record<string, string> = {
+      attack: 'ATK',
+      defense: 'ARM',
+      penetration: 'PEN',
+      speed: 'SPD',
+      weapon: 'WPN',
+    };
+    return labels[type] ?? type.slice(0, 3).toUpperCase();
+  }
+
   update(value: number, remove: boolean = true) {
     this.timeout = value;
-    this.fillElement.style.width = `${value / this.totalTime * 100}%`;
-    this.valueElement.innerText = `${(value / 1000).toFixed(1)}s`;
+    const progress = Math.max(0, Math.min(100, value / this.totalTime * 100));
+    this.fillElement.style.width = `${progress}%`;
+    this.valueElement.innerText = `${Math.max(0, value / 1000).toFixed(1)}s`;
     if (value <= 0 && remove) {
       this.element.remove();
     }

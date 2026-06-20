@@ -38,6 +38,7 @@ export class Tank extends MovableObject {
   originalPos: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
   originalRot: THREE.Euler = new THREE.Euler(0, 0, 0);
 
+  healthElement!: HTMLElement;
   healthBarFillElement!: HTMLElement;
   healthBarValueElement!: HTMLElement;
   powerupsContainerElement!: HTMLElement;
@@ -98,6 +99,7 @@ export class Tank extends MovableObject {
   }
 
   post_init(container_sub: HTMLElement) {
+    this.healthElement = container_sub.getElementsByClassName('health')[0] as HTMLElement;
     this.healthBarFillElement = container_sub.getElementsByClassName('health__bar__fill')[0] as HTMLElement;
     this.healthBarValueElement = container_sub.getElementsByClassName('health__value')[0] as HTMLElement;
     // this.weaponBarFillElement = container_sub.getElementsByClassName("weapon__bar__fill")[0] as HTMLElement;
@@ -276,8 +278,10 @@ export class Tank extends MovableObject {
     if (!this.healthBarFillElement || !this.healthBarValueElement) {
       return;
     }
-    this.healthBarFillElement.style.width = `${this.health}%`;
-    this.healthBarValueElement.innerText = `${(this.health).toFixed(0)}`;
+    const clampedHealth = Math.max(0, Math.min(100, this.health));
+    this.healthBarFillElement.style.width = `${clampedHealth}%`;
+    this.healthBarValueElement.innerText = `${clampedHealth.toFixed(0)}`;
+    this.healthElement.dataset.state = clampedHealth <= 25 ? 'critical' : clampedHealth <= 55 ? 'warn' : 'ok';
 
     for (const key in this.powerups) {
       let timeout = this.powerups[key].timeout - delta * 1000;

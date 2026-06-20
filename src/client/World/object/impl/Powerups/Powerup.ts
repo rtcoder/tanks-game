@@ -14,10 +14,9 @@ export abstract class Powerup extends MovableObject {
   zSpeed: number = 10;
   zDirection: number = 1;
   zBounds: number[] = [10, 20];
-  changeZDirection: boolean = false;
 
-  constructor(name: string, type: string, mesh: THREE.Object3D, pos: THREE.Vector3,
-              listeners: THREE.AudioListener[], audio: AudioBuffer) {
+  protected constructor(name: string, type: string, mesh: THREE.Object3D, pos: THREE.Vector3,
+                        listeners: THREE.AudioListener[], audio: AudioBuffer) {
     super(`powerup-${type}`, name);
     this.powerup_type = type;
 
