@@ -341,6 +341,43 @@ class World {
             `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1" fill="${fill}"/></svg>`,
         )}`
     );
+    const createFallbackBrickTexture = (): THREE.Texture => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 256;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        return new THREE.Texture();
+      }
+
+      context.fillStyle = '#8a765a';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.strokeStyle = '#d0b78d';
+      context.lineWidth = 5;
+
+      const rowHeight = 32;
+      const brickWidth = 64;
+      for (let y = 0; y <= canvas.height; y += rowHeight) {
+        context.beginPath();
+        context.moveTo(0, y);
+        context.lineTo(canvas.width, y);
+        context.stroke();
+
+        const offset = (y / rowHeight) % 2 === 0 ? 0 : brickWidth / 2;
+        for (let x = -offset; x <= canvas.width; x += brickWidth) {
+          context.beginPath();
+          context.moveTo(x, y);
+          context.lineTo(x, y + rowHeight);
+          context.stroke();
+        }
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      return texture;
+    };
     const fallbackAlbedoTexture = fallbackTextureSvg('#8f9180');
     const fallbackNormalTexture = fallbackTextureSvg('#8080ff');
     const loadingManager = new THREE.LoadingManager();
@@ -366,12 +403,27 @@ class World {
           audioLoader.load(path, resolve, undefined, reject);
         })
     );
-    const textureLoader = new THREE.TextureLoader();
-    const texturePromise = (path: string): Promise<THREE.Texture> => (
-        new Promise((resolve, reject) => {
+    const textureLoader = new THREE.TextureLoader(loadingManager);
+    const texturePromise = (path: string | undefined, fallback?: THREE.Texture): Promise<THREE.Texture> => {
+      if (!path) {
+        if (fallback) {
+          return Promise.resolve(fallback);
+        }
+
+        return Promise.reject(new Error('Texture path is missing'));
+      }
+
+      return new Promise((resolve, reject) => {
           textureLoader.load(path, resolve, undefined, reject);
-        })
-    );
+        });
+    };
+    const optionalTexturePromise = async (path: string | undefined): Promise<THREE.Texture | undefined> => {
+      if (!path) {
+        return undefined;
+      }
+
+      return texturePromise(path);
+    };
 
     const assetBase = '/battletanks';
     const [tankEntries, bulletMesh, powerupMesh] = await Promise.all([
@@ -416,13 +468,16 @@ class World {
       query: '?url',
       import: 'default',
     }) as Record<string, string>;
-    const wallAlbedo = await texturePromise(wallTextureUrls['../../assets/textures/brick/tx.png']);
+    const wallAlbedo = await texturePromise(
+        wallTextureUrls['../../assets/textures/brick/tx.png'],
+        createFallbackBrickTexture(),
+    );
     wallAlbedo.colorSpace = THREE.SRGBColorSpace;
     wallAlbedo.wrapS = THREE.RepeatWrapping;
     wallAlbedo.wrapT = THREE.RepeatWrapping;
 
     const damagedWallUrl = wallTextureUrls['../../assets/textures/brick/tx_damaged.png'];
-    const damagedAlbedo = damagedWallUrl ? await texturePromise(damagedWallUrl) : undefined;
+    const damagedAlbedo = await optionalTexturePromise(damagedWallUrl);
     if (damagedAlbedo) {
       damagedAlbedo.colorSpace = THREE.SRGBColorSpace;
       damagedAlbedo.wrapS = THREE.RepeatWrapping;

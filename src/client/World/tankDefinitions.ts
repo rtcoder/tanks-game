@@ -8,6 +8,7 @@ export type TankDefinition = {
   modelPath: string;
   visualTargetLength: number;
   visualRotation: THREE.Euler;
+  visualScale?: THREE.Vector3;
   parts?: {
     turret?: string[];
     barrel?: string[];
@@ -23,8 +24,9 @@ export const TANK_DEFINITIONS: TankDefinition[] = [
     role: 'Modernized MBT',
     description: 'Soviet T-55 upgrade with added armor, compact silhouette, and a steady 100 mm gun.',
     modelPath: '/battletanks/tanks/t55am1/obj/t55am1_cmd.obj',
-    visualTargetLength: 58,
+    visualTargetLength: 74,
     visualRotation: new THREE.Euler(-Math.PI / 2, 0, Math.PI),
+    visualScale: new THREE.Vector3(1, 1, 1.45),
   },
 ];
 

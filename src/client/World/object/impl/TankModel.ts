@@ -162,6 +162,9 @@ export class TankModel {
     if (horizontalLength > 0) {
       this.root.scale.multiplyScalar(this.definition.visualTargetLength / horizontalLength);
     }
+    if (this.definition.visualScale) {
+      this.root.scale.multiply(this.definition.visualScale);
+    }
 
     this.root.updateMatrixWorld(true);
     const normalizedBox = new THREE.Box3().setFromObject(this.root);

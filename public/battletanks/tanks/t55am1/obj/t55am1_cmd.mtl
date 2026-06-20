@@ -1,0 +1,13 @@
+newmtl ca2a91c9-15d6-4f5c-a5c5-4507b92e8c07
+Kd 1.000 1.000 1.000
+Ke 0.000 0.000 0.000
+map_Kd textures/tsccolor_diffusetexturenoalpha01_3526_d.jpg
+norm textures/tscnm_normaltexture01_3526_n.jpg
+
+newmtl 6c60bf8a-fd56-481e-8b21-2471d259c186
+Kd 1.000 1.000 1.000
+Ke 0.000 0.000 0.000
+d 1
+map_Kd textures/tsccoloralpha_combineddatexture01_3527_d.jpg
+norm textures/tscnm_normaltexture02_3527_n.jpg
+map_d textures/tsccoloralpha_combineddatexture01_3527_a.png
