@@ -22,6 +22,7 @@ export type Trace = {
 
 export type Tank = {
   uid: string | null;
+  tankModelId?: string;
   lives: number;
   x: number;
   y: number;

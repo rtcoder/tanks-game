@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {MTLLoader} from 'three/examples/jsm/loaders/MTLLoader.js';
+import {OBJLoader} from 'three/examples/jsm/loaders/OBJLoader.js';
 import type {BattleSummary, ClientMessage, GameConfig, Tank as NetworkTank, WsMessage} from '../../shared/types';
 import {BattleStatus, ClientMessageType, WsMessageType} from '../../shared/types';
 import {Bullet} from './object/impl/Bullet';
@@ -21,6 +23,7 @@ import {ThirdPersonViewCamera} from './system/Camera/ThirdPersonViewCamera';
 import {Loop} from './system/Loop';
 import {Renderer} from './system/Renderer';
 import {Scene} from './system/Scene';
+import {DEFAULT_TANK_ID, getTankDefinition, TANK_DEFINITIONS, type TankDefinition} from './tankDefinitions';
 import defaultMapData from '../../assets/maps/default.json';
 
 type VectorTuple = [number, number, number];
@@ -55,6 +58,7 @@ const STORAGE_KEYS = {
   nick: 'tanks:nick',
   battleId: 'tanks:battle-id',
   playerId: 'tanks:player-id',
+  tankModelId: 'tanks:tank-model-id',
 };
 
 type KeyboardState = Record<string, number>;
@@ -64,6 +68,7 @@ const decodeMessage = (message: string): WsMessage => JSON.parse(message) as WsM
 
 const createNetworkTank = (tank: Tank, uid: string | null, color = '#8ca36f'): NetworkTank => ({
   uid,
+  tankModelId: tank.tankModelId,
   lives: Math.max(0, tank.health),
   x: tank.mesh.position.x + ARENA_HALF,
   y: -tank.mesh.position.y + ARENA_HALF,
@@ -112,6 +117,7 @@ class World {
   battleTitleInput: HTMLInputElement;
   maxPlayersInput: HTMLInputElement;
   battleIdInput: HTMLInputElement;
+  tankSelectionElement: HTMLElement;
   createButton: HTMLButtonElement;
   joinButton: HTMLButtonElement;
   healthContainer: HTMLElement;
@@ -131,6 +137,7 @@ class World {
   webSocketPath = '/ws';
   currentBattle: BattleSummary | null = null;
   playerId = localStorage.getItem(STORAGE_KEYS.playerId) || crypto.randomUUID();
+  selectedTankId = getTankDefinition(localStorage.getItem(STORAGE_KEYS.tankModelId)).id;
   lastSentAt = 0;
   lastSentSnapshot = '';
 
@@ -145,6 +152,7 @@ class World {
     this.battleTitleInput = document.getElementById('battle-title-input') as HTMLInputElement;
     this.maxPlayersInput = document.getElementById('max-players-input') as HTMLInputElement;
     this.battleIdInput = document.getElementById('battle-id-input') as HTMLInputElement;
+    this.tankSelectionElement = document.getElementById('tank-selection') as HTMLElement;
     this.createButton = document.getElementById('create-battle-button') as HTMLButtonElement;
     this.joinButton = document.getElementById('join-battle-button') as HTMLButtonElement;
     this.healthContainer = document.getElementById('player1-container') as HTMLElement;
@@ -156,6 +164,7 @@ class World {
   async init(): Promise<void> {
     this.nickInput.value = localStorage.getItem(STORAGE_KEYS.nick) || '';
     this.battleIdInput.value = localStorage.getItem(STORAGE_KEYS.battleId) || '';
+    this.renderTankSelection();
     await this.loadGameConfig();
     await this.loadAssets();
     this.scene = new Scene();
@@ -203,13 +212,154 @@ class World {
     this.webSocketPath = config.webSocketPath;
   }
 
+  async loadGltf(gltfLoader: GLTFLoader, path: string): Promise<THREE.Group> {
+    try {
+      return await new Promise((resolve, reject) => {
+        gltfLoader.load(path, (gltf) => resolve(gltf.scene), undefined, reject);
+      });
+    } catch (error) {
+      if (!path.toLowerCase().endsWith('.glb')) {
+        throw error;
+      }
+
+      console.warn(`Failed to load GLB with textures, retrying without textures: ${path}`, error);
+      const response = await fetch(path);
+      if (!response.ok) {
+        throw error;
+      }
+
+      const texturelessGlb = this.createTexturelessGlb(await response.arrayBuffer());
+      const basePath = path.slice(0, path.lastIndexOf('/') + 1);
+      return await new Promise((resolve, reject) => {
+        gltfLoader.parse(texturelessGlb, basePath, (gltf) => resolve(gltf.scene), reject);
+      });
+    }
+  }
+
+  async loadModel(loaders: {
+    gltfLoader: GLTFLoader;
+    mtlLoader: MTLLoader;
+    objLoader: OBJLoader;
+  }, path: string): Promise<THREE.Group> {
+    if (path.toLowerCase().endsWith('.obj')) {
+      return this.loadObjModel(loaders.mtlLoader, loaders.objLoader, path);
+    }
+
+    return this.loadGltf(loaders.gltfLoader, path);
+  }
+
+  async loadObjModel(mtlLoader: MTLLoader, objLoader: OBJLoader, path: string): Promise<THREE.Group> {
+    const basePath = path.slice(0, path.lastIndexOf('/') + 1);
+    const fileName = path.slice(path.lastIndexOf('/') + 1);
+    const materialFileName = fileName.replace(/\.obj$/i, '.mtl');
+
+    const objectLoader = new OBJLoader(objLoader.manager).setPath(basePath);
+    try {
+      const materials = await new Promise<MTLLoader.MaterialCreator>((resolve, reject) => {
+        mtlLoader.setPath(basePath).load(materialFileName, resolve, undefined, reject);
+      });
+      materials.preload();
+      objectLoader.setMaterials(materials);
+    } catch (error) {
+      console.warn(`Failed to load MTL for OBJ, using generated materials: ${path}`, error);
+    }
+
+    return await new Promise((resolve, reject) => {
+      objectLoader.load(fileName, (object) => resolve(object), undefined, reject);
+    });
+  }
+
+  createTexturelessGlb(source: ArrayBuffer): ArrayBuffer {
+    const sourceView = new DataView(source);
+    const magic = sourceView.getUint32(0, true);
+    const version = sourceView.getUint32(4, true);
+    const jsonLength = sourceView.getUint32(12, true);
+    const jsonType = sourceView.getUint32(16, true);
+    if (magic !== 0x46546c67 || version !== 2 || jsonType !== 0x4e4f534a) {
+      throw new Error('Unsupported GLB format');
+    }
+
+    const jsonOffset = 20;
+    const decoder = new TextDecoder();
+    const jsonText = decoder.decode(new Uint8Array(source, jsonOffset, jsonLength)).trim();
+    const gltf = JSON.parse(jsonText) as {
+      images?: unknown[];
+      materials?: Array<{
+        normalTexture?: unknown;
+        occlusionTexture?: unknown;
+        emissiveTexture?: unknown;
+        pbrMetallicRoughness?: {
+          baseColorTexture?: unknown;
+          metallicRoughnessTexture?: unknown;
+        };
+      }>;
+      samplers?: unknown[];
+      textures?: unknown[];
+    };
+
+    delete gltf.images;
+    delete gltf.samplers;
+    delete gltf.textures;
+    gltf.materials?.forEach((material) => {
+      delete material.normalTexture;
+      delete material.occlusionTexture;
+      delete material.emissiveTexture;
+      delete material.pbrMetallicRoughness?.baseColorTexture;
+      delete material.pbrMetallicRoughness?.metallicRoughnessTexture;
+    });
+
+    const encoder = new TextEncoder();
+    const jsonBytes = encoder.encode(JSON.stringify(gltf));
+    const paddedJsonLength = Math.ceil(jsonBytes.byteLength / 4) * 4;
+    const binHeaderOffset = jsonOffset + jsonLength;
+    const binLength = sourceView.getUint32(binHeaderOffset, true);
+    const binType = sourceView.getUint32(binHeaderOffset + 4, true);
+    const binOffset = binHeaderOffset + 8;
+    const targetLength = 12 + 8 + paddedJsonLength + 8 + binLength;
+    const target = new ArrayBuffer(targetLength);
+    const targetView = new DataView(target);
+    const targetBytes = new Uint8Array(target);
+
+    targetView.setUint32(0, magic, true);
+    targetView.setUint32(4, version, true);
+    targetView.setUint32(8, targetLength, true);
+    targetView.setUint32(12, paddedJsonLength, true);
+    targetView.setUint32(16, jsonType, true);
+    targetBytes.set(jsonBytes, 20);
+    targetBytes.fill(0x20, 20 + jsonBytes.byteLength, 20 + paddedJsonLength);
+
+    const targetBinHeaderOffset = 20 + paddedJsonLength;
+    targetView.setUint32(targetBinHeaderOffset, binLength, true);
+    targetView.setUint32(targetBinHeaderOffset + 4, binType, true);
+    targetBytes.set(new Uint8Array(source, binOffset, binLength), targetBinHeaderOffset + 8);
+    return target;
+  }
+
   async loadAssets(): Promise<void> {
-    const gltfLoader = new GLTFLoader();
-    const gltfPromise = (path: string): Promise<THREE.Group> => (
-        new Promise((resolve, reject) => {
-          gltfLoader.load(path, (gltf) => resolve(gltf.scene), undefined, reject);
-        })
+    const fallbackTextureSvg = (fill: string): string => (
+        `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1" fill="${fill}"/></svg>`,
+        )}`
     );
+    const fallbackAlbedoTexture = fallbackTextureSvg('#8f9180');
+    const fallbackNormalTexture = fallbackTextureSvg('#8080ff');
+    const loadingManager = new THREE.LoadingManager();
+    loadingManager.setURLModifier((url) => {
+      if (typeof url !== 'string' || url.trim() === '' || url === 'undefined') {
+        return fallbackAlbedoTexture;
+      }
+
+      const normalizedUrl = url.replaceAll('\\', '/');
+      const isExportedLocalPath = /^[a-z]:/i.test(normalizedUrl) || normalizedUrl.includes('/Users/');
+      return isExportedLocalPath
+        ? (/normal/i.test(normalizedUrl) ? fallbackNormalTexture : fallbackAlbedoTexture)
+        : url;
+    });
+    const gltfLoader = new GLTFLoader(loadingManager);
+    const mtlLoader = new MTLLoader(loadingManager);
+    const objLoader = new OBJLoader(loadingManager);
+    const modelLoaders = {gltfLoader, mtlLoader, objLoader};
+    const modelPromise = (path: string): Promise<THREE.Group> => this.loadModel(modelLoaders, path);
     const audioLoader = new THREE.AudioLoader();
     const audioPromise = (path: string): Promise<AudioBuffer> => (
         new Promise((resolve, reject) => {
@@ -224,12 +374,17 @@ class World {
     );
 
     const assetBase = '/battletanks';
-    const [tankMesh, bulletMesh, powerupMesh] = await Promise.all([
-      gltfPromise(`${assetBase}/tank_model_new/scene.gltf`),
-      gltfPromise(`${assetBase}/bullet_model/scene.gltf`),
-      gltfPromise(`${assetBase}/powerup_model/scene.gltf`),
+    const [tankEntries, bulletMesh, powerupMesh] = await Promise.all([
+      Promise.all(TANK_DEFINITIONS.map(async (definition) => ({
+        definition,
+        mesh: await modelPromise(definition.modelPath),
+      }))),
+      modelPromise(`${assetBase}/bullet_model/scene.gltf`),
+      modelPromise(`${assetBase}/powerup_model/scene.gltf`),
     ]);
-    this.meshDict['Tank'] = tankMesh.children[0].clone();
+    tankEntries.forEach(({definition, mesh}) => {
+      this.meshDict[this.tankMeshKey(definition.id)] = mesh.clone();
+    });
     this.meshDict['Bullet'] = bulletMesh.children[0].children[0].children[0].children[0].children[0].clone();
     this.meshDict['Powerup'] = powerupMesh.children[0].children[0].children[0].clone();
 
@@ -299,8 +454,25 @@ class World {
     });
   }
 
+  tankMeshKey(tankId: string): string {
+    return `Tank:${tankId}`;
+  }
+
+  tankMeshFor(definition: TankDefinition): THREE.Object3D {
+    return this.meshDict[this.tankMeshKey(definition.id)] ?? this.meshDict[this.tankMeshKey(DEFAULT_TANK_ID)];
+  }
+
+  tankConfig(definition: TankDefinition): Partial<Tank> {
+    return {
+      tankDefinition: definition,
+      tankModelId: definition.id,
+    };
+  }
+
   createPlayerTank(name: string): Tank {
-    return new Tank(name, this.meshDict['Tank'], this.meshDict['Bullet'], this.listeners, this.audioDict, {
+    const definition = getTankDefinition(this.selectedTankId);
+    return new Tank(name, this.tankMeshFor(definition), this.meshDict['Bullet'], this.listeners, this.audioDict, {
+      ...this.tankConfig(definition),
       proceedUpKey: 'KeyW',
       proceedDownKey: 'KeyS',
       rotateLeftKey: 'KeyA',
@@ -309,8 +481,10 @@ class World {
     });
   }
 
-  createRemoteTank(id: string): Tank {
-    const tank = new Tank(`remote-${id}`, this.meshDict['Tank'], this.meshDict['Bullet'], this.listeners, this.audioDict, {
+  createRemoteTank(id: string, tankModelId = DEFAULT_TANK_ID): Tank {
+    const definition = getTankDefinition(tankModelId);
+    const tank = new Tank(`remote-${id}`, this.tankMeshFor(definition), this.meshDict['Bullet'], this.listeners, this.audioDict, {
+      ...this.tankConfig(definition),
       firingKey: '__disabled__',
     });
     this.scene.add(tank);
@@ -519,6 +693,57 @@ class World {
     this.occludedWallIds = nextOccludedWallIds;
   }
 
+  renderTankSelection(): void {
+    this.tankSelectionElement.innerHTML = TANK_DEFINITIONS.map((definition) => `
+      <label class="tank-option">
+        <input
+          type="radio"
+          name="tank-model"
+          value="${definition.id}"
+          ${definition.id === this.selectedTankId ? 'checked' : ''}
+        >
+        <span class="tank-option__body">
+          <span class="tank-option__topline">
+            <strong>${definition.name}</strong>
+            <span>${definition.role}</span>
+          </span>
+          <span class="tank-option__description">${definition.description}</span>
+        </span>
+      </label>
+    `).join('');
+
+    this.tankSelectionElement.addEventListener('change', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || target.name !== 'tank-model') {
+        return;
+      }
+
+      this.setSelectedTank(target.value);
+    });
+  }
+
+  setSelectedTank(tankId: string): void {
+    const definition = getTankDefinition(tankId);
+    this.selectedTankId = definition.id;
+    localStorage.setItem(STORAGE_KEYS.tankModelId, definition.id);
+    this.applySelectedTankToLocal();
+  }
+
+  applySelectedTankToLocal(): void {
+    if (!this.localTank) {
+      return;
+    }
+
+    const definition = getTankDefinition(this.selectedTankId);
+    const mesh = this.tankMeshFor(definition);
+    if (!mesh) {
+      return;
+    }
+
+    Object.assign(this.localTank, this.tankConfig(definition));
+    this.localTank.setTankModel(mesh, definition);
+  }
+
   registerBattleHandlers(): void {
     this.nickInput.addEventListener('input', () => {
       localStorage.setItem(STORAGE_KEYS.nick, sanitizeNick(this.nickInput.value));
@@ -610,6 +835,7 @@ class World {
   }
 
   startOnlineGame(): void {
+    this.applySelectedTankToLocal();
     this.resetArena();
     this.menu.classList.add('hidden');
     this.replay.classList.add('hidden');
@@ -716,7 +942,12 @@ class World {
     tanks.forEach((tankData) => {
       if (!tankData.uid || tankData.uid === this.playerId) return;
       activeIds.add(tankData.uid);
-      const tank = this.remoteTanks.get(tankData.uid) || this.createRemoteTank(tankData.uid);
+      const tank = this.remoteTanks.get(tankData.uid) || this.createRemoteTank(tankData.uid, tankData.tankModelId);
+      if (tankData.tankModelId && tank.tankModelId !== tankData.tankModelId) {
+        const definition = getTankDefinition(tankData.tankModelId);
+        Object.assign(tank, this.tankConfig(definition));
+        tank.setTankModel(this.tankMeshFor(definition), definition);
+      }
       applyNetworkTank(tank, tankData);
     });
     this.remoteTanks.forEach((tank, id) => {
@@ -731,7 +962,7 @@ class World {
     if (!this.localTank || !this.webSocket || this.webSocket.readyState !== WebSocket.OPEN) return;
     const now = Date.now();
     const tank = createNetworkTank(this.localTank, this.playerId);
-    const snapshot = `${Math.round(tank.x)}:${Math.round(tank.y)}:${Math.round(tank.angle)}:${Math.round(tank.lives)}`;
+    const snapshot = `${tank.tankModelId}:${Math.round(tank.x)}:${Math.round(tank.y)}:${Math.round(tank.angle)}:${Math.round(tank.lives)}`;
     if (!force && snapshot === this.lastSentSnapshot && now - this.lastSentAt < 160) return;
     this.lastSentSnapshot = snapshot;
     this.lastSentAt = now;

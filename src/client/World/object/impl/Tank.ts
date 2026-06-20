@@ -1,13 +1,18 @@
 import * as THREE from 'three';
 import {Scene} from '../../system/Scene';
+import type {TankDefinition} from '../../tankDefinitions';
 import {checkCollisionTankWithTank, checkCollisionTankWithWall} from '../../utils/collision';
 import {PBar} from '../../utils/PBar';
 import {MovableObject} from '../MovableObject';
 import {Bullet} from './Bullet';
+import {TankModel} from './TankModel';
 import {Wall} from './Wall';
 
 export class Tank extends MovableObject {
   mesh: THREE.Group;
+  tankDefinition: TankDefinition | null = null;
+  tankModel: TankModel | null = null;
+  tankModelId = 'vanguard';
   bboxParameter = {width: 30, height: 50, depth: 30};
   health: number = 100;
 
@@ -74,19 +79,7 @@ export class Tank extends MovableObject {
 
     this.mesh = new THREE.Group();
     if (tank_mesh != null) {
-      this.mesh.add(tank_mesh.clone());
-      this.mesh.traverse((child) => {
-        if (child instanceof THREE.Mesh && child.material) {
-          this.originalColor = child.material.color.clone();
-          child.material = child.material.clone();
-        }
-      });
-      this.mesh.children[0].scale.set(15, 15, 15);
-      this.mesh.children[0].rotation.x = 0;
-      this.mesh.children[0].rotation.y = 0;
-      this.mesh.children[0].rotation.z = Math.PI;
-
-
+      this.setTankModel(tank_mesh);
       this.mesh.castShadow = true;
       this.mesh.receiveShadow = true;
       this.mesh.position.set(625, -625, 0);
@@ -105,6 +98,25 @@ export class Tank extends MovableObject {
     if (bullet_mesh != null) {
       this.bullet_mesh = bullet_mesh.clone();
     }
+  }
+
+  setTankModel(sourceMesh: THREE.Object3D, definition = this.tankDefinition): void {
+    if (!definition) {
+      return;
+    }
+
+    if (this.tankModel) {
+      this.tankModel.root.parent?.remove(this.tankModel.root);
+      this.tankModel.dispose();
+    }
+
+    this.tankDefinition = definition;
+    this.tankModelId = definition.id;
+    this.tankModel = new TankModel(sourceMesh, definition);
+    this.mesh.add(this.tankModel.root);
+    this.bboxParameter = {...this.tankModel.metrics.bboxParameter};
+    this.bulletLocalPos.copy(this.tankModel.metrics.bulletLocalPos);
+    this.originalColor.copy(this.tankModel.originalColor);
   }
 
   post_init(container_sub: HTMLElement) {
@@ -244,22 +256,17 @@ export class Tank extends MovableObject {
     this._updateAim(keyboard, delta);
     this._updatePosition(walls, tanks, surrounding_walls);
     this._createBullets(keyboard, bullets, scene);
+    this.tankModel?.update({
+      aimPitch: this.aimPitch,
+      movement: this.proceed * this.proceedSpeed,
+    });
   }
 
   GetAttacked(attack: number) {
     this.health -= attack * (1 - this.defense);
 
-    this.mesh.children[0].traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material) {
-        child.material.color.set(0xff0000);
-
-        // Change the color back after 1 second
-        setTimeout(() => {
-          child.material.color.copy(this.originalColor);
-        }, 1000);
-        return;
-      }
-    });
+    this.tankModel?.setDamageTint(0xff0000);
+    setTimeout(() => this.tankModel?.clearDamageTint(), 1000);
 
     if (this.health <= 0) {
       this.reset();
@@ -290,11 +297,7 @@ export class Tank extends MovableObject {
       this.penetrationUpgraded = false;
       // this.penetrationPermitted = false;
     }, 500);
-    this.mesh.children[0].traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material) {
-        child.material.color.copy(this.originalColor);
-      }
-    });
+    this.tankModel?.clearDamageTint();
     Object.values(this.powerups).forEach(pbar => pbar.remove());
     for (const key in this.powerups) {
       delete this.powerups[key];
