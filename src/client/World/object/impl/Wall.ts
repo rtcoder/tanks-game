@@ -17,6 +17,7 @@ export class Wall extends BaseObject {
   destroyAnimationFrame = -1;
   destroyAnimationFrameDuration = 0.05;
   removed = false;
+  occlusionFadeActive = false;
 
   static onTick = (_wall: Wall, _delta: number) => {};
 
@@ -185,7 +186,7 @@ export class Wall extends BaseObject {
           material.color.set(new THREE.Color(0x827b6c).lerp(new THREE.Color(0x514331), damageRatio * 0.5));
           material.map = this.createDamageTexture(damageRatio);
         }
-        material.needsUpdate = true;
+        this.applyOcclusionMaterialState(material);
       }
     });
   }
@@ -243,12 +244,33 @@ export class Wall extends BaseObject {
         material.map = frameTexture;
         material.transparent = true;
         material.alphaTest = 0.35;
-        material.depthWrite = true;
         material.side = THREE.DoubleSide;
         material.color.set(0xffffff);
-        material.needsUpdate = true;
+        this.applyOcclusionMaterialState(material);
       }
     });
+  }
+
+  setOcclusionFade(active: boolean): void {
+    if (this.occlusionFadeActive === active) {
+      return;
+    }
+
+    this.occlusionFadeActive = active;
+    const materials = Array.isArray(this.mesh.material) ? this.mesh.material : [this.mesh.material];
+    materials.forEach((material) => {
+      if (material instanceof THREE.MeshStandardMaterial) {
+        this.applyOcclusionMaterialState(material);
+      }
+    });
+  }
+
+  applyOcclusionMaterialState(material: THREE.MeshStandardMaterial): void {
+    const hasCutout = material.alphaTest > 0;
+    material.opacity = this.occlusionFadeActive ? 0.28 : 1;
+    material.transparent = this.occlusionFadeActive || hasCutout;
+    material.depthWrite = !this.occlusionFadeActive;
+    material.needsUpdate = true;
   }
 
   createDamageTexture(damageRatio: number): THREE.CanvasTexture {

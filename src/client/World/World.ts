@@ -102,6 +102,7 @@ class World {
   remoteTanks = new Map<string, Tank>();
   bullets: Bullet[] = [];
   destroyedWallIds = new Set<string>();
+  occludedWallIds = new Set<string>();
   sceneContainer: HTMLElement;
   menu: HTMLElement;
   replay: HTMLElement;
@@ -325,6 +326,7 @@ class World {
     this.walls = [];
     this.surrounding_walls = [];
     this.destroyedWallIds.clear();
+    this.occludedWallIds.clear();
     this.initializeWalls(this.walls, this.surrounding_walls);
     this.walls.forEach((wall) => this.scene.add(wall));
     this.powerups.forEach((powerup) => powerup.destruct());
@@ -389,6 +391,7 @@ class World {
       if (tank !== this.localTank) return;
       tank.update(this.keyboard, this.scene, this.tanks, this.walls, this.surrounding_walls, this.bullets, delta);
       this.updateCrosshairPosition();
+      this.updateLocalOcclusionFade();
       this.attachDestructionHooks();
       this.syncLocalTank(false);
     };
@@ -463,6 +466,57 @@ class World {
     }
 
     return origin.clone().add(direction.multiplyScalar(ARENA_SIZE));
+  }
+
+  updateLocalOcclusionFade(): void {
+    if (!this.localTank || !this.camera) {
+      return;
+    }
+
+    const cameraPosition = new THREE.Vector3();
+    this.camera.camera.getWorldPosition(cameraPosition);
+
+    const tankPosition = new THREE.Vector3();
+    this.localTank.mesh.getWorldPosition(tankPosition);
+    tankPosition.z += 30;
+
+    const rayDirection = tankPosition.clone().sub(cameraPosition);
+    const rayDistance = rayDirection.length();
+    if (rayDistance <= 0) {
+      return;
+    }
+    rayDirection.normalize();
+
+    const candidateWalls = this.walls.filter((wall) => !wall.destroyed && wall.mesh.parent);
+    const wallByMeshId = new Map(candidateWalls.map((wall) => [wall.mesh.uuid, wall]));
+    const raycaster = new THREE.Raycaster(cameraPosition, rayDirection, 0, rayDistance);
+    const hits = raycaster.intersectObjects(candidateWalls.map((wall) => wall.mesh), false);
+    const nextOccludedWallIds = new Set<string>();
+
+    hits.forEach((hit) => {
+      const wall = wallByMeshId.get(hit.object.uuid);
+      if (wall) {
+        nextOccludedWallIds.add(wall.id);
+      }
+    });
+
+    this.occludedWallIds.forEach((wallId) => {
+      if (nextOccludedWallIds.has(wallId)) {
+        return;
+      }
+
+      this.walls.find((wall) => wall.id === wallId)?.setOcclusionFade(false);
+    });
+
+    nextOccludedWallIds.forEach((wallId) => {
+      if (this.occludedWallIds.has(wallId)) {
+        return;
+      }
+
+      this.walls.find((wall) => wall.id === wallId)?.setOcclusionFade(true);
+    });
+
+    this.occludedWallIds = nextOccludedWallIds;
   }
 
   registerBattleHandlers(): void {
