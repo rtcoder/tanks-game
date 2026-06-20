@@ -56,6 +56,14 @@
           <div class="health__value" id="player1-health-value">100</div>
         </div>
         <div class="powerups" id="player1-powerups"></div>
+        <div class="crosshair" id="player1-crosshair" aria-hidden="true">
+          <div class="crosshair__reticle">
+            <span class="crosshair__line crosshair__line--horizontal"></span>
+            <span class="crosshair__line crosshair__line--vertical"></span>
+            <span class="crosshair__dot"></span>
+          </div>
+          <div class="crosshair__pitch" id="player1-aim-pitch">0°</div>
+        </div>
         <div class="banner win-banner" id="player1-win-banner" style="display: none;">
           <div class="banner_text"><h1>YOU WIN!</h1></div>
         </div>
@@ -65,7 +73,7 @@
       </div>
     </div>
 
-    <div class="message message--replay" id="replayMessage">W/A/S/D or arrows to move - Space to fire</div>
+    <div class="message message--replay" id="replayMessage">W/A/S/D or arrows to move - Q/E aim - Space to fire</div>
     <div class="message message--instructions hidden" id="instructions"></div>
   </div>
 </body>

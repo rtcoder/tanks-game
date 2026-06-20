@@ -388,6 +388,7 @@ class World {
     Tank.onTick = (tank: Tank, delta: number) => {
       if (tank !== this.localTank) return;
       tank.update(this.keyboard, this.scene, this.tanks, this.walls, this.surrounding_walls, this.bullets, delta);
+      this.updateCrosshairPosition();
       this.attachDestructionHooks();
       this.syncLocalTank(false);
     };
@@ -416,6 +417,54 @@ class World {
     this.loop.updatableLists = [[this.localTank], this.powerups, this.bullets, this.walls].filter(Boolean);
   }
 
+  updateCrosshairPosition(): void {
+    if (!this.localTank || !this.camera) {
+      return;
+    }
+
+    const crosshair = this.localTank.crosshairElement;
+    if (!crosshair) {
+      return;
+    }
+
+    const aimPoint = this.getCrosshairAimPoint();
+    const projected = aimPoint.project(this.camera.camera);
+    const width = this.renderer.renderer.domElement.clientWidth || window.innerWidth;
+    const height = this.renderer.renderer.domElement.clientHeight || window.innerHeight;
+    const x = (projected.x * 0.5 + 0.5) * width;
+    const y = (-projected.y * 0.5 + 0.5) * height;
+
+    crosshair.style.left = `${THREE.MathUtils.clamp(x, 24, width - 24)}px`;
+    crosshair.style.top = `${THREE.MathUtils.clamp(y, 24, height - 24)}px`;
+  }
+
+  getCrosshairAimPoint(): THREE.Vector3 {
+    if (!this.localTank) {
+      return new THREE.Vector3();
+    }
+
+    const {origin, direction} = this.localTank.getAimRay();
+    const raycaster = new THREE.Raycaster(origin, direction, 0, ARENA_SIZE * 2);
+    const wallMeshes = this.walls
+        .filter((wall) => !wall.destroyed && wall.mesh.parent)
+        .map((wall) => wall.mesh);
+    const [wallHit] = raycaster.intersectObjects(wallMeshes, false);
+    if (wallHit) {
+      return wallHit.point;
+    }
+
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    const groundHit = new THREE.Vector3();
+    if (raycaster.ray.intersectPlane(groundPlane, groundHit)) {
+      const distanceToGround = origin.distanceTo(groundHit);
+      if (distanceToGround > 0 && distanceToGround <= ARENA_SIZE * 2) {
+        return groundHit;
+      }
+    }
+
+    return origin.clone().add(direction.multiplyScalar(ARENA_SIZE));
+  }
+
   registerBattleHandlers(): void {
     this.nickInput.addEventListener('input', () => {
       localStorage.setItem(STORAGE_KEYS.nick, sanitizeNick(this.nickInput.value));
@@ -430,7 +479,7 @@ class World {
 
   registerInputHandlers(): void {
     window.addEventListener('keydown', (event) => {
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyE'].includes(event.code)) {
         event.preventDefault();
       }
       this.keyboard[event.code] = 1;

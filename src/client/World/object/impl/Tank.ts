@@ -22,10 +22,17 @@ export class Tank extends MovableObject {
   rotateLeftKey: string = 'ArrowLeft';
   rotateRightKey: string = 'ArrowRight';
   firingKey: string = 'Space';
+  aimUpKey: string = 'KeyE';
+  aimDownKey: string = 'KeyQ';
 
   // keyboard control variables
   proceed: number = 0;
   rotate: number = 0;
+  aimInput: number = 0;
+  aimPitch: number = 0;
+  aimPitchMin: number = THREE.MathUtils.degToRad(-12);
+  aimPitchMax: number = THREE.MathUtils.degToRad(28);
+  aimPitchSpeed: number = THREE.MathUtils.degToRad(42);
   lastFireTime: number = 0;
   firingKeyPressed: boolean = false;
 
@@ -42,6 +49,8 @@ export class Tank extends MovableObject {
   healthBarFillElement!: HTMLElement;
   healthBarValueElement!: HTMLElement;
   powerupsContainerElement!: HTMLElement;
+  aimPitchElement!: HTMLElement;
+  crosshairElement!: HTMLElement;
 
   // poweup is responsible for creating powerup pbar elements and hooks
   // tank tick is responsible for checking if the powerup is expired and remove it
@@ -105,11 +114,22 @@ export class Tank extends MovableObject {
     // this.weaponBarFillElement = container_sub.getElementsByClassName("weapon__bar__fill")[0] as HTMLElement;
     // this.weaponBarValueElement = container_sub.getElementsByClassName("weapon__value")[0] as HTMLElement;
     this.powerupsContainerElement = container_sub.getElementsByClassName('powerups')[0] as HTMLElement;
+    this.aimPitchElement = container_sub.getElementsByClassName('crosshair__pitch')[0] as HTMLElement;
+    this.crosshairElement = container_sub.getElementsByClassName('crosshair')[0] as HTMLElement;
   }
 
   _updateSpeed(keyboard: { [key: string]: number }, delta: number) {
     this.proceed = ((keyboard[this.proceedUpKey] || 0) - (keyboard[this.proceedDownKey] || 0)) * delta;
     this.rotate = ((keyboard[this.rotateLeftKey] || 0) - (keyboard[this.rotateRightKey] || 0)) * delta;
+  }
+
+  _updateAim(keyboard: { [key: string]: number }, delta: number) {
+    this.aimInput = (keyboard[this.aimUpKey] || 0) - (keyboard[this.aimDownKey] || 0);
+    this.aimPitch = THREE.MathUtils.clamp(
+        this.aimPitch + this.aimInput * this.aimPitchSpeed * delta,
+        this.aimPitchMin,
+        this.aimPitchMax,
+    );
   }
 
   _updatePosition(walls: Wall[], tanks: Tank[], surrounding_walls: Wall[]) {
@@ -143,12 +163,29 @@ export class Tank extends MovableObject {
   _getBulletInitState() {
     // compute the initial position and direction of the bullet
     let localPos = this.bulletLocalPos.clone();
-    let localDir = this.bulletLocalDir.clone();
+    let localDir = new THREE.Vector3(
+        this.bulletLocalDir.x,
+        Math.cos(this.aimPitch),
+        Math.sin(this.aimPitch),
+    ).normalize();
     localPos.applyMatrix4(this.mesh.matrixWorld);
     localDir.applyEuler(this.mesh.rotation);
     return {
       pos: localPos,
       vel: localDir.multiplyScalar(this.bulletSpeed),
+    };
+  }
+
+  getAimWorldPoint(distance = 420): THREE.Vector3 {
+    const {pos, vel} = this._getBulletInitState();
+    return pos.add(vel.normalize().multiplyScalar(distance));
+  }
+
+  getAimRay(): {origin: THREE.Vector3; direction: THREE.Vector3} {
+    const {pos, vel} = this._getBulletInitState();
+    return {
+      origin: pos,
+      direction: vel.normalize(),
     };
   }
 
@@ -161,20 +198,20 @@ export class Tank extends MovableObject {
         this.proceed = (keyboard[this.proceedUpKey] || 0) - (keyboard[this.proceedDownKey] || 0);
         const tankVel = new THREE.Vector3(0, 1, 0).applyEuler(this.mesh.rotation).multiplyScalar(this.proceed * this.proceedSpeed);
         if (!this.bulletUpgraded) {
-          const bullet = new Bullet('main', pos, vel.add(tankVel), this.attack, this.bullet_mesh, this.mesh.rotation, this.listeners, this.audio);
+          const bullet = new Bullet('main', pos, vel.add(tankVel), this.attack, this.bullet_mesh, this.getBulletRotation(), this.listeners, this.audio);
           bullets.push(bullet);
           scene.add(bullet);
         } else {
           // TODO: make it more standard
-          let vel2 = new THREE.Vector3(-0.22, 1, 0).applyEuler(this.mesh.rotation).multiplyScalar(this.bulletSpeed);
-          let vel3 = new THREE.Vector3(0.22, 1, 0).applyEuler(this.mesh.rotation).multiplyScalar(this.bulletSpeed);
+          let vel2 = new THREE.Vector3(-0.22, Math.cos(this.aimPitch), Math.sin(this.aimPitch)).normalize().applyEuler(this.mesh.rotation).multiplyScalar(this.bulletSpeed);
+          let vel3 = new THREE.Vector3(0.22, Math.cos(this.aimPitch), Math.sin(this.aimPitch)).normalize().applyEuler(this.mesh.rotation).multiplyScalar(this.bulletSpeed);
           const bullet1 = new Bullet('main', pos, vel.add(tankVel), this.attack, this.bullet_mesh,
-              this.mesh.rotation, this.listeners, this.audio);
+              this.getBulletRotation(), this.listeners, this.audio);
           const bullet2 = new Bullet('main', pos, vel2.add(tankVel), this.attack, this.bullet_mesh,
-              new THREE.Euler(this.mesh.rotation.x, this.mesh.rotation.y, this.mesh.rotation.z + Math.PI / 6),
+              this.getBulletRotation(Math.PI / 6),
               this.listeners, this.audio);
           const bullet3 = new Bullet('main', pos, vel3.add(tankVel), this.attack, this.bullet_mesh,
-              new THREE.Euler(this.mesh.rotation.x, this.mesh.rotation.y, this.mesh.rotation.z - Math.PI / 6),
+              this.getBulletRotation(-Math.PI / 6),
               this.listeners, this.audio);
           bullets.push(bullet1, bullet2, bullet3);
           scene.add(bullet1);
@@ -190,6 +227,10 @@ export class Tank extends MovableObject {
     }
   }
 
+  getBulletRotation(yawOffset = 0): THREE.Euler {
+    return new THREE.Euler(this.aimPitch, this.mesh.rotation.y, this.mesh.rotation.z + yawOffset);
+  }
+
   update(
       keyboard: { [key: string]: number },
       scene: Scene,
@@ -200,6 +241,7 @@ export class Tank extends MovableObject {
       delta: number,
   ) {
     this._updateSpeed(keyboard, delta);
+    this._updateAim(keyboard, delta);
     this._updatePosition(walls, tanks, surrounding_walls);
     this._createBullets(keyboard, bullets, scene);
   }
@@ -282,6 +324,10 @@ export class Tank extends MovableObject {
     this.healthBarFillElement.style.width = `${clampedHealth}%`;
     this.healthBarValueElement.innerText = `${clampedHealth.toFixed(0)}`;
     this.healthElement.dataset.state = clampedHealth <= 25 ? 'critical' : clampedHealth <= 55 ? 'warn' : 'ok';
+    if (this.aimPitchElement && this.crosshairElement) {
+      const aimDegrees = THREE.MathUtils.radToDeg(this.aimPitch);
+      this.aimPitchElement.innerText = `${aimDegrees.toFixed(0)}°`;
+    }
 
     for (const key in this.powerups) {
       let timeout = this.powerups[key].timeout - delta * 1000;
