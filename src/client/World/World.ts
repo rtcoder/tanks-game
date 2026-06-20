@@ -833,8 +833,8 @@ class World {
       radius: number,
   ): void {
     const point = toMap(tank.mesh.position);
-    const heading = Math.PI / 2 - tank.mesh.rotation.z;
-    const aimHeading = Math.PI / 2 - (tank.mesh.rotation.z + tank.aimYaw);
+    const heading = -tank.mesh.rotation.z;
+    const aimHeading = -(tank.mesh.rotation.z + tank.aimYaw);
 
     context.save();
     context.translate(point.x, point.y);
