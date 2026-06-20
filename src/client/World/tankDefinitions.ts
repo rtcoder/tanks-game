@@ -48,16 +48,6 @@ export const TANK_DEFINITIONS: TankDefinition[] = [
       rightTrack: ['right_track'],
     },
   },
-  {
-    id: 't55am1',
-    name: 'T-55AM-1',
-    role: 'Modernized MBT',
-    description: 'Soviet T-55 upgrade with added armor, compact silhouette, and a steady 100 mm gun.',
-    modelPath: '/battletanks/tanks/t55am1/obj/t55am1_cmd.obj',
-    visualTargetLength: 74,
-    visualRotation: new THREE.Euler(-Math.PI / 2, 0, Math.PI),
-    visualScale: new THREE.Vector3(1, 1, 1.45),
-  },
 ];
 
 export const DEFAULT_TANK_ID = TANK_DEFINITIONS[0].id;
