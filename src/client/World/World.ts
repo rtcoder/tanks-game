@@ -69,6 +69,7 @@ const decodeMessage = (message: string): WsMessage => JSON.parse(message) as WsM
 const createNetworkTank = (tank: Tank, uid: string | null, color = '#8ca36f'): NetworkTank => ({
   uid,
   tankModelId: tank.tankModelId,
+  turretAngle: THREE.MathUtils.radToDeg(tank.mesh.rotation.z + tank.aimYaw),
   lives: Math.max(0, tank.health),
   x: tank.mesh.position.x + ARENA_HALF,
   y: -tank.mesh.position.y + ARENA_HALF,
@@ -88,6 +89,7 @@ const createNetworkTank = (tank: Tank, uid: string | null, color = '#8ca36f'): N
 const applyNetworkTank = (tank: Tank, data: NetworkTank): void => {
   tank.mesh.position.set(data.x - ARENA_HALF, -(data.y - ARENA_HALF), 0);
   tank.mesh.rotation.z = THREE.MathUtils.degToRad(data.angle);
+  tank.setAimYaw(THREE.MathUtils.degToRad(data.turretAngle ?? data.angle) - tank.mesh.rotation.z);
   tank.health = data.lives;
 };
 
@@ -1017,7 +1019,7 @@ class World {
     if (!this.localTank || !this.webSocket || this.webSocket.readyState !== WebSocket.OPEN) return;
     const now = Date.now();
     const tank = createNetworkTank(this.localTank, this.playerId);
-    const snapshot = `${tank.tankModelId}:${Math.round(tank.x)}:${Math.round(tank.y)}:${Math.round(tank.angle)}:${Math.round(tank.lives)}`;
+    const snapshot = `${tank.tankModelId}:${Math.round(tank.x)}:${Math.round(tank.y)}:${Math.round(tank.angle)}:${Math.round(tank.turretAngle ?? 0)}:${Math.round(tank.lives)}`;
     if (!force && snapshot === this.lastSentSnapshot && now - this.lastSentAt < 160) return;
     this.lastSentSnapshot = snapshot;
     this.lastSentAt = now;

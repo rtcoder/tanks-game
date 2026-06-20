@@ -15,8 +15,8 @@ export class ThirdPersonViewCamera extends Camera {
         0.1,
         1000,
     );
-    // add camera to the tank's local coordinate frame
-    tank.mesh.add(this._camera);
+    // Follow the turret direction; the hull keeps its own movement heading.
+    tank.aimAnchor.add(this._camera);
     this._camera.up.set(0, 0, 1);
     this._camera.position.set(0, -this.cameraDistance, this.cameraHeight);
     this._camera.lookAt(new THREE.Vector3(0, this.lookAheadDistance, 24));

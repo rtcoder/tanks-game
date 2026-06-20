@@ -117,7 +117,8 @@ export class TankModel {
     });
   }
 
-  update(state: {aimPitch: number; movement: number}): void {
+  update(state: {aimPitch: number; aimYaw: number; movement: number}): void {
+    this.setTurretYaw(state.aimYaw);
     this.setBarrelPitch(state.aimPitch);
     if (state.movement !== 0) {
       this.setTrackMotion(state.movement);

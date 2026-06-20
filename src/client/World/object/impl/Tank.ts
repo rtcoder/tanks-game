@@ -10,6 +10,7 @@ import {Wall} from './Wall';
 
 export class Tank extends MovableObject {
   mesh: THREE.Group;
+  aimAnchor: THREE.Group;
   tankDefinition: TankDefinition | null = null;
   tankModel: TankModel | null = null;
   tankModelId = 'vanguard';
@@ -22,10 +23,10 @@ export class Tank extends MovableObject {
   bulletSpeed: number = 520;
 
   // key bindings
-  proceedUpKey: string = 'ArrowUp';
-  proceedDownKey: string = 'ArrowDown';
-  rotateLeftKey: string = 'ArrowLeft';
-  rotateRightKey: string = 'ArrowRight';
+  proceedUpKey: string = 'KeyW';
+  proceedDownKey: string = 'KeyS';
+  rotateLeftKey: string = 'KeyA';
+  rotateRightKey: string = 'KeyD';
   firingKey: string = 'Space';
   aimUpKey: string = 'KeyE';
   aimDownKey: string = 'KeyQ';
@@ -34,9 +35,11 @@ export class Tank extends MovableObject {
   proceed: number = 0;
   rotate: number = 0;
   aimInput: number = 0;
+  aimYaw: number = 0;
   aimPitch: number = 0;
   aimPitchMin: number = THREE.MathUtils.degToRad(-12);
   aimPitchMax: number = THREE.MathUtils.degToRad(28);
+  aimYawSpeed: number = THREE.MathUtils.degToRad(72);
   aimPitchSpeed: number = THREE.MathUtils.degToRad(42);
   lastFireTime: number = 0;
   firingKeyPressed: boolean = false;
@@ -78,6 +81,8 @@ export class Tank extends MovableObject {
     Object.assign(this, config);
 
     this.mesh = new THREE.Group();
+    this.aimAnchor = new THREE.Group();
+    this.mesh.add(this.aimAnchor);
     if (tank_mesh != null) {
       this.setTankModel(tank_mesh);
       this.mesh.castShadow = true;
@@ -137,6 +142,17 @@ export class Tank extends MovableObject {
 
   _updateAim(keyboard: { [key: string]: number }, delta: number) {
     this.aimInput = (keyboard[this.aimUpKey] || 0) - (keyboard[this.aimDownKey] || 0);
+    this.setAimYaw(this.aimYaw + this.aimInput * this.aimYawSpeed * delta);
+  }
+
+  setAimYaw(yaw: number): void {
+    this.aimYaw = THREE.MathUtils.euclideanModulo(yaw + Math.PI, Math.PI * 2) - Math.PI;
+    this.aimAnchor.rotation.z = this.aimYaw;
+    this.tankModel?.setTurretYaw(this.aimYaw);
+  }
+
+  _updateAimPitch(keyboard: { [key: string]: number }, delta: number) {
+    this.aimInput = (keyboard[this.aimUpKey] || 0) - (keyboard[this.aimDownKey] || 0);
     this.aimPitch = THREE.MathUtils.clamp(
         this.aimPitch + this.aimInput * this.aimPitchSpeed * delta,
         this.aimPitchMin,
@@ -180,8 +196,9 @@ export class Tank extends MovableObject {
         Math.cos(this.aimPitch),
         Math.sin(this.aimPitch),
     ).normalize();
-    localPos.applyMatrix4(this.mesh.matrixWorld);
-    localDir.applyEuler(this.mesh.rotation);
+    this.aimAnchor.updateMatrixWorld(true);
+    localPos.applyMatrix4(this.aimAnchor.matrixWorld);
+    localDir.transformDirection(this.aimAnchor.matrixWorld);
     return {
       pos: localPos,
       vel: localDir.multiplyScalar(this.bulletSpeed),
@@ -240,7 +257,7 @@ export class Tank extends MovableObject {
   }
 
   getBulletRotation(yawOffset = 0): THREE.Euler {
-    return new THREE.Euler(this.aimPitch, this.mesh.rotation.y, this.mesh.rotation.z + yawOffset);
+    return new THREE.Euler(this.aimPitch, this.mesh.rotation.y, this.mesh.rotation.z + this.aimYaw + yawOffset);
   }
 
   update(
@@ -258,6 +275,7 @@ export class Tank extends MovableObject {
     this._createBullets(keyboard, bullets, scene);
     this.tankModel?.update({
       aimPitch: this.aimPitch,
+      aimYaw: this.aimYaw,
       movement: this.proceed * this.proceedSpeed,
     });
   }
@@ -287,6 +305,7 @@ export class Tank extends MovableObject {
   reset() {
     this.mesh.position.copy(this.originalPos);
     this.mesh.rotation.copy(this.originalRot);
+    this.setAimYaw(0);
     this.health = 100;
     this.attack = 10;
     this.defense = 0;
