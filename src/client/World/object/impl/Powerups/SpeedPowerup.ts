@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {Tank} from '../Tank';
+import {speedTime} from './powerups-time.ts';
 import {TimeoutPowerup} from './TimeoutPowerup';
 
 export class SpeedPowerup extends TimeoutPowerup {
@@ -8,7 +9,7 @@ export class SpeedPowerup extends TimeoutPowerup {
 
   constructor(name: string, mesh: THREE.Object3D, pos: THREE.Vector3,
               listeners: THREE.AudioListener[], audio: AudioBuffer) {
-    super(name, 'speed', mesh, pos, listeners, audio, 10000);
+    super(name, 'speed', mesh, pos, listeners, audio, speedTime);
   }
 
   PriorHook(tank: Tank): void {

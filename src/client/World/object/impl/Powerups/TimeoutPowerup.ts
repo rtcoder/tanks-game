@@ -5,8 +5,8 @@ import {Powerup} from './Powerup';
 export abstract class TimeoutPowerup extends Powerup {
   timeout: number;
 
-  constructor(name: string, type: string, mesh: THREE.Object3D, pos: THREE.Vector3,
-              listeners: THREE.AudioListener[], audio: AudioBuffer, timeout: number) {
+  protected constructor(name: string, type: string, mesh: THREE.Object3D, pos: THREE.Vector3,
+                        listeners: THREE.AudioListener[], audio: AudioBuffer, timeout: number) {
     super(name, type, mesh, pos, listeners, audio);
     this.timeout = timeout;
   }

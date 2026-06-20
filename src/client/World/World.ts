@@ -21,8 +21,35 @@ import {ThirdPersonViewCamera} from './system/Camera/ThirdPersonViewCamera';
 import {Loop} from './system/Loop';
 import {Renderer} from './system/Renderer';
 import {Scene} from './system/Scene';
+import defaultMapData from '../../assets/maps/default.json';
 
-const ARENA_SIZE = 1500;
+type VectorTuple = [number, number, number];
+type BoundaryWallData = {
+  id: string;
+  kind: 'maze' | 'boundary';
+  size: VectorTuple;
+  position: VectorTuple;
+  rotation: VectorTuple;
+  destructible: boolean;
+  health?: number;
+};
+type GameMapData = {
+  id: string;
+  name: string;
+  arena: {
+    size: number;
+  };
+  generator: {
+    type: string;
+    gridSize: number;
+    seed: number;
+    wall: Record<string, number>;
+  };
+  walls: BoundaryWallData[];
+};
+
+const DEFAULT_MAP = defaultMapData as unknown as GameMapData;
+const ARENA_SIZE = DEFAULT_MAP.arena.size;
 const ARENA_HALF = ARENA_SIZE / 2;
 const STORAGE_KEYS = {
   nick: 'tanks:nick',
@@ -308,110 +335,39 @@ class World {
   }
 
   initializeWalls(walls: Wall[], surrounding_walls: Wall[]): void {
-    const createSegmentedWall = (
-        idPrefix: string,
-        textureDict: { [key: string]: THREE.Texture },
-        size: THREE.Vector3,
-        position: THREE.Vector3,
-        rotation: THREE.Euler,
-    ): void => {
-      const maxBlockLength = 48;
-      const blockCount = Math.max(1, Math.ceil(size.y / maxBlockLength));
-      const blockLength = size.y / blockCount;
-      const direction = new THREE.Vector3(0, 1, 0).applyEuler(rotation);
-      const firstOffset = -(size.y - blockLength) / 2;
+    const mapData = DEFAULT_MAP;
+    const mapWallTexture = this.textureDict['wall'];
+    const maxWallBlockHeight = mapData.generator.wall.maxBlockHeight ?? 50;
 
-      for (let blockIndex = 0; blockIndex < blockCount; blockIndex++) {
-        const blockPosition = position.clone().addScaledVector(direction, firstOffset + blockIndex * blockLength);
-        walls.push(new Wall(
+    mapData.walls.forEach((wallData) => {
+      const heightBlockCount = Math.max(1, Math.ceil(wallData.size[2] / maxWallBlockHeight));
+      const blockHeight = wallData.size[2] / heightBlockCount;
+      const wallBaseZ = wallData.position[2];
+
+      for (let heightIndex = 0; heightIndex < heightBlockCount; heightIndex++) {
+        const wallId = heightBlockCount === 1 ? wallData.id : `${wallData.id}-h${heightIndex}`;
+        const wall = new Wall(
             'main',
-            textureDict,
-            new THREE.Vector3(size.x, blockLength, size.z),
-            blockPosition,
-            rotation.clone(),
-            {id: `${idPrefix}-${blockIndex}`, destructible: true, health: 20},
-        ));
-      }
-    };
-
-    const randomFactory = (seed: number): (() => number) => {
-      let value = seed;
-      return () => {
-        value = (value * 1664525 + 1013904223) >>> 0;
-        return value / 0x100000000;
-      };
-    };
-    const mazeInitialize = (size: number, marginSize: number, textureDict: { [key: string]: THREE.Texture }) => {
-      const gridCount = size * size;
-      const hasWall = Array.from({length: gridCount}, () => Array(gridCount).fill(false) as boolean[]);
-      for (let i = 0; i < gridCount; i++) {
-        if (i % size !== 0) hasWall[i][i - 1] = true;
-        if (i % size !== size - 1) hasWall[i][i + 1] = true;
-        if (i >= size) hasWall[i][i - size] = true;
-        if (i < gridCount - size) hasWall[i][i + size] = true;
-      }
-      const visited = Array(gridCount).fill(false) as boolean[];
-      const stack: number[] = [];
-      const random = randomFactory(1337);
-      let current = 0;
-      visited[current] = true;
-      while (true) {
-        const options: number[] = [];
-        for (let i = 0; i < gridCount; i++) {
-          if (hasWall[current][i] && !visited[i]) options.push(i);
-        }
-        if (options.length === 0) {
-          const previous = stack.pop();
-          if (previous === undefined) break;
-          current = previous;
-          continue;
-        }
-        const next = options[Math.floor(random() * options.length)];
-        stack.push(current);
-        visited[next] = true;
-        hasWall[current][next] = false;
-        hasWall[next][current] = false;
-        current = next;
-      }
-      const gridSize = marginSize / size;
-      for (let i = 0; i < gridCount; i++) {
-        for (let j = i + 1; j < gridCount; j++) {
-          if (!hasWall[i][j]) continue;
-          const position = new THREE.Vector3(0, 0, 0);
-          const rotation = new THREE.Euler(0, 0, 0);
-          if (j === i + 1) {
-            position.x = -marginSize / 2 + gridSize * (j % size);
-            position.y = marginSize / 2 - gridSize * (Math.floor(j / size) + 0.5);
-          } else if (j === i + size) {
-            position.x = -marginSize / 2 + gridSize * (j % size + 0.5);
-            position.y = marginSize / 2 - gridSize * Math.floor(j / size);
-            rotation.z = Math.PI / 2;
-          }
-          createSegmentedWall(`maze-${i}-${j}`, textureDict, new THREE.Vector3(20, gridSize + 20, 50), position, rotation);
+            mapWallTexture,
+            new THREE.Vector3(wallData.size[0], wallData.size[1], blockHeight),
+            new THREE.Vector3(
+                wallData.position[0],
+                wallData.position[1],
+                wallBaseZ + blockHeight / 2 + heightIndex * blockHeight,
+            ),
+            new THREE.Euler(...wallData.rotation),
+            {
+              id: wallId,
+              destructible: wallData.destructible,
+              health: wallData.health,
+            },
+        );
+        walls.push(wall);
+        if (wallData.kind === 'boundary') {
+          surrounding_walls.push(wall);
         }
       }
-    };
-
-    const marginSize = ARENA_SIZE;
-    mazeInitialize(8, marginSize, this.textureDict['wall']);
-    const wall1 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(marginSize / 2, 0, 0), new THREE.Euler(0, 0, 0), {
-      id: 'boundary-east',
-      destructible: false,
     });
-    const wall2 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(-marginSize / 2, 0, 0), new THREE.Euler(0, 0, 0), {
-      id: 'boundary-west',
-      destructible: false,
-    });
-    const wall3 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize - 200, 100), new THREE.Vector3(100, marginSize / 2, 0), new THREE.Euler(0, 0, Math.PI / 2), {
-      id: 'boundary-north',
-      destructible: false,
-    });
-    const wall4 = new Wall('main', this.textureDict['wall'], new THREE.Vector3(20, marginSize + 20, 100), new THREE.Vector3(0, -marginSize / 2, 0), new THREE.Euler(0, 0, Math.PI / 2), {
-      id: 'boundary-south',
-      destructible: false,
-    });
-    walls.push(wall1, wall2, wall3, wall4);
-    surrounding_walls.push(wall1, wall2, wall3, wall4);
   }
 
   initializePowerups(powerups: Powerup[]): void {

@@ -44,19 +44,49 @@ export class Wall extends BaseObject {
     } else {
       const wallRepeatX = Math.max(1, size.y / 120);
       const wallRepeatY = Math.max(1, size.z / 90);
+      const configureWallTexture = (clonedTexture: THREE.Texture, rotation = Math.PI): THREE.Texture => {
+        clonedTexture.wrapS = THREE.RepeatWrapping;
+        clonedTexture.wrapT = THREE.RepeatWrapping;
+        clonedTexture.repeat.set(wallRepeatX, wallRepeatY);
+        clonedTexture.center.set(0.5, 0.5);
+        clonedTexture.rotation = rotation;
+        clonedTexture.needsUpdate = true;
+        return clonedTexture;
+      };
       const cloneWallTexture = (source?: THREE.Texture): THREE.Texture | null => {
         if (!source) {
           return null;
         }
 
-        const clonedTexture = source.clone();
-        clonedTexture.wrapS = THREE.RepeatWrapping;
-        clonedTexture.wrapT = THREE.RepeatWrapping;
-        clonedTexture.repeat.set(wallRepeatX, wallRepeatY);
-        clonedTexture.center.set(0.5, 0.5);
-        clonedTexture.rotation = Math.PI;
-        clonedTexture.needsUpdate = true;
-        return clonedTexture;
+        return configureWallTexture(source.clone());
+      };
+      const cloneRotatedWallTexture = (source?: THREE.Texture): THREE.Texture | null => {
+        if (!source?.image) {
+          return null;
+        }
+
+        const image = source.image as CanvasImageSource & { width?: number; height?: number; naturalWidth?: number; naturalHeight?: number };
+        const width = image.naturalWidth ?? image.width ?? 0;
+        const height = image.naturalHeight ?? image.height ?? 0;
+        if (!width || !height) {
+          return cloneWallTexture(source);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d');
+        if (!context) {
+          return cloneWallTexture(source);
+        }
+
+        context.translate(width, height);
+        context.rotate(Math.PI);
+        context.drawImage(image, 0, 0, width, height);
+
+        const rotatedTexture = new THREE.CanvasTexture(canvas);
+        rotatedTexture.colorSpace = source.colorSpace;
+        return configureWallTexture(rotatedTexture, 0);
       };
 
       const albedoTexture = cloneWallTexture(texture['albedo']);
@@ -68,7 +98,7 @@ export class Wall extends BaseObject {
       this.wallTexture = albedoTexture;
       this.damagedWallTexture = cloneWallTexture(texture['damagedAlbedo']);
       this.destroyWallTextures = [1, 2, 3]
-          .map((frame) => cloneWallTexture(texture[`destroyAlbedo${frame}`]))
+          .map((frame) => cloneRotatedWallTexture(texture[`destroyAlbedo${frame}`]))
           .filter((frameTexture): frameTexture is THREE.Texture => Boolean(frameTexture));
 
       material.map = albedoTexture;
@@ -80,14 +110,45 @@ export class Wall extends BaseObject {
       material.color.set(0xffffff);
     }
 
+    const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
+    this.rotateLongSideUvsClockwise(geometry, size);
+
     this.mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(size.x, size.y, size.z),
+        geometry,
         // new THREE.MeshLambertMaterial({ color: "grey" })
         material,
     );
     this.mesh.position.copy(position);
     this.mesh.rotation.copy(rotation);
     this.mesh.receiveShadow = true;
+  }
+
+  rotateLongSideUvsClockwise(geometry: THREE.BoxGeometry, size: THREE.Vector3): void {
+    const longSideGroupIndexes = size.y >= size.x ? [0, 1] : [2, 3];
+    const uvAttribute = geometry.getAttribute('uv') as THREE.BufferAttribute;
+    const indexAttribute = geometry.getIndex();
+    const visitedVertices = new Set<number>();
+
+    longSideGroupIndexes.forEach((groupIndex) => {
+      const group = geometry.groups[groupIndex];
+      if (!group) {
+        return;
+      }
+
+      for (let offset = group.start; offset < group.start + group.count; offset++) {
+        const vertexIndex = indexAttribute ? indexAttribute.getX(offset) : offset;
+        if (visitedVertices.has(vertexIndex)) {
+          continue;
+        }
+        visitedVertices.add(vertexIndex);
+
+        const u = uvAttribute.getX(vertexIndex);
+        const v = uvAttribute.getY(vertexIndex);
+        uvAttribute.setXY(vertexIndex, 1 - v, u);
+      }
+    });
+
+    uvAttribute.needsUpdate = true;
   }
 
   damage(amount: number): boolean {
