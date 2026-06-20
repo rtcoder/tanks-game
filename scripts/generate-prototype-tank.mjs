@@ -91,8 +91,8 @@ barrel.name = 'barrel';
 barrel.position.set(0, 10.5, 5);
 turret.add(barrel);
 
-barrel.add(mesh('barrel_tube', cylinder(1.35, 1.55, 34, 24), barrelMat, [0, 17, 0], [0, 0, Math.PI / 2]));
-barrel.add(mesh('barrel_muzzle', cylinder(1.9, 1.9, 4, 24), barrelMat, [0, 35, 0], [0, 0, Math.PI / 2]));
+barrel.add(mesh('barrel_tube', cylinder(1.35, 1.55, 34, 24), barrelMat, [0, 17, 0]));
+barrel.add(mesh('barrel_muzzle', cylinder(1.9, 1.9, 4, 24), barrelMat, [0, 35, 0]));
 barrel.add(mesh('mantlet', box(9, 4, 6), darkArmor, [0, -1, 0]));
 
 root.updateMatrixWorld(true);
