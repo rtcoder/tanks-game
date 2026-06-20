@@ -29,9 +29,15 @@
         <div class="tank-select">
           <div class="tank-select__heading">
             <strong>Tank</strong>
-            <span>Choose vehicle</span>
+            <span>Vehicle bay</span>
           </div>
-          <div class="tank-options" id="tank-selection"></div>
+          <button class="tank-select__button" id="tank-select-button" type="button">
+            <span>
+              <strong id="selected-tank-name">Loading</strong>
+              <small id="selected-tank-role">Vehicle</small>
+            </span>
+            <b>Change</b>
+          </button>
         </div>
         <div class="online-grid">
           <label>
@@ -82,6 +88,32 @@
 
     <div class="message message--replay" id="replayMessage">W/A/S/D or arrows to move - Q/E aim - Space to fire</div>
     <div class="message message--instructions hidden" id="instructions"></div>
+
+    <div class="tank-modal hidden" id="tank-modal" aria-hidden="true">
+      <div class="tank-modal__panel" role="dialog" aria-modal="true" aria-labelledby="tank-modal-title">
+        <div class="tank-modal__topline">
+          <div>
+            <span>Vehicle bay</span>
+            <h2 id="tank-modal-title">Choose tank</h2>
+          </div>
+          <button class="tank-modal__close" id="tank-modal-close" type="button" aria-label="Close tank selector">×</button>
+        </div>
+        <div class="tank-modal__body">
+          <div class="tank-modal__preview">
+            <div class="tank-preview" id="tank-preview"></div>
+            <div class="tank-modal__spec">
+              <strong id="tank-preview-name">Tank</strong>
+              <span id="tank-preview-role">Role</span>
+              <p id="tank-preview-description"></p>
+            </div>
+          </div>
+          <div class="tank-modal__list" id="tank-selection"></div>
+        </div>
+        <div class="tank-modal__actions">
+          <button id="tank-modal-confirm" type="button">Select vehicle</button>
+        </div>
+      </div>
+    </div>
   </div>
 </body>
 </html>

@@ -18,6 +18,7 @@ import {Powerup} from './object/impl/Powerups/Powerup';
 import {SpeedPowerup} from './object/impl/Powerups/SpeedPowerup';
 import {WeaponPowerup} from './object/impl/Powerups/WeaponPowerup';
 import {Tank} from './object/impl/Tank';
+import {TankModel} from './object/impl/TankModel';
 import {Wall} from './object/impl/Wall';
 import {ThirdPersonViewCamera} from './system/Camera/ThirdPersonViewCamera';
 import {Loop} from './system/Loop';
@@ -120,6 +121,16 @@ class World {
   maxPlayersInput: HTMLInputElement;
   battleIdInput: HTMLInputElement;
   tankSelectionElement: HTMLElement;
+  tankSelectButton: HTMLButtonElement;
+  selectedTankNameElement: HTMLElement;
+  selectedTankRoleElement: HTMLElement;
+  tankModal: HTMLElement;
+  tankModalCloseButton: HTMLButtonElement;
+  tankModalConfirmButton: HTMLButtonElement;
+  tankPreviewElement: HTMLElement;
+  tankPreviewNameElement: HTMLElement;
+  tankPreviewRoleElement: HTMLElement;
+  tankPreviewDescriptionElement: HTMLElement;
   createButton: HTMLButtonElement;
   joinButton: HTMLButtonElement;
   healthContainer: HTMLElement;
@@ -140,6 +151,12 @@ class World {
   currentBattle: BattleSummary | null = null;
   playerId = localStorage.getItem(STORAGE_KEYS.playerId) || crypto.randomUUID();
   selectedTankId = getTankDefinition(localStorage.getItem(STORAGE_KEYS.tankModelId)).id;
+  modalTankId = this.selectedTankId;
+  tankPreviewRenderer: THREE.WebGLRenderer | null = null;
+  tankPreviewScene: THREE.Scene | null = null;
+  tankPreviewCamera: THREE.PerspectiveCamera | null = null;
+  tankPreviewModel: TankModel | null = null;
+  tankPreviewRoot: THREE.Group | null = null;
   lastSentAt = 0;
   lastSentSnapshot = '';
 
@@ -155,6 +172,16 @@ class World {
     this.maxPlayersInput = document.getElementById('max-players-input') as HTMLInputElement;
     this.battleIdInput = document.getElementById('battle-id-input') as HTMLInputElement;
     this.tankSelectionElement = document.getElementById('tank-selection') as HTMLElement;
+    this.tankSelectButton = document.getElementById('tank-select-button') as HTMLButtonElement;
+    this.selectedTankNameElement = document.getElementById('selected-tank-name') as HTMLElement;
+    this.selectedTankRoleElement = document.getElementById('selected-tank-role') as HTMLElement;
+    this.tankModal = document.getElementById('tank-modal') as HTMLElement;
+    this.tankModalCloseButton = document.getElementById('tank-modal-close') as HTMLButtonElement;
+    this.tankModalConfirmButton = document.getElementById('tank-modal-confirm') as HTMLButtonElement;
+    this.tankPreviewElement = document.getElementById('tank-preview') as HTMLElement;
+    this.tankPreviewNameElement = document.getElementById('tank-preview-name') as HTMLElement;
+    this.tankPreviewRoleElement = document.getElementById('tank-preview-role') as HTMLElement;
+    this.tankPreviewDescriptionElement = document.getElementById('tank-preview-description') as HTMLElement;
     this.createButton = document.getElementById('create-battle-button') as HTMLButtonElement;
     this.joinButton = document.getElementById('join-battle-button') as HTMLButtonElement;
     this.healthContainer = document.getElementById('player1-container') as HTMLElement;
@@ -198,6 +225,7 @@ class World {
     this.loop = new Loop(this.scene, [this.camera], [this.renderer]);
     this.registerBattleHandlers();
     this.registerInputHandlers();
+    this.updateSelectedTankSummary();
     this.configureTicks();
     this.loop.start();
     this.pause();
@@ -752,37 +780,164 @@ class World {
 
   renderTankSelection(): void {
     this.tankSelectionElement.innerHTML = TANK_DEFINITIONS.map((definition) => `
-      <label class="tank-option">
-        <input
-          type="radio"
-          name="tank-model"
-          value="${definition.id}"
-          ${definition.id === this.selectedTankId ? 'checked' : ''}
-        >
-        <span class="tank-option__body">
-          <span class="tank-option__topline">
-            <strong>${definition.name}</strong>
-            <span>${definition.role}</span>
-          </span>
-          <span class="tank-option__description">${definition.description}</span>
-        </span>
-      </label>
+      <button class="tank-modal__option" type="button" data-tank-id="${definition.id}" data-selected="${definition.id === this.modalTankId}">
+        <strong>${definition.name}</strong>
+        <span>${definition.role}</span>
+        <p>${definition.description}</p>
+      </button>
     `).join('');
 
-    this.tankSelectionElement.addEventListener('change', (event) => {
+    this.updateSelectedTankSummary();
+
+    this.tankSelectionElement.addEventListener('click', (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLInputElement) || target.name !== 'tank-model') {
+      const option = target instanceof Element ? target.closest<HTMLButtonElement>('[data-tank-id]') : null;
+      if (!option) {
         return;
       }
 
-      this.setSelectedTank(target.value);
+      this.previewTank(option.dataset.tankId ?? this.selectedTankId);
     });
+    this.tankSelectButton.addEventListener('click', () => this.openTankModal());
+    this.tankModalCloseButton.addEventListener('click', () => this.closeTankModal(false));
+    this.tankModalConfirmButton.addEventListener('click', () => this.closeTankModal(true));
+    this.tankModal.addEventListener('click', (event) => {
+      if (event.target === this.tankModal) {
+        this.closeTankModal(false);
+      }
+    });
+  }
+
+  updateSelectedTankSummary(): void {
+    const definition = getTankDefinition(this.selectedTankId);
+    this.selectedTankNameElement.textContent = definition.name;
+    this.selectedTankRoleElement.textContent = definition.role;
+  }
+
+  openTankModal(): void {
+    this.modalTankId = this.selectedTankId;
+    this.tankModal.classList.remove('hidden');
+    this.tankModal.setAttribute('aria-hidden', 'false');
+    this.previewTank(this.modalTankId);
+  }
+
+  closeTankModal(confirmSelection: boolean): void {
+    if (confirmSelection) {
+      this.setSelectedTank(this.modalTankId);
+    }
+    this.tankModal.classList.add('hidden');
+    this.tankModal.setAttribute('aria-hidden', 'true');
+    this.stopTankPreview();
+  }
+
+  previewTank(tankId: string): void {
+    const definition = getTankDefinition(tankId);
+    this.modalTankId = definition.id;
+    this.tankPreviewNameElement.textContent = definition.name;
+    this.tankPreviewRoleElement.textContent = definition.role;
+    this.tankPreviewDescriptionElement.textContent = definition.description;
+    this.tankSelectionElement.querySelectorAll<HTMLElement>('[data-tank-id]').forEach((option) => {
+      option.dataset.selected = String(option.dataset.tankId === definition.id);
+    });
+
+    const sourceMesh = this.tankMeshFor(definition);
+    if (!sourceMesh) {
+      return;
+    }
+
+    this.setupTankPreview();
+    if (!this.tankPreviewScene || !this.tankPreviewRoot || !this.tankPreviewCamera) {
+      return;
+    }
+
+    if (this.tankPreviewModel) {
+      this.tankPreviewRoot.remove(this.tankPreviewModel.root);
+      this.tankPreviewModel.dispose();
+      this.tankPreviewModel = null;
+    }
+
+    this.tankPreviewModel = new TankModel(sourceMesh, definition);
+    this.tankPreviewRoot.add(this.tankPreviewModel.root);
+
+    const size = new THREE.Vector3();
+    new THREE.Box3().setFromObject(this.tankPreviewModel.root).getSize(size);
+    const distance = Math.max(size.x, size.y, size.z) * 2.45;
+    this.tankPreviewCamera.position.set(0, -distance, Math.max(52, distance * 0.42));
+    this.tankPreviewCamera.lookAt(0, 0, Math.max(18, size.z * 0.42));
+    this.resizeTankPreview();
+    this.startTankPreview();
+  }
+
+  setupTankPreview(): void {
+    if (this.tankPreviewRenderer && this.tankPreviewScene && this.tankPreviewRoot && this.tankPreviewCamera) {
+      return;
+    }
+
+    this.tankPreviewScene = new THREE.Scene();
+    this.tankPreviewScene.background = new THREE.Color(0x11170f);
+    this.tankPreviewRoot = new THREE.Group();
+    this.tankPreviewScene.add(this.tankPreviewRoot);
+
+    const hemiLight = new THREE.HemisphereLight(0xe5f0ff, 0x3d321f, 2.6);
+    const keyLight = new THREE.DirectionalLight(0xfff1d2, 3.8);
+    keyLight.position.set(80, -90, 120);
+    this.tankPreviewScene.add(hemiLight, keyLight);
+
+    const floor = new THREE.Mesh(
+        new THREE.CircleGeometry(95, 48),
+        new THREE.MeshStandardMaterial({color: 0x26321f, roughness: 0.9}),
+    );
+    floor.name = 'tank_preview_floor';
+    floor.receiveShadow = true;
+    this.tankPreviewScene.add(floor);
+
+    this.tankPreviewCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+    this.tankPreviewCamera.up.set(0, 0, 1);
+    this.tankPreviewRenderer = new THREE.WebGLRenderer({antialias: true});
+    this.tankPreviewRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.tankPreviewRenderer.shadowMap.enabled = true;
+    this.tankPreviewRenderer.setClearColor(0x11170f, 1);
+    this.tankPreviewElement.replaceChildren(this.tankPreviewRenderer.domElement);
+  }
+
+  resizeTankPreview(): void {
+    if (!this.tankPreviewRenderer || !this.tankPreviewCamera) {
+      return;
+    }
+
+    const rect = this.tankPreviewElement.getBoundingClientRect();
+    const width = Math.max(1, Math.floor(rect.width));
+    const height = Math.max(1, Math.floor(rect.height));
+    this.tankPreviewRenderer.setSize(width, height, false);
+    this.tankPreviewCamera.aspect = width / height;
+    this.tankPreviewCamera.updateProjectionMatrix();
+  }
+
+  startTankPreview(): void {
+    if (!this.tankPreviewRenderer || !this.tankPreviewScene || !this.tankPreviewCamera || !this.tankPreviewRoot) {
+      return;
+    }
+
+    this.tankPreviewRenderer.setAnimationLoop(() => {
+      if (!this.tankPreviewRenderer || !this.tankPreviewScene || !this.tankPreviewCamera || !this.tankPreviewRoot) {
+        return;
+      }
+
+      this.tankPreviewRoot.rotation.z += 0.006;
+      this.tankPreviewModel?.setTurretYaw(Math.sin(performance.now() * 0.0012) * 0.45);
+      this.tankPreviewRenderer.render(this.tankPreviewScene, this.tankPreviewCamera);
+    });
+  }
+
+  stopTankPreview(): void {
+    this.tankPreviewRenderer?.setAnimationLoop(null);
   }
 
   setSelectedTank(tankId: string): void {
     const definition = getTankDefinition(tankId);
     this.selectedTankId = definition.id;
     localStorage.setItem(STORAGE_KEYS.tankModelId, definition.id);
+    this.updateSelectedTankSummary();
     this.applySelectedTankToLocal();
   }
 
@@ -815,6 +970,10 @@ class World {
 
   registerInputHandlers(): void {
     window.addEventListener('keydown', (event) => {
+      if (event.code === 'Escape' && !this.tankModal.classList.contains('hidden')) {
+        this.closeTankModal(false);
+        return;
+      }
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyE'].includes(event.code)) {
         event.preventDefault();
       }
@@ -836,6 +995,7 @@ class World {
       this.camera.camera.updateProjectionMatrix();
       this.renderer.renderer.setSize(window.innerWidth, window.innerHeight);
       this.renderer.renderer.setPixelRatio(window.devicePixelRatio);
+      this.resizeTankPreview();
     });
   }
 
