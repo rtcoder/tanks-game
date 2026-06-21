@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {Scene} from '../../system/Scene';
-import type {TankDefinition} from '../../tankDefinitions';
+import type {TankDefinition} from '../../tank-definitions/shared/tank-definition.type';
 import {checkCollisionTankWithTank, checkCollisionTankWithWall} from '../../utils/collision';
 import {PBar} from '../../utils/PBar';
 import {MovableObject} from '../MovableObject';

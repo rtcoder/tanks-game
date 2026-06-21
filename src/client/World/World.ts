@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {MTLLoader} from 'three/examples/jsm/loaders/MTLLoader.js';
 import {OBJLoader} from 'three/examples/jsm/loaders/OBJLoader.js';
+import defaultMapData from '../../assets/maps/default.json';
 import type {BattleSummary, ClientMessage, GameConfig, Tank as NetworkTank, WsMessage} from '../../shared/types';
 import {BattleStatus, ClientMessageType, WsMessageType} from '../../shared/types';
 import {Bullet} from './object/impl/Bullet';
@@ -9,11 +10,11 @@ import {Ground} from './object/impl/Ground';
 import {DirectionalLight} from './object/impl/Light/DirectionalLight';
 import {HemiSphereLight} from './object/impl/Light/HemiSphereLight';
 import {SkyDome} from './object/impl/Light/SkyDome';
-import {PenetrationPowerup} from './object/impl/Powerups/PenetrationPowerup';
 import {AttackPowerup} from './object/impl/Powerups/AttackPowerup';
 import {DefensePowerup} from './object/impl/Powerups/DefensePowerup';
 import {GoalPowerup} from './object/impl/powerups/GoalPowerup';
 import {HealthPowerup} from './object/impl/powerups/HealthPowerup';
+import {PenetrationPowerup} from './object/impl/Powerups/PenetrationPowerup';
 import {Powerup} from './object/impl/Powerups/Powerup';
 import {SpeedPowerup} from './object/impl/Powerups/SpeedPowerup';
 import {WeaponPowerup} from './object/impl/Powerups/WeaponPowerup';
@@ -24,8 +25,8 @@ import {ThirdPersonViewCamera} from './system/Camera/ThirdPersonViewCamera';
 import {Loop} from './system/Loop';
 import {Renderer} from './system/Renderer';
 import {Scene} from './system/Scene';
-import {DEFAULT_TANK_ID, getTankDefinition, TANK_DEFINITIONS, type TankDefinition} from './tankDefinitions';
-import defaultMapData from '../../assets/maps/default.json';
+import {DEFAULT_TANK_ID, getTankDefinition, TANK_DEFINITIONS} from './tank-definitions/tank-definitions';
+import {type TankDefinition} from './tank-definitions/shared/tank-definition.type';
 
 type VectorTuple = [number, number, number];
 type BoundaryWallData = {
@@ -423,8 +424,8 @@ class World {
       const normalizedUrl = url.replaceAll('\\', '/');
       const isExportedLocalPath = /^[a-z]:/i.test(normalizedUrl) || normalizedUrl.includes('/Users/');
       return isExportedLocalPath
-        ? (/normal/i.test(normalizedUrl) ? fallbackNormalTexture : fallbackAlbedoTexture)
-        : url;
+          ? (/normal/i.test(normalizedUrl) ? fallbackNormalTexture : fallbackAlbedoTexture)
+          : url;
     });
     const gltfLoader = new GLTFLoader(loadingManager);
     const mtlLoader = new MTLLoader(loadingManager);
@@ -448,8 +449,8 @@ class World {
       }
 
       return new Promise((resolve, reject) => {
-          textureLoader.load(path, resolve, undefined, reject);
-        });
+        textureLoader.load(path, resolve, undefined, reject);
+      });
     };
     const optionalTexturePromise = async (path: string | undefined): Promise<THREE.Texture | undefined> => {
       if (!path) {
@@ -759,7 +760,7 @@ class World {
     const mapLeft = (cssWidth - mapSize) / 2;
     const mapTop = topPadding;
     const scale = mapSize / ARENA_SIZE;
-    const toMap = (position: THREE.Vector3): {x: number; y: number} => ({
+    const toMap = (position: THREE.Vector3): { x: number; y: number } => ({
       x: mapLeft + (position.x + ARENA_HALF) * scale,
       y: mapTop + (ARENA_HALF - position.y) * scale,
     });
@@ -802,7 +803,7 @@ class World {
 
   drawMinimapWalls(
       context: CanvasRenderingContext2D,
-      toMap: (position: THREE.Vector3) => {x: number; y: number},
+      toMap: (position: THREE.Vector3) => { x: number; y: number },
       scale: number,
   ): void {
     context.fillStyle = 'rgba(226, 224, 194, 0.24)';
@@ -828,7 +829,7 @@ class World {
   drawMinimapTank(
       context: CanvasRenderingContext2D,
       tank: Tank,
-      toMap: (position: THREE.Vector3) => {x: number; y: number},
+      toMap: (position: THREE.Vector3) => { x: number; y: number },
       color: string,
       radius: number,
   ): void {
@@ -919,8 +920,8 @@ class World {
     this.tankSelectionElement.innerHTML = TANK_DEFINITIONS.map((definition) => `
       <button class="tank-modal__option" type="button" data-tank-id="${definition.id}" data-selected="${definition.id === this.modalTankId}">
         <strong>${definition.name}</strong>
-        <span>${definition.role}</span>
-        <p>${definition.description}</p>
+        <span>${definition.country} • ${definition.year} • ${definition.role}</span>
+        <p>${definition.origin}</p>
       </button>
     `).join('');
 
@@ -948,7 +949,7 @@ class World {
   updateSelectedTankSummary(): void {
     const definition = getTankDefinition(this.selectedTankId);
     this.selectedTankNameElement.textContent = definition.name;
-    this.selectedTankRoleElement.textContent = definition.role;
+    this.selectedTankRoleElement.textContent = `${definition.country} • ${definition.year}`;
   }
 
   openTankModal(): void {
@@ -971,8 +972,8 @@ class World {
     const definition = getTankDefinition(tankId);
     this.modalTankId = definition.id;
     this.tankPreviewNameElement.textContent = definition.name;
-    this.tankPreviewRoleElement.textContent = definition.role;
-    this.tankPreviewDescriptionElement.textContent = definition.description;
+    this.tankPreviewRoleElement.textContent = `${definition.country} • ${definition.year} • ${definition.role}`;
+    this.tankPreviewDescriptionElement.textContent = definition.origin;
     this.tankSelectionElement.querySelectorAll<HTMLElement>('[data-tank-id]').forEach((option) => {
       option.dataset.selected = String(option.dataset.tankId === definition.id);
     });

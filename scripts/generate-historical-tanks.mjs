@@ -383,6 +383,150 @@ const addM60 = (root, mats) => {
   addBarrel(turret, {origin: [0, 12, 5.5], length: 40, radius: 1.12, mantlet: [9, 4, 6], muzzle: [5.2, 3, 2.2]}, mats);
 };
 
+const add7TP = (root, mats) => {
+  const hull = new THREE.Group();
+  hull.name = 'hull';
+  root.add(hull);
+
+  hull.add(mesh('riveted_hull_lower', box(24, 40, 7), mats.dark, [0, 0, 5]));
+  hull.add(mesh('riveted_hull_upper', box(20, 31, 8), mats.armor, [0, 2, 11]));
+  hull.add(mesh('front_driver_plate', box(18, 8, 5), mats.armor2, [0, 20, 13], [0.24, 0, 0]));
+  hull.add(mesh('rear_engine_box', box(19, 9, 5), mats.dark, [0, -18, 13]));
+  hull.add(mesh('left_rivet_strip', box(1.4, 34, 2), mats.trackMetal, [-11.5, 0, 15]));
+  hull.add(mesh('right_rivet_strip', box(1.4, 34, 2), mats.trackMetal, [11.5, 0, 15]));
+
+  addTrack(hull, 'left', -15, 42, 7, mats, 4);
+  addTrack(hull, 'right', 15, 42, 7, mats, 4);
+
+  const turret = new THREE.Group();
+  turret.name = 'turret';
+  turret.position.set(0, 4, 17.5);
+  root.add(turret);
+  turret.add(mesh('small_turret_ring', cyl(6.8, 7.4, 2.2, 24), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('riveted_turret_box', box(13, 12, 8), mats.armor, [0, 0, 3.5]));
+  turret.add(mesh('turret_front_plate', box(12, 5, 7), mats.armor2, [0, 6.5, 3.5]));
+  turret.add(mesh('commander_hatch', cyl(2.4, 2.7, 1.5, 18), mats.dark, [-3, -2, 8], [Math.PI / 2, 0, 0]));
+
+  addBarrel(turret, {origin: [0, 7, 3.8], length: 21, radius: 0.72, mantlet: [5, 2.6, 4], muzzle: [3.2, 1.8, 1.6]}, mats);
+};
+
+const add10TP = (root, mats) => {
+  const hull = new THREE.Group();
+  hull.name = 'hull';
+  root.add(hull);
+
+  hull.add(mesh('christie_hull_lower', box(29, 48, 7), mats.dark, [0, 0, 5]));
+  hull.add(mesh('fast_hull_upper', box(23, 38, 7), mats.armor, [0, 3, 11.5]));
+  hull.add(mesh('sloped_front_plate', box(22, 10, 4), mats.armor2, [0, 24, 14], [0.36, 0, 0]));
+  hull.add(mesh('rear_engine_cover', box(22, 10, 4), mats.dark, [0, -22, 14]));
+  hull.add(mesh('left_suspension_cover', box(3, 44, 4), mats.armor2, [-17, 0, 10]));
+  hull.add(mesh('right_suspension_cover', box(3, 44, 4), mats.armor2, [17, 0, 10]));
+
+  addTrack(hull, 'left', -16, 49, 7, mats, 4);
+  addTrack(hull, 'right', 16, 49, 7, mats, 4);
+
+  const turret = new THREE.Group();
+  turret.name = 'turret';
+  turret.position.set(0, 4, 18);
+  root.add(turret);
+  turret.add(mesh('turret_ring', cyl(7.6, 8.4, 2.4, 28), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('prototype_turret_core', box(15, 14, 8), mats.armor, [0, 0, 3.8]));
+  turret.add(mesh('rounded_turret_front', box(14, 6, 7), mats.armor2, [0, 7.5, 3.8]));
+  turret.add(mesh('cupola', cyl(2.6, 3, 1.8, 18), mats.dark, [-3.8, -2, 8.5], [Math.PI / 2, 0, 0]));
+
+  addBarrel(turret, {origin: [0, 8, 4], length: 24, radius: 0.8, mantlet: [5.5, 2.8, 4.2]}, mats);
+};
+
+const addPT91 = (root, mats) => {
+  const hull = new THREE.Group();
+  hull.name = 'hull';
+  root.add(hull);
+
+  hull.add(mesh('twardy_hull_lower', box(38, 62, 8), mats.dark, [0, 0, 5]));
+  hull.add(mesh('twardy_hull_upper', box(31, 51, 7), mats.armor, [0, 3, 12]));
+  hull.add(mesh('front_glacis', box(30, 13, 4), mats.armor, [0, 29, 15], [0.36, 0, 0]));
+  hull.add(mesh('rear_deck', box(29, 14, 3), mats.dark, [0, -27, 15]));
+  hull.add(mesh('left_skirt_erawa', box(4.5, 60, 8), mats.armor2, [-23.5, 0, 10]));
+  hull.add(mesh('right_skirt_erawa', box(4.5, 60, 8), mats.armor2, [23.5, 0, 10]));
+  addEraBlocks(hull, 'front_erawa', 7, -15, 29, 18, 5, [3.7, 2.2, 2.1], mats.era);
+
+  addTrack(hull, 'left', -22, 63, 9, mats, 6);
+  addTrack(hull, 'right', 22, 63, 9, mats, 6);
+
+  const turret = new THREE.Group();
+  turret.name = 'turret';
+  turret.position.set(0, 4, 20.5);
+  root.add(turret);
+  turret.add(mesh('turret_ring', cyl(11.2, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('twardy_low_turret', new THREE.SphereGeometry(13, 32, 16), mats.armor, [0, 0, 4], [0, 0, 0], [1.1, 0.95, 0.45]));
+  turret.add(mesh('front_erawa_plate', box(20, 8, 6), mats.era, [0, 10, 4]));
+  addEraBlocks(turret, 'turret_erawa_left', 3, -9, 9.8, 8, 4.5, [3.3, 2.2, 2.2], mats.era);
+  addEraBlocks(turret, 'turret_erawa_right', 3, 1, 9.8, 8, 4.5, [3.3, 2.2, 2.2], mats.era);
+  turret.add(mesh('drawa_sight_box', box(4, 4, 3), mats.optic, [6.5, 5, 9]));
+  turret.add(mesh('commander_cupola', cyl(3.2, 3.8, 2.1, 24), mats.dark, [-5, -3, 9], [Math.PI / 2, 0, 0]));
+
+  addBarrel(turret, {origin: [0, 11, 4.2], length: 38, radius: 1.18, mantlet: [9, 4, 5]}, mats);
+};
+
+const addLeopard2PL = (root, mats) => {
+  const hull = new THREE.Group();
+  hull.name = 'hull';
+  root.add(hull);
+
+  hull.add(mesh('leopard2pl_hull_lower', box(39, 70, 8), mats.dark, [0, 0, 6]));
+  hull.add(mesh('leopard2pl_hull_upper', box(32, 56, 8), mats.armor, [0, 1, 13]));
+  hull.add(mesh('angled_nose', box(31, 17, 5), mats.armor, [0, 31, 16], [0.34, 0, 0]));
+  hull.add(mesh('rear_engine_grille', box(30, 16, 3), mats.dark, [0, -30, 17]));
+  hull.add(mesh('left_polish_skirt', box(4.8, 68, 12), mats.armor2, [-24, 0, 10]));
+  hull.add(mesh('right_polish_skirt', box(4.8, 68, 12), mats.armor2, [24, 0, 10]));
+
+  addTrack(hull, 'left', -22, 70, 9, mats, 7);
+  addTrack(hull, 'right', 22, 70, 9, mats, 7);
+
+  const turret = new THREE.Group();
+  turret.name = 'turret';
+  turret.position.set(0, 7, 22);
+  root.add(turret);
+  turret.add(mesh('turret_ring', cyl(11, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_core', box(25, 26, 10), mats.armor, [0, 0, 4]));
+  turret.add(mesh('polish_modular_front_armor', box(28, 13, 10), mats.era, [0, 13.5, 4]));
+  turret.add(mesh('left_side_module', box(5.5, 23, 9), mats.era, [-15.5, 2, 4], [0, 0, -0.2]));
+  turret.add(mesh('right_side_module', box(5.5, 23, 9), mats.era, [15.5, 2, 4], [0, 0, 0.2]));
+  turret.add(mesh('commander_sight_box', box(5, 5, 4), mats.optic, [-7, 4, 11]));
+  turret.add(mesh('thermal_camera_box', box(4.2, 4.2, 3.2), mats.optic, [8, 5, 10.5]));
+
+  addBarrel(turret, {origin: [0, 15, 5], length: 48, radius: 1.08, mantlet: [10, 4, 7]}, mats);
+};
+
+const addPL01 = (root, mats) => {
+  const hull = new THREE.Group();
+  hull.name = 'hull';
+  root.add(hull);
+
+  hull.add(mesh('stealth_hull_lower', box(39, 62, 8), mats.dark, [0, 0, 6]));
+  hull.add(mesh('faceted_stealth_hull', box(33, 50, 8), mats.armor, [0, 1, 13]));
+  hull.add(mesh('stealth_front_wedge', box(32, 15, 5), mats.armor2, [0, 29, 16], [0.42, 0, 0]));
+  hull.add(mesh('rear_flat_deck', box(30, 14, 3), mats.dark, [0, -27, 17]));
+  hull.add(mesh('left_stealth_skirt', box(5.2, 60, 12), mats.armor2, [-24, 0, 10]));
+  hull.add(mesh('right_stealth_skirt', box(5.2, 60, 12), mats.armor2, [24, 0, 10]));
+
+  addTrack(hull, 'left', -22, 62, 9, mats, 6);
+  addTrack(hull, 'right', 22, 62, 9, mats, 6);
+
+  const turret = new THREE.Group();
+  turret.name = 'turret';
+  turret.position.set(0, 5, 21.5);
+  root.add(turret);
+  turret.add(mesh('low_turret_ring', cyl(10.5, 11.5, 2.6, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('unmanned_stealth_turret', box(24, 22, 8), mats.armor, [0, 0, 3.7]));
+  turret.add(mesh('faceted_front_mask', box(25, 10, 8), mats.armor2, [0, 12, 3.8]));
+  turret.add(mesh('left_faceted_cheek', box(4.5, 18, 7.5), mats.armor2, [-14, 2, 3.8], [0, 0, -0.35]));
+  turret.add(mesh('right_faceted_cheek', box(4.5, 18, 7.5), mats.armor2, [14, 2, 3.8], [0, 0, 0.35]));
+  turret.add(mesh('sensor_mast', box(3.4, 3.4, 4.5), mats.optic, [0, -2, 10.5]));
+
+  addBarrel(turret, {origin: [0, 12.5, 4.5], length: 40, radius: 0.95, mantlet: [8, 4, 6]}, mats);
+};
+
 const definitions = [
   {
     id: 't55am1',
@@ -443,6 +587,36 @@ const definitions = [
     name: 'M60 Patton',
     palette: [0x5f6847, 0x38402e, 0x737b55],
     build: addM60,
+  },
+  {
+    id: '7tp',
+    name: '7TP',
+    palette: [0x4d5f3f, 0x2e3928, 0x667551],
+    build: add7TP,
+  },
+  {
+    id: '10tp',
+    name: '10TP',
+    palette: [0x526346, 0x303a2e, 0x6a7857],
+    build: add10TP,
+  },
+  {
+    id: 'pt91-twardy',
+    name: 'PT-91 Twardy',
+    palette: [0x4d5d3f, 0x2b3327, 0x69734c],
+    build: addPT91,
+  },
+  {
+    id: 'leopard-2pl',
+    name: 'Leopard 2PL',
+    palette: [0x59644e, 0x333c31, 0x707a61],
+    build: addLeopard2PL,
+  },
+  {
+    id: 'pl-01',
+    name: 'PL-01 Concept',
+    palette: [0x4d5450, 0x242927, 0x6b706a],
+    build: addPL01,
   },
 ];
 

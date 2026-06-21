@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type {TankDefinition} from '../../tankDefinitions';
+import type {TankDefinition} from '../../tank-definitions/shared/tank-definition.type';
 
 type TankModelMetrics = {
   bboxParameter: {width: number; height: number; depth: number};

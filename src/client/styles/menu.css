@@ -416,6 +416,7 @@
   display: grid;
   gap: 7px;
   min-height: 94px;
+  height: max-content;
   padding: 13px;
   text-align: left;
   width: 100%;
