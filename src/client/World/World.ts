@@ -6,7 +6,7 @@ import defaultMapData from '../../assets/maps/default.json';
 import type {BattleSummary, ClientMessage, GameConfig, Tank as NetworkTank, WsMessage} from '../../shared/types';
 import {BattleStatus, ClientMessageType, WsMessageType} from '../../shared/types';
 import {Bullet} from './object/impl/Bullet';
-import {Ground} from './object/impl/Ground';
+import {Ground, type TerrainData} from './object/impl/Ground';
 import {DirectionalLight} from './object/impl/Light/DirectionalLight';
 import {HemiSphereLight} from './object/impl/Light/HemiSphereLight';
 import {SkyDome} from './object/impl/Light/SkyDome';
@@ -50,6 +50,7 @@ type GameMapData = {
     seed: number;
     wall: Record<string, number>;
   };
+  terrain?: TerrainData;
   walls: BoundaryWallData[];
 };
 
@@ -206,7 +207,7 @@ class World {
     this.scene = new Scene();
     this.skyDome = new SkyDome('main');
     this.scene.add(this.skyDome);
-    this.ground = new Ground('main', this.textureDict['ground']);
+    this.ground = new Ground('main', this.textureDict['ground'], ARENA_SIZE, DEFAULT_MAP.terrain ?? {resolution: 96, features: []});
     this.scene.add(this.ground);
     this.hemiLight = new HemiSphereLight('main');
     this.directLight = new DirectionalLight('main');
@@ -561,9 +562,17 @@ class World {
     };
   }
 
+  terrainPosition(x: number, y: number, zOffset = 0): THREE.Vector3 {
+    return new THREE.Vector3(x, y, this.ground.heightAt(x, y) + zOffset);
+  }
+
+  snapTankToTerrain(tank: Tank): void {
+    tank.mesh.position.z = this.ground.heightAt(tank.mesh.position.x, tank.mesh.position.y);
+  }
+
   createPlayerTank(name: string): Tank {
     const definition = getTankDefinition(this.selectedTankId);
-    return new Tank(name, this.tankMeshFor(definition), this.meshDict['Bullet'], this.listeners, this.audioDict, {
+    const tank = new Tank(name, this.tankMeshFor(definition), this.meshDict['Bullet'], this.listeners, this.audioDict, {
       ...this.tankConfig(definition),
       proceedUpKey: 'KeyW',
       proceedDownKey: 'KeyS',
@@ -571,6 +580,8 @@ class World {
       rotateRightKey: 'KeyD',
       firingKey: 'Space',
     });
+    this.snapTankToTerrain(tank);
+    return tank;
   }
 
   createRemoteTank(id: string, tankModelId = DEFAULT_TANK_ID): Tank {
@@ -579,6 +590,7 @@ class World {
       ...this.tankConfig(definition),
       firingKey: '__disabled__',
     });
+    this.snapTankToTerrain(tank);
     this.scene.add(tank);
     this.remoteTanks.set(id, tank);
     this.tanks.push(tank);
@@ -610,7 +622,7 @@ class World {
     mapData.walls.forEach((wallData) => {
       const heightBlockCount = Math.max(1, Math.ceil(wallData.size[2] / maxWallBlockHeight));
       const blockHeight = wallData.size[2] / heightBlockCount;
-      const wallBaseZ = wallData.position[2];
+      const wallBaseZ = wallData.position[2] + this.ground.heightAt(wallData.position[0], wallData.position[1]);
 
       for (let heightIndex = 0; heightIndex < heightBlockCount; heightIndex++) {
         const wallId = heightBlockCount === 1 ? wallData.id : `${wallData.id}-h${heightIndex}`;
@@ -641,13 +653,13 @@ class World {
   initializePowerups(powerups: Powerup[]): void {
     const mesh = this.meshDict['Powerup'];
     powerups.push(
-        new HealthPowerup('main', mesh.children[9], new THREE.Vector3(300, 50, 15), this.listeners, this.audioDict['Powerup']),
-        new WeaponPowerup('main', mesh.children[1], new THREE.Vector3(-300, 50, 15), this.listeners, this.audioDict['Powerup']),
-        new SpeedPowerup('main', mesh.children[13], new THREE.Vector3(450, -450, 15), this.listeners, this.audioDict['Powerup']),
-        new AttackPowerup('main', mesh.children[2], new THREE.Vector3(50, -100, 15), this.listeners, this.audioDict['Powerup']),
-        new DefensePowerup('main', mesh.children[0], new THREE.Vector3(50, 50, 15), this.listeners, this.audioDict['Powerup']),
-        new PenetrationPowerup('main', mesh.children[11], new THREE.Vector3(-300, -300, 15), this.listeners, this.audioDict['Powerup']),
-        new GoalPowerup('main', mesh.children[3], new THREE.Vector3(-750, 800, 15), this.listeners, this.audioDict['Powerup']),
+        new HealthPowerup('main', mesh.children[9], this.terrainPosition(300, 50, 15), this.listeners, this.audioDict['Powerup']),
+        new WeaponPowerup('main', mesh.children[1], this.terrainPosition(-300, 50, 15), this.listeners, this.audioDict['Powerup']),
+        new SpeedPowerup('main', mesh.children[13], this.terrainPosition(450, -450, 15), this.listeners, this.audioDict['Powerup']),
+        new AttackPowerup('main', mesh.children[2], this.terrainPosition(50, -100, 15), this.listeners, this.audioDict['Powerup']),
+        new DefensePowerup('main', mesh.children[0], this.terrainPosition(50, 50, 15), this.listeners, this.audioDict['Powerup']),
+        new PenetrationPowerup('main', mesh.children[11], this.terrainPosition(-300, -300, 15), this.listeners, this.audioDict['Powerup']),
+        new GoalPowerup('main', mesh.children[3], this.terrainPosition(-700, 680, 15), this.listeners, this.audioDict['Powerup']),
     );
   }
 
@@ -655,7 +667,8 @@ class World {
     this.loop.updatableLists.push([this.localTank], this.powerups, this.bullets, this.walls);
     Tank.onTick = (tank: Tank, delta: number) => {
       if (tank !== this.localTank) return;
-      tank.update(this.keyboard, this.scene, this.tanks, this.walls, this.surrounding_walls, this.bullets, delta);
+      tank.update(this.keyboard, this.scene, this.ground, this.tanks, this.walls, this.surrounding_walls, this.bullets, delta);
+      this.snapTankToTerrain(tank);
       this.updateCrosshairPosition();
       this.updateLocalOcclusionFade();
       this.updateMinimap();
@@ -1395,6 +1408,7 @@ class World {
         tank.setTankModel(this.tankMeshFor(definition), definition);
       }
       applyNetworkTank(tank, tankData);
+      this.snapTankToTerrain(tank);
     });
     this.remoteTanks.forEach((tank, id) => {
       if (activeIds.has(id)) return;

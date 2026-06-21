@@ -4,6 +4,86 @@
   "arena": {
     "size": 1500
   },
+  "terrain": {
+    "resolution": 128,
+    "features": [
+      {
+        "id": "north-west-rise",
+        "type": "hill",
+        "center": [
+          -420,
+          410
+        ],
+        "radius": [
+          310,
+          230
+        ],
+        "height": 42,
+        "rotation": -0.35,
+        "falloff": 2.1
+      },
+      {
+        "id": "south-east-rise",
+        "type": "hill",
+        "center": [
+          380,
+          -350
+        ],
+        "radius": [
+          360,
+          260
+        ],
+        "height": 34,
+        "rotation": 0.45,
+        "falloff": 2.4
+      },
+      {
+        "id": "central-basin",
+        "type": "depression",
+        "center": [
+          40,
+          20
+        ],
+        "radius": [
+          260,
+          190
+        ],
+        "height": 26,
+        "rotation": 0.15,
+        "falloff": 1.8
+      },
+      {
+        "id": "east-ridge",
+        "type": "ridge",
+        "center": [
+          500,
+          120
+        ],
+        "radius": [
+          130,
+          520
+        ],
+        "height": 24,
+        "rotation": -0.1,
+        "falloff": 3
+      },
+      {
+        "id": "south-west-crater",
+        "type": "depression",
+        "center": [
+          -510,
+          -430
+        ],
+        "radius": [
+          180,
+          150
+        ],
+        "height": 18,
+        "rotation": 0.2,
+        "falloff": 2.2
+      }
+    ]
+  },
   "generator": {
     "type": "depth-first-maze",
     "gridSize": 8,

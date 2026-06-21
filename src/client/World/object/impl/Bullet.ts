@@ -45,7 +45,7 @@ export class Bullet extends MovableObject {
   update(ground: Ground, bullets: Bullet[], walls: Wall[], tanks: Tank[], _delta: number) {
     // Keep this flat projectile API ready for later ground-to-ground rockets.
     const hitWall = walls.find(wall => checkCollisionBulletWithWall(this, wall));
-    if (this.mesh.position.z < 0 || hitWall || !ground.inBoundary(this.mesh.position)) {
+    if (this.mesh.position.z < ground.heightAt(this.mesh.position.x, this.mesh.position.y) || hitWall || !ground.inBoundary(this.mesh.position)) {
       this.listeners.forEach(listener => {
         const sound = new THREE.PositionalAudio(listener);
         sound.setBuffer(this.audio['Bullet_hit']).setVolume(20).play();

@@ -5,6 +5,7 @@ import {checkCollisionTankWithTank, checkCollisionTankWithWall} from '../../util
 import {PBar} from '../../utils/PBar';
 import {MovableObject} from '../MovableObject';
 import {Bullet} from './Bullet';
+import {Ground} from './Ground';
 import {TankModel} from './TankModel';
 import {Wall} from './Wall';
 
@@ -192,11 +193,12 @@ export class Tank extends MovableObject {
     );
   }
 
-  _updatePosition(walls: Wall[], tanks: Tank[], surrounding_walls: Wall[]) {
+  _updatePosition(ground: Ground, walls: Wall[], tanks: Tank[], surrounding_walls: Wall[]) {
     const tank_object_tmp = new Tank('temp', null, null, null, null);
     tank_object_tmp.mesh.applyMatrix4(this.mesh.matrix);
     tank_object_tmp.mesh.translateY(this.proceed * this.proceedSpeed);
     tank_object_tmp.mesh.rotateZ(this.rotate * this.rotateSpeed);
+    tank_object_tmp.mesh.position.z = ground.heightAt(tank_object_tmp.mesh.position.x, tank_object_tmp.mesh.position.y);
     tank_object_tmp.mesh.updateMatrix();
 
     const not_collided_with_surrounding_walls =
@@ -205,6 +207,7 @@ export class Tank extends MovableObject {
     if (this.penetrationUpgraded && not_collided_with_surrounding_walls) {
       this.mesh.translateY(this.proceed * this.proceedSpeed);
       this.mesh.rotateZ(this.rotate * this.rotateSpeed);
+      this.mesh.position.z = ground.heightAt(this.mesh.position.x, this.mesh.position.y);
       return;
     }
 
@@ -215,6 +218,7 @@ export class Tank extends MovableObject {
     if (this.penetrationPermitted && not_collided_with_surrounding_walls || not_collided) {
       this.mesh.translateY(this.proceed * this.proceedSpeed);
       this.mesh.rotateZ(this.rotate * this.rotateSpeed);
+      this.mesh.position.z = ground.heightAt(this.mesh.position.x, this.mesh.position.y);
 
       this.penetrationPermitted = !not_collided;
     }
@@ -305,6 +309,7 @@ export class Tank extends MovableObject {
   update(
       keyboard: { [key: string]: number },
       scene: Scene,
+      ground: Ground,
       tanks: Tank[],
       walls: Wall[],
       surrounding_walls: Wall[],
@@ -313,7 +318,7 @@ export class Tank extends MovableObject {
   ) {
     this._updateSpeed(keyboard, delta);
     this._updateAim(keyboard, delta);
-    this._updatePosition(walls, tanks, surrounding_walls);
+    this._updatePosition(ground, walls, tanks, surrounding_walls);
     this._createBullets(keyboard, bullets, scene);
     this.tankModel?.update({
       aimPitch: this.aimPitch,
