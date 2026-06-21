@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import parts from '../shared/common-parts';
+import parts from '../../shared/common-parts';
 
 export default {
   id: 'm60-patton',
