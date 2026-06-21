@@ -11,6 +11,7 @@ import {Wall} from './Wall';
 
 export class Tank extends MovableObject {
   mesh: THREE.Group;
+  bodyRoot: THREE.Group;
   aimAnchor: THREE.Group;
   tankDefinition: TankDefinition | null = null;
   tankModel: TankModel | null = null;
@@ -77,6 +78,7 @@ export class Tank extends MovableObject {
   penetrationPermitted: boolean = false;
   proceedSpeed: number = 100;
   rotateSpeed: number = 1;
+  terrainTiltSmoothing: number = 0.24;
 
   constructor(name: string, tank_mesh: THREE.Object3D | null,
               bullet_mesh: THREE.Object3D | null, listeners: THREE.AudioListener[] | null,
@@ -85,8 +87,10 @@ export class Tank extends MovableObject {
     Object.assign(this, config);
 
     this.mesh = new THREE.Group();
+    this.bodyRoot = new THREE.Group();
     this.aimAnchor = new THREE.Group();
-    this.mesh.add(this.aimAnchor);
+    this.mesh.add(this.bodyRoot);
+    this.bodyRoot.add(this.aimAnchor);
     if (tank_mesh != null) {
       this.setTankModel(tank_mesh);
       this.mesh.castShadow = true;
@@ -122,7 +126,7 @@ export class Tank extends MovableObject {
     this.tankDefinition = definition;
     this.tankModelId = definition.id;
     this.tankModel = new TankModel(sourceMesh, definition);
-    this.mesh.add(this.tankModel.root);
+    this.bodyRoot.add(this.tankModel.root);
     this.bboxParameter = {...this.tankModel.metrics.bboxParameter};
     this.bulletLocalPos.copy(this.tankModel.metrics.bulletLocalPos);
     this.originalColor.copy(this.tankModel.originalColor);
@@ -182,6 +186,32 @@ export class Tank extends MovableObject {
         : 0;
     this.aimAnchor.rotation.z = this.aimYaw;
     this.tankModel?.setTurretYaw(this.aimYaw);
+  }
+
+  alignToGround(ground: Ground, immediate = false): void {
+    const terrainHeight = ground.heightAt(this.mesh.position.x, this.mesh.position.y);
+    this.mesh.position.z = terrainHeight;
+
+    const normal = ground.normalAt(this.mesh.position.x, this.mesh.position.y);
+    const heading = this.mesh.rotation.z;
+    const forward = new THREE.Vector3(0, 1, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), heading);
+    const slopeForward = forward.projectOnPlane(normal).normalize();
+    if (slopeForward.lengthSq() === 0) {
+      return;
+    }
+
+    const right = slopeForward.clone().cross(normal).normalize();
+    const worldBodyMatrix = new THREE.Matrix4().makeBasis(right, slopeForward, normal);
+    const worldBodyQuaternion = new THREE.Quaternion().setFromRotationMatrix(worldBodyMatrix);
+    const parentYawQuaternion = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), heading);
+    const localBodyQuaternion = parentYawQuaternion.invert().multiply(worldBodyQuaternion);
+
+    if (immediate) {
+      this.bodyRoot.quaternion.copy(localBodyQuaternion);
+      return;
+    }
+
+    this.bodyRoot.quaternion.slerp(localBodyQuaternion, this.terrainTiltSmoothing);
   }
 
   _updateAimPitch(keyboard: { [key: string]: number }, delta: number) {

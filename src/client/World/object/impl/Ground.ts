@@ -93,6 +93,16 @@ export class Ground extends BaseObject {
     return this.terrain.features.reduce((height, feature) => height + this.featureHeightAt(feature, x, y), 0);
   }
 
+  normalAt(x: number, y: number, sampleDistance = 12): THREE.Vector3 {
+    const left = this.heightAt(x - sampleDistance, y);
+    const right = this.heightAt(x + sampleDistance, y);
+    const down = this.heightAt(x, y - sampleDistance);
+    const up = this.heightAt(x, y + sampleDistance);
+    const tangentX = new THREE.Vector3(sampleDistance * 2, 0, right - left);
+    const tangentY = new THREE.Vector3(0, sampleDistance * 2, up - down);
+    return tangentX.cross(tangentY).normalize();
+  }
+
   private featureHeightAt(feature: TerrainFeature, x: number, y: number): number {
     const [centerX, centerY] = feature.center;
     const rotation = feature.rotation ?? 0;

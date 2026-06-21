@@ -566,8 +566,8 @@ class World {
     return new THREE.Vector3(x, y, this.ground.heightAt(x, y) + zOffset);
   }
 
-  snapTankToTerrain(tank: Tank): void {
-    tank.mesh.position.z = this.ground.heightAt(tank.mesh.position.x, tank.mesh.position.y);
+  snapTankToTerrain(tank: Tank, immediate = false): void {
+    tank.alignToGround(this.ground, immediate);
   }
 
   createPlayerTank(name: string): Tank {
@@ -580,7 +580,7 @@ class World {
       rotateRightKey: 'KeyD',
       firingKey: 'Space',
     });
-    this.snapTankToTerrain(tank);
+    this.snapTankToTerrain(tank, true);
     return tank;
   }
 
@@ -590,7 +590,7 @@ class World {
       ...this.tankConfig(definition),
       firingKey: '__disabled__',
     });
-    this.snapTankToTerrain(tank);
+    this.snapTankToTerrain(tank, true);
     this.scene.add(tank);
     this.remoteTanks.set(id, tank);
     this.tanks.push(tank);
@@ -612,6 +612,9 @@ class World {
     this.initializePowerups(this.powerups);
     this.powerups.forEach((powerup) => this.scene.add(powerup));
     this.localTank?.reset();
+    if (this.localTank) {
+      this.snapTankToTerrain(this.localTank, true);
+    }
   }
 
   initializeWalls(walls: Wall[], surrounding_walls: Wall[]): void {
