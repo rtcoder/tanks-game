@@ -1018,10 +1018,19 @@ class World {
             <strong>${definition.name}</strong>
             <span>${definition.country} • ${definition.year} • ${definition.role}</span>
             <p>${definition.origin}</p>
+            <small>${this.tankStatsSummary(definition)}</small>
           </button>
         `).join('')}
       </div>
     `;
+  }
+
+  tankStatsSummary(definition: TankDefinition): string {
+    const {stats} = definition;
+    const armor = Math.round(stats.defense * 100);
+    const reload = (stats.fireCooldownMs / 1000).toFixed(1);
+    const turret = stats.hasRotatingTurret ? `${stats.turretTraverseDegPerSecond}°/s turret` : 'fixed gun';
+    return `HP ${stats.maxHealth} • Armor ${armor}% • Speed ${stats.moveSpeed} • DMG ${stats.bulletDamage} • ${reload}s reload • ${turret}`;
   }
 
   updateSelectedTankSummary(): void {
@@ -1053,7 +1062,7 @@ class World {
     this.modalTankId = definition.id;
     this.tankPreviewNameElement.textContent = definition.name;
     this.tankPreviewRoleElement.textContent = `${definition.country} • ${definition.year} • ${definition.role}`;
-    this.tankPreviewDescriptionElement.textContent = definition.origin;
+    this.tankPreviewDescriptionElement.textContent = `${definition.origin}\n${this.tankStatsSummary(definition)}\n${definition.stats.mainWeapon}${definition.stats.specialWeapon ? ` • ${definition.stats.specialWeapon}` : ''}`;
     this.tankSelectionElement.querySelectorAll<HTMLElement>('[data-tank-id]').forEach((option) => {
       option.dataset.selected = String(option.dataset.tankId === definition.id);
     });

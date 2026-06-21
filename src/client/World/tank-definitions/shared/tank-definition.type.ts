@@ -7,6 +7,23 @@ export type TankDefinitionParts = {
   rightTrack?: string[];
 };
 
+export type TankGameplayStats = {
+  hasRotatingTurret: boolean;
+  maxHealth: number;
+  defense: number;
+  moveSpeed: number;
+  turnSpeed: number;
+  turretTraverseDegPerSecond: number;
+  aimPitchDegPerSecond: number;
+  bulletDamage: number;
+  bulletSpeed: number;
+  fireCooldownMs: number;
+  mainWeapon: string;
+  secondaryWeapon?: string;
+  specialWeapon?: string;
+  traits: string[];
+};
+
 export type TankDefinition = {
   id: string;
   name: string;
@@ -20,4 +37,5 @@ export type TankDefinition = {
   visualRotation: THREE.Euler;
   visualScale?: THREE.Vector3;
   parts?: TankDefinitionParts;
+  stats: TankGameplayStats;
 };

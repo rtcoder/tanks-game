@@ -31,7 +31,7 @@ export function sanitizePlayerId(playerId: unknown): string {
 export function sanitizeTank(tank: any, uid: string): Tank {
   return {
     uid,
-    lives: clamp(tank?.lives, 0, 100),
+    lives: clamp(tank?.lives, 0, 250),
     x: clamp(tank?.x, 25, GAME_BOUNDS.width - 25),
     y: clamp(tank?.y, 25, GAME_BOUNDS.height - 25),
     speed: clamp(tank?.speed, 1, 8),

@@ -16,11 +16,13 @@ export class Tank extends MovableObject {
   tankModelId = 'vanguard';
   bboxParameter = {width: 30, height: 50, depth: 30};
   health: number = 100;
+  maxHealth: number = 100;
 
   // bullet configuration
   bulletLocalPos: THREE.Vector3 = new THREE.Vector3(0, 65, 18);
   bulletLocalDir: THREE.Vector3 = new THREE.Vector3(0, 1, 0);
   bulletSpeed: number = 680;
+  fireCooldownMs: number = 420;
 
   // key bindings
   proceedUpKey: string = 'KeyW';
@@ -41,6 +43,7 @@ export class Tank extends MovableObject {
   aimPitchMax: number = THREE.MathUtils.degToRad(28);
   aimYawSpeed: number = THREE.MathUtils.degToRad(72);
   aimPitchSpeed: number = THREE.MathUtils.degToRad(42);
+  hasRotatingTurret: boolean = true;
   lastFireTime: number = 0;
   firingKeyPressed: boolean = false;
 
@@ -122,6 +125,29 @@ export class Tank extends MovableObject {
     this.bboxParameter = {...this.tankModel.metrics.bboxParameter};
     this.bulletLocalPos.copy(this.tankModel.metrics.bulletLocalPos);
     this.originalColor.copy(this.tankModel.originalColor);
+    this.applyDefinitionStats(definition, true);
+  }
+
+  applyDefinitionStats(definition = this.tankDefinition, preserveHealth = false): void {
+    if (!definition) {
+      return;
+    }
+
+    const {stats} = definition;
+    this.maxHealth = stats.maxHealth;
+    this.health = preserveHealth ? Math.min(this.health, this.maxHealth) : this.maxHealth;
+    this.attack = stats.bulletDamage;
+    this.defense = stats.defense;
+    this.proceedSpeed = stats.moveSpeed;
+    this.rotateSpeed = stats.turnSpeed;
+    this.bulletSpeed = stats.bulletSpeed;
+    this.fireCooldownMs = stats.fireCooldownMs;
+    this.hasRotatingTurret = stats.hasRotatingTurret;
+    this.aimYawSpeed = THREE.MathUtils.degToRad(stats.turretTraverseDegPerSecond);
+    this.aimPitchSpeed = THREE.MathUtils.degToRad(stats.aimPitchDegPerSecond);
+    if (!this.hasRotatingTurret) {
+      this.setAimYaw(0);
+    }
   }
 
   post_init(container_sub: HTMLElement) {
@@ -141,12 +167,18 @@ export class Tank extends MovableObject {
   }
 
   _updateAim(keyboard: { [key: string]: number }, delta: number) {
+    if (!this.hasRotatingTurret) {
+      this.setAimYaw(0);
+      return;
+    }
     this.aimInput = (keyboard[this.aimUpKey] || 0) - (keyboard[this.aimDownKey] || 0);
     this.setAimYaw(this.aimYaw + this.aimInput * this.aimYawSpeed * delta);
   }
 
   setAimYaw(yaw: number): void {
-    this.aimYaw = THREE.MathUtils.euclideanModulo(yaw + Math.PI, Math.PI * 2) - Math.PI;
+    this.aimYaw = this.hasRotatingTurret
+        ? THREE.MathUtils.euclideanModulo(yaw + Math.PI, Math.PI * 2) - Math.PI
+        : 0;
     this.aimAnchor.rotation.z = this.aimYaw;
     this.tankModel?.setTurretYaw(this.aimYaw);
   }
@@ -232,7 +264,7 @@ export class Tank extends MovableObject {
     // check keyboard, if space is pressed, create a bullet and add it to the scene
     if (keyboard[this.firingKey]) {
       const now = Date.now();
-      if (!this.firingKeyPressed && now - this.lastFireTime > 100) {
+      if (!this.firingKeyPressed && now - this.lastFireTime > this.fireCooldownMs) {
         const {pos, vel} = this._getBulletInitState();
         this.proceed = (keyboard[this.proceedUpKey] || 0) - (keyboard[this.proceedDownKey] || 0);
         const tankVel = new THREE.Vector3(0, 1, 0).applyEuler(this.mesh.rotation).multiplyScalar(this.proceed * this.proceedSpeed);
@@ -316,9 +348,6 @@ export class Tank extends MovableObject {
     this.mesh.position.copy(this.originalPos);
     this.mesh.rotation.copy(this.originalRot);
     this.setAimYaw(0);
-    this.health = 100;
-    this.attack = 10;
-    this.defense = 0;
     this.bulletUpgraded = false;
     this.penetrationUpgraded = true;
     this.penetrationPermitted = true;
@@ -335,6 +364,7 @@ export class Tank extends MovableObject {
     }
     this.powerups = {};
     this.powerupPostHooks = {};
+    this.applyDefinitionStats(this.tankDefinition, false);
   }
 
   addPowerup(type: string, timeout: number, priorHook: (tank: Tank) => void, postHook: (tank: Tank) => void) {
@@ -352,10 +382,11 @@ export class Tank extends MovableObject {
     if (!this.healthBarFillElement || !this.healthBarValueElement) {
       return;
     }
-    const clampedHealth = Math.max(0, Math.min(100, this.health));
-    this.healthBarFillElement.style.width = `${clampedHealth}%`;
+    const clampedHealth = Math.max(0, Math.min(this.maxHealth, this.health));
+    const healthRatio = this.maxHealth > 0 ? clampedHealth / this.maxHealth : 0;
+    this.healthBarFillElement.style.width = `${healthRatio * 100}%`;
     this.healthBarValueElement.innerText = `${clampedHealth.toFixed(0)}`;
-    this.healthElement.dataset.state = clampedHealth <= 25 ? 'critical' : clampedHealth <= 55 ? 'warn' : 'ok';
+    this.healthElement.dataset.state = healthRatio <= 0.25 ? 'critical' : healthRatio <= 0.55 ? 'warn' : 'ok';
     if (this.aimPitchElement && this.crosshairElement) {
       const aimDegrees = THREE.MathUtils.radToDeg(this.aimPitch);
       this.aimPitchElement.innerText = `${aimDegrees.toFixed(0)}°`;

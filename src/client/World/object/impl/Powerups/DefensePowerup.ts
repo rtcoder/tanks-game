@@ -14,6 +14,6 @@ export class DefensePowerup extends TimeoutPowerup {
   }
 
   PostHook(tank: Tank): void {
-    tank.defense = 0;
+    tank.defense = tank.tankDefinition?.stats.defense ?? 0;
   }
 }

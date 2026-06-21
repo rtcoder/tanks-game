@@ -9,8 +9,8 @@ export class HealthPowerup extends Powerup {
 
   apply(tank_object: Tank): void {
     tank_object.health += 10;
-    if (tank_object.health > 100) {
-      tank_object.health = 100;
+    if (tank_object.health > tank_object.maxHealth) {
+      tank_object.health = tank_object.maxHealth;
     }
   }
 }

@@ -527,6 +527,135 @@ const addPL01 = (root, mats) => {
   addBarrel(turret, {origin: [0, 12.5, 4.5], length: 40, radius: 0.95, mantlet: [8, 4, 6]}, mats);
 };
 
+const addM18Hellcat = (root, mats) => {
+  const hull = new THREE.Group();
+  hull.name = 'hull';
+  root.add(hull);
+
+  hull.add(mesh('thin_hull_lower', box(32, 54, 7), mats.dark, [0, 0, 5]));
+  hull.add(mesh('open_fast_hull_upper', box(27, 42, 6), mats.armor, [0, 2, 11]));
+  hull.add(mesh('sloped_fast_glacis', box(26, 11, 4), mats.armor2, [0, 26, 14], [0.42, 0, 0]));
+  hull.add(mesh('rear_engine_grilles', box(26, 12, 3), mats.dark, [0, -24, 14]));
+  hull.add(mesh('left_light_fender', box(3, 52, 4), mats.armor2, [-19, 0, 10]));
+  hull.add(mesh('right_light_fender', box(3, 52, 4), mats.armor2, [19, 0, 10]));
+
+  addTrack(hull, 'left', -18, 55, 8, mats, 5);
+  addTrack(hull, 'right', 18, 55, 8, mats, 5);
+
+  const turret = new THREE.Group();
+  turret.name = 'turret';
+  turret.position.set(0, 4, 18.5);
+  root.add(turret);
+  turret.add(mesh('small_turret_ring', cyl(8.5, 9.2, 2.4, 28), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('open_top_turret_box', box(18, 16, 8), mats.armor, [0, 0, 3.5]));
+  turret.add(mesh('thin_front_shield', box(17, 6, 7), mats.armor2, [0, 8.5, 3.5]));
+  turret.add(mesh('open_turret_rear_counterweight', box(17, 8, 5), mats.dark, [0, -10, 4]));
+  turret.add(mesh('commander_ring', cyl(2.5, 2.8, 1.4, 18), mats.dark, [-4, -2, 8], [Math.PI / 2, 0, 0]));
+
+  addBarrel(turret, {origin: [0, 9.5, 4], length: 31, radius: 0.9, mantlet: [6.5, 3, 4.5], muzzle: [4, 2.2, 1.6]}, mats);
+};
+
+const addMaus = (root, mats) => {
+  const hull = new THREE.Group();
+  hull.name = 'hull';
+  root.add(hull);
+
+  hull.add(mesh('superheavy_hull_lower', box(56, 82, 13), mats.dark, [0, 0, 8]));
+  hull.add(mesh('massive_box_hull', box(48, 70, 14), mats.armor, [0, 0, 19]));
+  hull.add(mesh('thick_front_plate', box(47, 16, 9), mats.armor2, [0, 36, 24], [0.18, 0, 0]));
+  hull.add(mesh('rear_engine_block', box(45, 18, 6), mats.dark, [0, -34, 25]));
+  hull.add(mesh('left_massive_skirt', box(8, 80, 16), mats.armor2, [-32, 0, 13]));
+  hull.add(mesh('right_massive_skirt', box(8, 80, 16), mats.armor2, [32, 0, 13]));
+
+  addTrack(hull, 'left', -28, 82, 13, mats, 8);
+  addTrack(hull, 'right', 28, 82, 13, mats, 8);
+
+  const turret = new THREE.Group();
+  turret.name = 'turret';
+  turret.position.set(0, 4, 34);
+  root.add(turret);
+  turret.add(mesh('huge_turret_ring', cyl(16, 17, 4, 40), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('maus_turret_slab', box(36, 31, 14), mats.armor, [0, 0, 6]));
+  turret.add(mesh('rounded_turret_front', box(34, 10, 13), mats.armor2, [0, 16, 6]));
+  turret.add(mesh('turret_rear_ammo_box', box(35, 12, 11), mats.dark, [0, -20, 7]));
+  turret.add(mesh('large_cupola', cyl(4.5, 5, 3, 24), mats.dark, [-9, -4, 15], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('coaxial_75mm_stub', cyl(0.75, 0.85, 30, 20), mats.barrel, [5, 27, 6], [0, 0, 0]));
+
+  addBarrel(turret, {origin: [-2, 17, 6], length: 48, radius: 1.5, mantlet: [12, 5, 8]}, mats);
+};
+
+const addSturmtiger = (root, mats) => {
+  const hull = new THREE.Group();
+  hull.name = 'hull';
+  root.add(hull);
+
+  hull.add(mesh('tiger_hull_lower', box(46, 66, 10), mats.dark, [0, 0, 6]));
+  hull.add(mesh('heavy_hull_upper', box(38, 54, 9), mats.armor, [0, 0, 15]));
+  hull.add(mesh('casemate_front_plate', box(34, 12, 20), mats.armor2, [0, 18, 28], [0.12, 0, 0]));
+  hull.add(mesh('boxy_assault_casemate', box(36, 34, 24), mats.armor, [0, -2, 28]));
+  hull.add(mesh('rear_engine_deck', box(36, 16, 5), mats.dark, [0, -29, 20]));
+  hull.add(mesh('left_tiger_skirt', box(6, 64, 12), mats.armor2, [-27, 0, 11]));
+  hull.add(mesh('right_tiger_skirt', box(6, 64, 12), mats.armor2, [27, 0, 11]));
+
+  addTrack(hull, 'left', -24, 68, 11, mats, 7);
+  addTrack(hull, 'right', 24, 68, 11, mats, 7);
+
+  const barrel = new THREE.Group();
+  barrel.name = 'barrel';
+  barrel.position.set(0, 24, 32);
+  root.add(barrel);
+  barrel.add(mesh('rw61_mantlet_block', box(17, 8, 14), mats.dark, [0, -2, 0]));
+  barrel.add(mesh('rw61_rocket_mortar_tube', cyl(4.4, 5.4, 18, 32), mats.barrel, [0, 9, 0]));
+  barrel.add(mesh('wide_mortar_muzzle', cyl(6.4, 6.4, 3, 32), mats.barrel, [0, 19, 0]));
+};
+
+const addStrv103 = (root, mats) => {
+  const hull = new THREE.Group();
+  hull.name = 'hull';
+  root.add(hull);
+
+  hull.add(mesh('wedge_lower_hull', box(40, 58, 7), mats.dark, [0, 0, 5]));
+  hull.add(mesh('low_wedge_hull', box(35, 50, 8), mats.armor, [0, 2, 12], [0.08, 0, 0]));
+  hull.add(mesh('extreme_sloped_front', box(34, 18, 5), mats.armor2, [0, 25, 16], [0.58, 0, 0]));
+  hull.add(mesh('rear_engine_grille', box(32, 13, 3), mats.dark, [0, -25, 15]));
+  hull.add(mesh('left_low_skirt', box(4.5, 56, 8), mats.armor2, [-24, 0, 9]));
+  hull.add(mesh('right_low_skirt', box(4.5, 56, 8), mats.armor2, [24, 0, 9]));
+
+  addTrack(hull, 'left', -22, 58, 8, mats, 5);
+  addTrack(hull, 'right', 22, 58, 8, mats, 5);
+
+  const barrel = new THREE.Group();
+  barrel.name = 'barrel';
+  barrel.position.set(0, 17, 15.5);
+  root.add(barrel);
+  barrel.add(mesh('fixed_gun_mantlet', box(8, 5, 5), mats.dark, [0, -1, 0]));
+  barrel.add(mesh('fixed_105mm_barrel_tube', cyl(0.95, 1.1, 45, 28), mats.barrel, [0, 22, 0]));
+  barrel.add(mesh('low_commander_hatch', cyl(3, 3.4, 1.7, 20), mats.dark, [-6, -12, 9], [Math.PI / 2, 0, 0]));
+};
+
+const addTKS20 = (root, mats) => {
+  const hull = new THREE.Group();
+  hull.name = 'hull';
+  root.add(hull);
+
+  hull.add(mesh('tiny_track_base', box(19, 30, 6), mats.dark, [0, 0, 4]));
+  hull.add(mesh('tiny_riveted_casemate', box(16, 23, 9), mats.armor, [0, 1, 11]));
+  hull.add(mesh('sloped_tks_nose', box(15, 8, 5), mats.armor2, [0, 15, 13], [0.36, 0, 0]));
+  hull.add(mesh('rear_engine_box', box(15, 7, 4), mats.dark, [0, -14, 13]));
+  hull.add(mesh('left_tiny_fender', box(2, 30, 3), mats.armor2, [-11, 0, 8]));
+  hull.add(mesh('right_tiny_fender', box(2, 30, 3), mats.armor2, [11, 0, 8]));
+
+  addTrack(hull, 'left', -10, 31, 6, mats, 4);
+  addTrack(hull, 'right', 10, 31, 6, mats, 4);
+
+  const barrel = new THREE.Group();
+  barrel.name = 'barrel';
+  barrel.position.set(0, 14, 13);
+  root.add(barrel);
+  barrel.add(mesh('autocannon_mantlet', box(4.5, 2.8, 3.2), mats.dark, [0, -1, 0]));
+  barrel.add(mesh('fk_a_20mm_tube', cyl(0.34, 0.42, 15, 18), mats.barrel, [0, 7.5, 0]));
+};
+
 const definitions = [
   {
     id: 't55am1',
@@ -547,10 +676,28 @@ const definitions = [
     build: addAbrams,
   },
   {
+    id: 'm18-hellcat',
+    name: 'M18 Hellcat',
+    palette: [0x5d6244, 0x32362a, 0x74795a],
+    build: addM18Hellcat,
+  },
+  {
     id: 'leopard-2a6',
     name: 'Leopard 2A6',
     palette: [0x6c7355, 0x3d4335, 0x7f8767],
     build: addLeopard,
+  },
+  {
+    id: 'maus',
+    name: 'Panzer VIII Maus',
+    palette: [0x565647, 0x2b2b25, 0x6b695a],
+    build: addMaus,
+  },
+  {
+    id: 'sturmtiger',
+    name: 'Sturmtiger',
+    palette: [0x5d5a48, 0x302f29, 0x76715e],
+    build: addSturmtiger,
   },
   {
     id: 'merkava-mk4',
@@ -583,6 +730,12 @@ const definitions = [
     build: addType10,
   },
   {
+    id: 'strv-103',
+    name: 'Strv 103',
+    palette: [0x59644d, 0x30382b, 0x6d765b],
+    build: addStrv103,
+  },
+  {
     id: 'm60-patton',
     name: 'M60 Patton',
     palette: [0x5f6847, 0x38402e, 0x737b55],
@@ -599,6 +752,12 @@ const definitions = [
     name: '10TP',
     palette: [0x526346, 0x303a2e, 0x6a7857],
     build: add10TP,
+  },
+  {
+    id: 'tks-20mm',
+    name: 'TK-S 20 mm',
+    palette: [0x46563d, 0x293329, 0x61704e],
+    build: addTKS20,
   },
   {
     id: 'pt91-twardy',

@@ -1,0 +1,4 @@
+Model: TK-S 20 mm
+Author: Groundfire procedural generator
+Source: scripts/generate-historical-tanks.mjs
+License: project-owned generated geometry
