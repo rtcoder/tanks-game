@@ -156,6 +156,7 @@ class World {
   selectedTankId = getTankDefinition(localStorage.getItem(STORAGE_KEYS.tankModelId)).id;
   modalTankId = this.selectedTankId;
   selectedTankCountry = 'all';
+  tankCountryFilterOpen = false;
   tankPreviewRenderer: THREE.WebGLRenderer | null = null;
   tankPreviewScene: THREE.Scene | null = null;
   tankPreviewCamera: THREE.PerspectiveCamera | null = null;
@@ -924,9 +925,17 @@ class World {
 
     this.tankSelectionElement.addEventListener('click', (event) => {
       const target = event.target;
+      const countryToggle = target instanceof Element ? target.closest<HTMLButtonElement>('[data-country-toggle]') : null;
+      if (countryToggle) {
+        this.tankCountryFilterOpen = !this.tankCountryFilterOpen;
+        this.renderTankSelectionOptions();
+        return;
+      }
+
       const countryFilter = target instanceof Element ? target.closest<HTMLButtonElement>('[data-country-filter]') : null;
       if (countryFilter) {
         this.selectedTankCountry = countryFilter.dataset.countryFilter ?? 'all';
+        this.tankCountryFilterOpen = false;
         this.renderTankSelectionOptions();
         const visibleDefinitions = this.filteredTankDefinitions();
         if (!visibleDefinitions.some((definition) => definition.id === this.modalTankId)) {
@@ -972,24 +981,36 @@ class World {
         count: TANK_DEFINITIONS.filter((definition) => definition.country === country).length,
       })),
     ];
+    const selectedCountry = countryButtons.find((country) => country.value === this.selectedTankCountry) ?? countryButtons[0];
+    const countryOptions = countryButtons.filter((country) => country.value !== selectedCountry.value);
     const visibleDefinitions = this.filteredTankDefinitions();
 
     this.tankSelectionElement.innerHTML = `
-      <div class="tank-country-filter" aria-label="Filter tanks by country">
+      <div class="tank-country-filter" aria-label="Filter tanks by country" data-open="${this.tankCountryFilterOpen}">
         <span>Country</span>
-        <div class="tank-country-filter__options">
-          ${countryButtons.map((country) => `
+        <button
+          class="tank-country-filter__toggle"
+          type="button"
+          data-country-toggle
+          aria-expanded="${this.tankCountryFilterOpen}"
+        >
+          <strong>${selectedCountry.label}</strong>
+          <small>${selectedCountry.count}</small>
+        </button>
+        ${this.tankCountryFilterOpen ? `
+          <div class="tank-country-filter__options">
+            ${countryOptions.map((country) => `
             <button
               class="tank-country-filter__button"
               type="button"
               data-country-filter="${country.value}"
-              data-selected="${country.value === this.selectedTankCountry}"
             >
               ${country.label}
               <small>${country.count}</small>
             </button>
           `).join('')}
-        </div>
+          </div>
+        ` : ''}
       </div>
       <div class="tank-modal__options">
         ${visibleDefinitions.map((definition) => `
@@ -1011,6 +1032,8 @@ class World {
 
   openTankModal(): void {
     this.modalTankId = this.selectedTankId;
+    this.tankCountryFilterOpen = false;
+    this.renderTankSelectionOptions();
     this.tankModal.classList.remove('hidden');
     this.tankModal.setAttribute('aria-hidden', 'false');
     this.previewTank(this.modalTankId);

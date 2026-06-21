@@ -401,14 +401,17 @@
 }
 
 .tank-modal__list {
+  align-content: start;
   display: grid;
   gap: 10px;
+  grid-auto-rows: max-content;
   max-height: 100%;
   overflow: auto;
   padding-right: 4px;
 }
 
 .tank-country-filter {
+  align-self: start;
   background: rgba(4, 7, 5, 0.78);
   border: 1px solid rgba(221, 228, 188, 0.14);
   display: grid;
@@ -426,10 +429,61 @@
   text-transform: uppercase;
 }
 
-.tank-country-filter__options {
+.tank-country-filter__toggle {
+  align-items: center;
+  background: rgba(215, 230, 92, 0.14);
+  border: 1px solid rgba(215, 230, 92, 0.82);
+  color: #d7e65c;
+  cursor: pointer;
   display: flex;
-  flex-wrap: wrap;
+  font: inherit;
+  min-height: 36px;
+  justify-content: space-between;
+  padding: 0 11px;
+  text-align: left;
+  text-transform: uppercase;
+  width: 100%;
+}
+
+.tank-country-filter__toggle:hover,
+.tank-country-filter__toggle:focus-visible {
+  background: rgba(215, 230, 92, 0.2);
+  outline: none;
+}
+
+.tank-country-filter__toggle::after {
+  border-color: #d7e65c transparent transparent;
+  border-style: solid;
+  border-width: 5px 4px 0;
+  content: "";
+  margin-left: 8px;
+}
+
+.tank-country-filter[data-open="true"] .tank-country-filter__toggle::after {
+  transform: rotate(180deg);
+}
+
+.tank-country-filter__toggle strong {
+  color: #d7e65c;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.tank-country-filter__toggle small {
+  color: #bac5aa;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+.tank-country-filter__options {
+  background: rgba(3, 6, 4, 0.96);
+  border: 1px solid rgba(221, 228, 188, 0.16);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.36);
+  display: grid;
   gap: 6px;
+  max-height: 210px;
+  overflow: auto;
+  padding: 7px;
 }
 
 .tank-country-filter__button {
@@ -446,18 +500,13 @@
   min-height: 30px;
   padding: 0 9px;
   text-transform: uppercase;
+  width: 100%;
 }
 
 .tank-country-filter__button:hover,
 .tank-country-filter__button:focus-visible {
   border-color: rgba(215, 230, 92, 0.58);
   outline: none;
-}
-
-.tank-country-filter__button[data-selected="true"] {
-  background: rgba(215, 230, 92, 0.14);
-  border-color: rgba(215, 230, 92, 0.82);
-  color: #d7e65c;
 }
 
 .tank-country-filter__button small {
@@ -467,8 +516,10 @@
 }
 
 .tank-modal__options {
+  align-content: start;
   display: grid;
   gap: 10px;
+  grid-auto-rows: max-content;
 }
 
 .tank-modal__option {
