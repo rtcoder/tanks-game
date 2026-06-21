@@ -155,6 +155,7 @@ class World {
   playerId = localStorage.getItem(STORAGE_KEYS.playerId) || crypto.randomUUID();
   selectedTankId = getTankDefinition(localStorage.getItem(STORAGE_KEYS.tankModelId)).id;
   modalTankId = this.selectedTankId;
+  selectedTankCountry = 'all';
   tankPreviewRenderer: THREE.WebGLRenderer | null = null;
   tankPreviewScene: THREE.Scene | null = null;
   tankPreviewCamera: THREE.PerspectiveCamera | null = null;
@@ -917,18 +918,23 @@ class World {
   }
 
   renderTankSelection(): void {
-    this.tankSelectionElement.innerHTML = TANK_DEFINITIONS.map((definition) => `
-      <button class="tank-modal__option" type="button" data-tank-id="${definition.id}" data-selected="${definition.id === this.modalTankId}">
-        <strong>${definition.name}</strong>
-        <span>${definition.country} • ${definition.year} • ${definition.role}</span>
-        <p>${definition.origin}</p>
-      </button>
-    `).join('');
+    this.renderTankSelectionOptions();
 
     this.updateSelectedTankSummary();
 
     this.tankSelectionElement.addEventListener('click', (event) => {
       const target = event.target;
+      const countryFilter = target instanceof Element ? target.closest<HTMLButtonElement>('[data-country-filter]') : null;
+      if (countryFilter) {
+        this.selectedTankCountry = countryFilter.dataset.countryFilter ?? 'all';
+        this.renderTankSelectionOptions();
+        const visibleDefinitions = this.filteredTankDefinitions();
+        if (!visibleDefinitions.some((definition) => definition.id === this.modalTankId)) {
+          this.previewTank(visibleDefinitions[0]?.id ?? this.selectedTankId);
+        }
+        return;
+      }
+
       const option = target instanceof Element ? target.closest<HTMLButtonElement>('[data-tank-id]') : null;
       if (!option) {
         return;
@@ -944,6 +950,57 @@ class World {
         this.closeTankModal(false);
       }
     });
+  }
+
+  tankCountries(): string[] {
+    return [...new Set(TANK_DEFINITIONS.map((definition) => definition.country))].sort((a, b) => a.localeCompare(b));
+  }
+
+  filteredTankDefinitions(): TankDefinition[] {
+    if (this.selectedTankCountry === 'all') {
+      return TANK_DEFINITIONS;
+    }
+    return TANK_DEFINITIONS.filter((definition) => definition.country === this.selectedTankCountry);
+  }
+
+  renderTankSelectionOptions(): void {
+    const countryButtons = [
+      {label: 'All', value: 'all', count: TANK_DEFINITIONS.length},
+      ...this.tankCountries().map((country) => ({
+        label: country,
+        value: country,
+        count: TANK_DEFINITIONS.filter((definition) => definition.country === country).length,
+      })),
+    ];
+    const visibleDefinitions = this.filteredTankDefinitions();
+
+    this.tankSelectionElement.innerHTML = `
+      <div class="tank-country-filter" aria-label="Filter tanks by country">
+        <span>Country</span>
+        <div class="tank-country-filter__options">
+          ${countryButtons.map((country) => `
+            <button
+              class="tank-country-filter__button"
+              type="button"
+              data-country-filter="${country.value}"
+              data-selected="${country.value === this.selectedTankCountry}"
+            >
+              ${country.label}
+              <small>${country.count}</small>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+      <div class="tank-modal__options">
+        ${visibleDefinitions.map((definition) => `
+          <button class="tank-modal__option" type="button" data-tank-id="${definition.id}" data-selected="${definition.id === this.modalTankId}">
+            <strong>${definition.name}</strong>
+            <span>${definition.country} • ${definition.year} • ${definition.role}</span>
+            <p>${definition.origin}</p>
+          </button>
+        `).join('')}
+      </div>
+    `;
   }
 
   updateSelectedTankSummary(): void {

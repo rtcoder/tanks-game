@@ -408,6 +408,69 @@
   padding-right: 4px;
 }
 
+.tank-country-filter {
+  background: rgba(4, 7, 5, 0.78);
+  border: 1px solid rgba(221, 228, 188, 0.14);
+  display: grid;
+  gap: 9px;
+  padding: 11px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tank-country-filter > span {
+  color: #aeb99d;
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.tank-country-filter__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tank-country-filter__button {
+  align-items: center;
+  background: rgba(3, 6, 4, 0.82);
+  border: 1px solid rgba(221, 228, 188, 0.16);
+  color: #f5f1df;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 950;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 9px;
+  text-transform: uppercase;
+}
+
+.tank-country-filter__button:hover,
+.tank-country-filter__button:focus-visible {
+  border-color: rgba(215, 230, 92, 0.58);
+  outline: none;
+}
+
+.tank-country-filter__button[data-selected="true"] {
+  background: rgba(215, 230, 92, 0.14);
+  border-color: rgba(215, 230, 92, 0.82);
+  color: #d7e65c;
+}
+
+.tank-country-filter__button small {
+  color: #bac5aa;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+.tank-modal__options {
+  display: grid;
+  gap: 10px;
+}
+
 .tank-modal__option {
   background: rgba(3, 6, 4, 0.82);
   border: 1px solid rgba(221, 228, 188, 0.16);
