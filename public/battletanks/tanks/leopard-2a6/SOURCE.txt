@@ -1,0 +1,4 @@
+Model: Leopard 2A6
+Author: Groundfire procedural generator
+Source: scripts/generate-historical-tanks.mjs
+License: project-owned generated geometry
