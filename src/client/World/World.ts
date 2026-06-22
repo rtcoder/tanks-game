@@ -904,7 +904,7 @@ class World {
       if (tank !== this.localTank) return;
       tank.update(this.keyboard, this.scene, this.ground, this.tanks, this.walls, this.surrounding_walls, this.bullets, delta);
       this.snapTankToTerrain(tank);
-      this.camera.updateView();
+      this.camera.updateView(false, this.ground);
       this.updateCrosshairPosition();
       this.updateLocalOcclusionFade();
       this.updateMinimap();
@@ -1475,7 +1475,14 @@ class World {
         this.camera.toggleMode();
         event.preventDefault();
       }
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyT', 'KeyC'].includes(event.code)) {
+      if (event.code === 'KeyV' && !event.repeat && this.status !== 'menu') {
+        const followsTurret = this.camera.toggleChaseTurretFollow();
+        if (this.currentBattle) {
+          this.setStatus(`${this.formatBattleStatus(this.currentBattle)} | chase: ${followsTurret ? 'barrel' : 'hull'}`);
+        }
+        event.preventDefault();
+      }
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyT', 'KeyC', 'KeyV'].includes(event.code)) {
         event.preventDefault();
       }
       this.keyboard[event.code] = 1;
