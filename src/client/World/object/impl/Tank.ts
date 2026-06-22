@@ -32,8 +32,10 @@ export class Tank extends MovableObject {
   rotateLeftKey: string = 'KeyA';
   rotateRightKey: string = 'KeyD';
   firingKey: string = 'Space';
-  aimUpKey: string = 'KeyE';
-  aimDownKey: string = 'KeyQ';
+  turretLeftKey: string = 'KeyQ';
+  turretRightKey: string = 'KeyE';
+  barrelUpKey: string = 'KeyR';
+  barrelDownKey: string = 'KeyF';
 
   // keyboard control variables
   proceed: number = 0;
@@ -176,7 +178,7 @@ export class Tank extends MovableObject {
       this.setAimYaw(0);
       return;
     }
-    this.aimInput = (keyboard[this.aimUpKey] || 0) - (keyboard[this.aimDownKey] || 0);
+    this.aimInput = (keyboard[this.turretRightKey] || 0) - (keyboard[this.turretLeftKey] || 0);
     this.setAimYaw(this.aimYaw + this.aimInput * this.aimYawSpeed * delta);
   }
 
@@ -215,7 +217,7 @@ export class Tank extends MovableObject {
   }
 
   _updateAimPitch(keyboard: { [key: string]: number }, delta: number) {
-    this.aimInput = (keyboard[this.aimUpKey] || 0) - (keyboard[this.aimDownKey] || 0);
+    this.aimInput = (keyboard[this.barrelUpKey] || 0) - (keyboard[this.barrelDownKey] || 0);
     this.aimPitch = THREE.MathUtils.clamp(
         this.aimPitch + this.aimInput * this.aimPitchSpeed * delta,
         this.aimPitchMin,
@@ -348,6 +350,7 @@ export class Tank extends MovableObject {
   ) {
     this._updateSpeed(keyboard, delta);
     this._updateAim(keyboard, delta);
+    this._updateAimPitch(keyboard, delta);
     this._updatePosition(ground, walls, tanks, surrounding_walls);
     this._createBullets(keyboard, bullets, scene);
     this.tankModel?.update({
