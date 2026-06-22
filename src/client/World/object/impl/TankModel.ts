@@ -96,7 +96,7 @@ export class TankModel {
       return;
     }
 
-    this.parts.barrel.rotation.x = -pitch;
+    this.parts.barrel.rotation.x = pitch;
   }
 
   setTrackMotion(distance: number): void {

@@ -36,6 +36,7 @@ export class Tank extends MovableObject {
   turretRightKey: string = 'KeyE';
   barrelUpKey: string = 'KeyR';
   barrelDownKey: string = 'KeyF';
+  resetAimKey: string = 'KeyT';
 
   // keyboard control variables
   proceed: number = 0;
@@ -47,6 +48,8 @@ export class Tank extends MovableObject {
   aimPitchMax: number = THREE.MathUtils.degToRad(28);
   aimYawSpeed: number = THREE.MathUtils.degToRad(72);
   aimPitchSpeed: number = THREE.MathUtils.degToRad(42);
+  aimResetting: boolean = false;
+  aimResetKeyPressed: boolean = false;
   hasRotatingTurret: boolean = true;
   lastFireTime: number = 0;
   firingKeyPressed: boolean = false;
@@ -174,11 +177,20 @@ export class Tank extends MovableObject {
   }
 
   _updateAim(keyboard: { [key: string]: number }, delta: number) {
+    const resetPressed = Boolean(keyboard[this.resetAimKey]);
+    if (resetPressed && !this.aimResetKeyPressed) {
+      this.aimResetting = true;
+    }
+    this.aimResetKeyPressed = resetPressed;
+
     if (!this.hasRotatingTurret) {
       this.setAimYaw(0);
       return;
     }
     this.aimInput = (keyboard[this.turretRightKey] || 0) - (keyboard[this.turretLeftKey] || 0);
+    if (this.aimInput !== 0) {
+      this.aimResetting = false;
+    }
     this.setAimYaw(this.aimYaw + this.aimInput * this.aimYawSpeed * delta);
   }
 
@@ -218,11 +230,38 @@ export class Tank extends MovableObject {
 
   _updateAimPitch(keyboard: { [key: string]: number }, delta: number) {
     this.aimInput = (keyboard[this.barrelUpKey] || 0) - (keyboard[this.barrelDownKey] || 0);
+    if (this.aimInput !== 0) {
+      this.aimResetting = false;
+    }
     this.aimPitch = THREE.MathUtils.clamp(
         this.aimPitch + this.aimInput * this.aimPitchSpeed * delta,
         this.aimPitchMin,
         this.aimPitchMax,
     );
+  }
+
+  _updateAimReset(delta: number): void {
+    if (!this.aimResetting) {
+      return;
+    }
+
+    const nextYaw = this.moveAngleTowards(this.aimYaw, 0, this.aimYawSpeed * delta);
+    const nextPitch = THREE.MathUtils.damp(this.aimPitch, 0, 9, delta);
+    this.setAimYaw(nextYaw);
+    this.aimPitch = Math.abs(nextPitch) < THREE.MathUtils.degToRad(0.15) ? 0 : nextPitch;
+
+    if (Math.abs(this.aimYaw) < THREE.MathUtils.degToRad(0.15) && this.aimPitch === 0) {
+      this.setAimYaw(0);
+      this.aimResetting = false;
+    }
+  }
+
+  private moveAngleTowards(current: number, target: number, maxDelta: number): number {
+    const delta = THREE.MathUtils.euclideanModulo(target - current + Math.PI, Math.PI * 2) - Math.PI;
+    if (Math.abs(delta) <= maxDelta) {
+      return target;
+    }
+    return current + Math.sign(delta) * maxDelta;
   }
 
   _updatePosition(ground: Ground, walls: Wall[], tanks: Tank[], surrounding_walls: Wall[]) {
@@ -351,6 +390,7 @@ export class Tank extends MovableObject {
     this._updateSpeed(keyboard, delta);
     this._updateAim(keyboard, delta);
     this._updateAimPitch(keyboard, delta);
+    this._updateAimReset(delta);
     this._updatePosition(ground, walls, tanks, surrounding_walls);
     this._createBullets(keyboard, bullets, scene);
     this.tankModel?.update({

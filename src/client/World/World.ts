@@ -1222,7 +1222,7 @@ class World {
         this.camera.toggleMode();
         event.preventDefault();
       }
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyC'].includes(event.code)) {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyT', 'KeyC'].includes(event.code)) {
         event.preventDefault();
       }
       this.keyboard[event.code] = 1;
