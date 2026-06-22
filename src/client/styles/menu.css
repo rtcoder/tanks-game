@@ -91,6 +91,25 @@
   text-transform: uppercase;
 }
 
+.controls-button {
+  background: rgba(215, 230, 92, 0.1);
+  border: 1px solid rgba(215, 230, 92, 0.36);
+  color: #d7e65c;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 950;
+  min-height: 38px;
+  text-transform: uppercase;
+}
+
+.controls-button:hover,
+.controls-button:focus-visible {
+  background: rgba(215, 230, 92, 0.18);
+  border-color: rgba(215, 230, 92, 0.78);
+  outline: none;
+}
+
 .online-menu label {
   color: #aeb99d;
   display: grid;
@@ -603,6 +622,63 @@
   background: #d1402e;
 }
 
+.controls-modal__panel {
+  max-width: 760px;
+  width: min(760px, 100% - 56px);
+}
+
+.controls-modal__grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.controls-modal__grid section {
+  background: rgba(3, 6, 4, 0.62);
+  border: 1px solid rgba(221, 228, 188, 0.14);
+  padding: 14px;
+}
+
+.controls-modal__grid h3 {
+  color: #d7e65c;
+  font-size: 12px;
+  font-weight: 950;
+  margin: 0 0 12px;
+  text-transform: uppercase;
+}
+
+.controls-modal__grid dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.controls-modal__grid dl div {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 92px 1fr;
+}
+
+.controls-modal__grid dt {
+  background: rgba(215, 230, 92, 0.1);
+  border: 1px solid rgba(215, 230, 92, 0.28);
+  color: #f5f1df;
+  font-size: 12px;
+  font-weight: 950;
+  min-height: 30px;
+  padding: 7px 9px;
+  text-align: center;
+}
+
+.controls-modal__grid dd {
+  color: #c8d2b3;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.3;
+  margin: 0;
+}
+
 .online-grid {
   display: grid;
   gap: 10px;
@@ -710,5 +786,13 @@
 
   .tank-modal__list {
     max-height: 230px;
+  }
+
+  .controls-modal__panel {
+    width: calc(100vw - 32px);
+  }
+
+  .controls-modal__grid {
+    grid-template-columns: 1fr;
   }
 }

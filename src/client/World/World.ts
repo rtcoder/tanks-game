@@ -107,6 +107,9 @@ class World {
   battleTitleInput: HTMLInputElement;
   maxPlayersInput: HTMLInputElement;
   battleIdInput: HTMLInputElement;
+  controlsButton: HTMLButtonElement;
+  controlsModal: HTMLElement;
+  controlsModalCloseButton: HTMLButtonElement;
   tankSelectionElement: HTMLElement;
   tankSelectButton: HTMLButtonElement;
   selectedTankNameElement: HTMLElement;
@@ -176,6 +179,9 @@ class World {
     this.battleTitleInput = document.getElementById('battle-title-input') as HTMLInputElement;
     this.maxPlayersInput = document.getElementById('max-players-input') as HTMLInputElement;
     this.battleIdInput = document.getElementById('battle-id-input') as HTMLInputElement;
+    this.controlsButton = document.getElementById('controls-button') as HTMLButtonElement;
+    this.controlsModal = document.getElementById('controls-modal') as HTMLElement;
+    this.controlsModalCloseButton = document.getElementById('controls-modal-close') as HTMLButtonElement;
     this.tankSelectionElement = document.getElementById('tank-selection') as HTMLElement;
     this.tankSelectButton = document.getElementById('tank-select-button') as HTMLButtonElement;
     this.selectedTankNameElement = document.getElementById('selected-tank-name') as HTMLElement;
@@ -1463,10 +1469,21 @@ class World {
     this.joinButton.addEventListener('click', () => {
       void this.joinBattle(this.battleIdInput.value);
     });
+    this.controlsButton.addEventListener('click', () => this.openControlsModal());
+    this.controlsModalCloseButton.addEventListener('click', () => this.closeControlsModal());
+    this.controlsModal.addEventListener('click', (event) => {
+      if (event.target === this.controlsModal) {
+        this.closeControlsModal();
+      }
+    });
   }
 
   registerInputHandlers(): void {
     window.addEventListener('keydown', (event) => {
+      if (event.code === 'Escape' && !this.controlsModal.classList.contains('hidden')) {
+        this.closeControlsModal();
+        return;
+      }
       if (event.code === 'Escape' && !this.tankModal.classList.contains('hidden')) {
         this.closeTankModal(false);
         return;
@@ -1506,6 +1523,16 @@ class World {
       this.resizeTankPreview();
       this.updateMinimap();
     });
+  }
+
+  openControlsModal(): void {
+    this.controlsModal.classList.remove('hidden');
+    this.controlsModal.setAttribute('aria-hidden', 'false');
+  }
+
+  closeControlsModal(): void {
+    this.controlsModal.classList.add('hidden');
+    this.controlsModal.setAttribute('aria-hidden', 'true');
   }
 
   async createBattle(): Promise<void> {

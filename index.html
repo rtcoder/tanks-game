@@ -22,6 +22,7 @@
           <strong>Battle room</strong>
           <span>Free-for-all</span>
         </div>
+        <button class="controls-button" id="controls-button" type="button">Controls</button>
         <label>
           <span>Nick</span>
           <input id="nick-input" maxlength="24" placeholder="Tank commander" autocomplete="nickname">
@@ -98,6 +99,52 @@
 
     <div class="message message--replay" id="replayMessage">W/A/S/D or arrows to move - Q/E turret - R/F barrel - T reset aim - C camera - V chase hull/barrel - Space to fire</div>
     <div class="message message--instructions hidden" id="instructions"></div>
+
+    <div class="tank-modal controls-modal hidden" id="controls-modal" aria-hidden="true">
+      <div class="tank-modal__panel controls-modal__panel" role="dialog" aria-modal="true" aria-labelledby="controls-modal-title">
+        <div class="tank-modal__topline">
+          <div>
+            <span>Commander manual</span>
+            <h2 id="controls-modal-title">Controls</h2>
+          </div>
+          <button class="tank-modal__close" id="controls-modal-close" type="button" aria-label="Close controls">×</button>
+        </div>
+        <div class="controls-modal__grid">
+          <section>
+            <h3>Drive</h3>
+            <dl>
+              <div><dt>W / ↑</dt><dd>Forward</dd></div>
+              <div><dt>S / ↓</dt><dd>Reverse</dd></div>
+              <div><dt>A / ←</dt><dd>Turn left</dd></div>
+              <div><dt>D / →</dt><dd>Turn right</dd></div>
+            </dl>
+          </section>
+          <section>
+            <h3>Aim</h3>
+            <dl>
+              <div><dt>Q</dt><dd>Turret left</dd></div>
+              <div><dt>E</dt><dd>Turret right</dd></div>
+              <div><dt>R</dt><dd>Barrel up</dd></div>
+              <div><dt>F</dt><dd>Barrel down</dd></div>
+              <div><dt>T</dt><dd>Reset turret</dd></div>
+            </dl>
+          </section>
+          <section>
+            <h3>Combat</h3>
+            <dl>
+              <div><dt>Space</dt><dd>Fire</dd></div>
+            </dl>
+          </section>
+          <section>
+            <h3>Camera</h3>
+            <dl>
+              <div><dt>C</dt><dd>Chase / gunner view</dd></div>
+              <div><dt>V</dt><dd>Chase follows hull / barrel</dd></div>
+            </dl>
+          </section>
+        </div>
+      </div>
+    </div>
 
     <div class="tank-modal hidden" id="tank-modal" aria-hidden="true">
       <div class="tank-modal__panel" role="dialog" aria-modal="true" aria-labelledby="tank-modal-title">
