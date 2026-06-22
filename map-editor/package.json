@@ -1,0 +1,32 @@
+{
+  "name": "weltbuilder",
+  "version": "0.1.0",
+  "description": "Modular browser-native terrain builder for WebGL games",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "simplex-noise": "4.0.3",
+    "three": "0.178.0",
+    "lil-gui": "0.20.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.178.0",
+    "typescript": "5.8.3",
+    "vite": "7.0.6"
+  },
+  "keywords": [
+    "terrain",
+    "procedural",
+    "webgl",
+    "three.js",
+    "game-development"
+  ],
+  "author": "",
+  "license": "MIT"
+}
