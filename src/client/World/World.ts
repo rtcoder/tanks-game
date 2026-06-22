@@ -2,8 +2,17 @@ import * as THREE from 'three';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {MTLLoader} from 'three/examples/jsm/loaders/MTLLoader.js';
 import {OBJLoader} from 'three/examples/jsm/loaders/OBJLoader.js';
-import defaultMapData from '../../assets/maps/default.json';
-import type {BattleSummary, ClientMessage, GameConfig, Tank as NetworkTank, WsMessage} from '../../shared/types';
+import {normalizeGroundfireMap} from '../../shared/map-normalizer';
+import type {
+  BattleSummary,
+  ClientMessage,
+  GameConfig,
+  GroundfireMap,
+  GroundfireMapSummary,
+  GroundfireWaterSource,
+  Tank as NetworkTank,
+  WsMessage,
+} from '../../shared/types';
 import {BattleStatus, ClientMessageType, WsMessageType} from '../../shared/types';
 import {Bullet} from './object/impl/Bullet';
 import {Ground, type TerrainData} from './object/impl/Ground';
@@ -28,40 +37,15 @@ import {Scene} from './system/Scene';
 import {DEFAULT_TANK_ID, getTankDefinition, TANK_DEFINITIONS} from './tank-definitions/tank-definitions';
 import {type TankDefinition} from './tank-definitions/shared/tank-definition.type';
 
-type VectorTuple = [number, number, number];
-type BoundaryWallData = {
-  id: string;
-  kind: 'maze' | 'boundary';
-  size: VectorTuple;
-  position: VectorTuple;
-  rotation: VectorTuple;
-  destructible: boolean;
-  health?: number;
-};
-type GameMapData = {
-  id: string;
-  name: string;
-  arena: {
-    size: number;
-  };
-  generator: {
-    type: string;
-    gridSize: number;
-    seed: number;
-    wall: Record<string, number>;
-  };
-  terrain?: TerrainData;
-  walls: BoundaryWallData[];
-};
-
-const DEFAULT_MAP = defaultMapData as unknown as GameMapData;
-const ARENA_SIZE = DEFAULT_MAP.arena.size;
-const ARENA_HALF = ARENA_SIZE / 2;
+const DEFAULT_ARENA_SIZE = 1500;
+const DEFAULT_MAP_ID = 'default';
+const MAP_BLOCK_HEIGHT = 50;
 const STORAGE_KEYS = {
   nick: 'tanks:nick',
   battleId: 'tanks:battle-id',
   playerId: 'tanks:player-id',
   tankModelId: 'tanks:tank-model-id',
+  mapId: 'tanks:map-id',
 };
 
 type KeyboardState = Record<string, number>;
@@ -69,13 +53,13 @@ type KeyboardState = Record<string, number>;
 const encodeMessage = (message: ClientMessage): string => JSON.stringify(message);
 const decodeMessage = (message: string): WsMessage => JSON.parse(message) as WsMessage;
 
-const createNetworkTank = (tank: Tank, uid: string | null, color = '#8ca36f'): NetworkTank => ({
+const createNetworkTank = (tank: Tank, uid: string | null, arenaHalf: number, color = '#8ca36f'): NetworkTank => ({
   uid,
   tankModelId: tank.tankModelId,
   turretAngle: THREE.MathUtils.radToDeg(tank.mesh.rotation.z + tank.aimYaw),
   lives: Math.max(0, tank.health),
-  x: tank.mesh.position.x + ARENA_HALF,
-  y: -tank.mesh.position.y + ARENA_HALF,
+  x: tank.mesh.position.x + arenaHalf,
+  y: -tank.mesh.position.y + arenaHalf,
   speed: 7,
   angle: THREE.MathUtils.radToDeg(tank.mesh.rotation.z),
   mod: tank.proceed > 0 ? 1 : tank.proceed < 0 ? -1 : 0,
@@ -89,8 +73,8 @@ const createNetworkTank = (tank: Tank, uid: string | null, color = '#8ca36f'): N
   force: 100,
 });
 
-const applyNetworkTank = (tank: Tank, data: NetworkTank): void => {
-  tank.mesh.position.set(data.x - ARENA_HALF, -(data.y - ARENA_HALF), 0);
+const applyNetworkTank = (tank: Tank, data: NetworkTank, arenaHalf: number): void => {
+  tank.mesh.position.set(data.x - arenaHalf, -(data.y - arenaHalf), 0);
   tank.mesh.rotation.z = THREE.MathUtils.degToRad(data.angle);
   tank.setAimYaw(THREE.MathUtils.degToRad(data.turretAngle ?? data.angle) - tank.mesh.rotation.z);
   tank.health = data.lives;
@@ -119,6 +103,7 @@ class World {
   instructions: HTMLElement;
   statusText: HTMLElement;
   nickInput: HTMLInputElement;
+  mapSelectInput: HTMLSelectElement;
   battleTitleInput: HTMLInputElement;
   maxPlayersInput: HTMLInputElement;
   battleIdInput: HTMLInputElement;
@@ -147,6 +132,19 @@ class World {
   meshDict: { [key: string]: THREE.Object3D } = {};
   audioDict: { [key: string]: AudioBuffer } = {};
   textureDict: { [key: string]: { [key: string]: THREE.Texture } } = {};
+  availableMaps: GroundfireMapSummary[] = [];
+  selectedMapId = localStorage.getItem(STORAGE_KEYS.mapId) || DEFAULT_MAP_ID;
+  mapData: GroundfireMap = normalizeGroundfireMap({
+    id: DEFAULT_MAP_ID,
+    name: 'Default Arena',
+    arena: {size: DEFAULT_ARENA_SIZE},
+    terrain: {resolution: 128, features: []},
+  });
+  mapTerrain: TerrainData = {resolution: 128, features: []};
+  arenaSize = DEFAULT_ARENA_SIZE;
+  arenaHalf = DEFAULT_ARENA_SIZE / 2;
+  waterMeshes: THREE.Mesh[] = [];
+  waterMinimapCells: Array<{ x: number; y: number; size: number }> = [];
   listeners: THREE.AudioListener[] = [];
   bgAudio: THREE.Audio | null = null;
   localTank: Tank | null = null;
@@ -174,6 +172,7 @@ class World {
     this.instructions = document.getElementById('instructions') as HTMLElement;
     this.statusText = document.getElementById('battle-status-text') as HTMLElement;
     this.nickInput = document.getElementById('nick-input') as HTMLInputElement;
+    this.mapSelectInput = document.getElementById('map-select-input') as HTMLSelectElement;
     this.battleTitleInput = document.getElementById('battle-title-input') as HTMLInputElement;
     this.maxPlayersInput = document.getElementById('max-players-input') as HTMLInputElement;
     this.battleIdInput = document.getElementById('battle-id-input') as HTMLInputElement;
@@ -203,11 +202,13 @@ class World {
     this.battleIdInput.value = localStorage.getItem(STORAGE_KEYS.battleId) || '';
     this.renderTankSelection();
     await this.loadGameConfig();
+    await this.loadMaps();
+    await this.loadMapById(this.selectedMapId);
     await this.loadAssets();
     this.scene = new Scene();
     this.skyDome = new SkyDome('main');
     this.scene.add(this.skyDome);
-    this.ground = new Ground('main', this.textureDict['ground'], ARENA_SIZE, DEFAULT_MAP.terrain ?? {resolution: 96, features: []});
+    this.ground = new Ground('main', this.textureDict['ground'], this.arenaSize, this.mapTerrain);
     this.scene.add(this.ground);
     this.hemiLight = new HemiSphereLight('main');
     this.directLight = new DirectionalLight('main');
@@ -215,6 +216,7 @@ class World {
     this.scene.add(this.directLight);
     this.initializeWalls(this.walls, this.surrounding_walls);
     this.walls.forEach((wall) => this.scene.add(wall));
+    this.initializeWater();
     this.localTank = this.createPlayerTank('local');
     this.localTank.post_init(this.healthContainer);
     this.scene.add(this.localTank);
@@ -248,6 +250,123 @@ class World {
     }
     const config = await response.json() as GameConfig;
     this.webSocketPath = config.webSocketPath;
+  }
+
+  async loadMaps(): Promise<void> {
+    const response = await fetch('/api/maps').catch(() => null);
+    if (!response?.ok) {
+      this.availableMaps = [{
+        id: DEFAULT_MAP_ID,
+        name: 'Default Arena',
+        version: 2,
+        arenaSize: DEFAULT_ARENA_SIZE,
+      }];
+      this.renderMapSelect();
+      return;
+    }
+
+    const data = await response.json() as { maps: GroundfireMapSummary[] };
+    this.availableMaps = data.maps.length > 0 ? data.maps : [{
+      id: DEFAULT_MAP_ID,
+      name: 'Default Arena',
+      version: 2,
+      arenaSize: DEFAULT_ARENA_SIZE,
+    }];
+    if (!this.availableMaps.some((map) => map.id === this.selectedMapId)) {
+      this.selectedMapId = this.availableMaps[0].id;
+    }
+    this.renderMapSelect();
+  }
+
+  renderMapSelect(): void {
+    this.mapSelectInput.innerHTML = this.availableMaps.map((map) => (
+      `<option value="${map.id}" ${map.id === this.selectedMapId ? 'selected' : ''}>${map.name}</option>`
+    )).join('');
+  }
+
+  async loadMapById(mapId: string, rebuildScene = false): Promise<void> {
+    const response = await fetch(`/api/maps/${encodeURIComponent(mapId)}`).catch(() => null);
+    const rawMap = response?.ok
+      ? (await response.json() as { map: unknown }).map
+      : null;
+    this.mapData = normalizeGroundfireMap(rawMap, mapId);
+    this.selectedMapId = this.mapData.id;
+    this.arenaSize = this.mapData.arena.size;
+    this.arenaHalf = this.arenaSize / 2;
+    this.mapTerrain = await this.resolveTerrainData(this.mapData);
+    localStorage.setItem(STORAGE_KEYS.mapId, this.selectedMapId);
+    this.renderMapSelect();
+
+    if (rebuildScene && this.scene) {
+      this.rebuildGround();
+      this.resetArena();
+    }
+  }
+
+  async resolveTerrainData(map: GroundfireMap): Promise<TerrainData> {
+    const terrain: TerrainData = {
+      resolution: map.terrain.resolution,
+      features: map.terrain.features ?? [],
+    };
+
+    if (map.terrain.heightmapAsset) {
+      try {
+        terrain.heightmap = await this.loadHeightmap(map.terrain.heightmapAsset, map.terrain.resolution, {
+          heightScale: map.terrain.heightScale ?? 120,
+          heightOffset: map.terrain.heightOffset ?? 0,
+        });
+      } catch (error) {
+        console.warn(`Could not load heightmap for map "${map.id}": ${map.terrain.heightmapAsset}`, error);
+      }
+    }
+
+    return terrain;
+  }
+
+  async loadHeightmap(
+      path: string,
+      resolution: number,
+      settings: { heightScale: number; heightOffset: number },
+  ): Promise<NonNullable<TerrainData['heightmap']>> {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = path;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = resolution;
+    canvas.height = resolution;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      return {
+        resolution,
+        samples: new Array(resolution * resolution).fill(0),
+        heightScale: settings.heightScale,
+        heightOffset: settings.heightOffset,
+      };
+    }
+
+    context.drawImage(image, 0, 0, resolution, resolution);
+    const pixels = context.getImageData(0, 0, resolution, resolution).data;
+    const samples: number[] = [];
+    for (let index = 0; index < pixels.length; index += 4) {
+      samples.push(pixels[index] / 255);
+    }
+
+    return {
+      resolution,
+      samples,
+      heightScale: settings.heightScale,
+      heightOffset: settings.heightOffset,
+    };
+  }
+
+  rebuildGround(): void {
+    this.ground?.destruct();
+    this.ground = new Ground('main', this.textureDict['ground'], this.arenaSize, this.mapTerrain);
+    this.scene.add(this.ground);
   }
 
   async loadGltf(gltfLoader: GLTFLoader, path: string): Promise<THREE.Group> {
@@ -603,10 +722,22 @@ class World {
     this.walls.forEach((wall) => wall.destruct());
     this.walls = [];
     this.surrounding_walls = [];
+    this.waterMeshes.forEach((mesh) => {
+      mesh.parent?.remove(mesh);
+      mesh.geometry.dispose();
+      if (Array.isArray(mesh.material)) {
+        mesh.material.forEach((material) => material.dispose());
+      } else {
+        mesh.material.dispose();
+      }
+    });
+    this.waterMeshes = [];
+    this.waterMinimapCells = [];
     this.destroyedWallIds.clear();
     this.occludedWallIds.clear();
     this.initializeWalls(this.walls, this.surrounding_walls);
     this.walls.forEach((wall) => this.scene.add(wall));
+    this.initializeWater();
     this.powerups.forEach((powerup) => powerup.destruct());
     this.powerups = [];
     this.initializePowerups(this.powerups);
@@ -618,14 +749,14 @@ class World {
   }
 
   initializeWalls(walls: Wall[], surrounding_walls: Wall[]): void {
-    const mapData = DEFAULT_MAP;
     const mapWallTexture = this.textureDict['wall'];
-    const maxWallBlockHeight = mapData.generator.wall.maxBlockHeight ?? 50;
+    const maxWallBlockHeight = MAP_BLOCK_HEIGHT;
 
-    mapData.walls.forEach((wallData) => {
+    this.mapData.elements.forEach((wallData) => {
       const heightBlockCount = Math.max(1, Math.ceil(wallData.size[2] / maxWallBlockHeight));
       const blockHeight = wallData.size[2] / heightBlockCount;
       const wallBaseZ = wallData.position[2] + this.ground.heightAt(wallData.position[0], wallData.position[1]);
+      const destructible = wallData.destructible ?? {enabled: true, health: 20};
 
       for (let heightIndex = 0; heightIndex < heightBlockCount; heightIndex++) {
         const wallId = heightBlockCount === 1 ? wallData.id : `${wallData.id}-h${heightIndex}`;
@@ -641,16 +772,117 @@ class World {
             new THREE.Euler(...wallData.rotation),
             {
               id: wallId,
-              destructible: wallData.destructible,
-              health: wallData.health,
+              destructible: destructible.enabled,
+              health: destructible.health,
             },
         );
         walls.push(wall);
-        if (wallData.kind === 'boundary') {
+        if (wallData.role === 'boundary') {
           surrounding_walls.push(wall);
         }
       }
     });
+  }
+
+  initializeWater(): void {
+    this.mapData.water.forEach((waterSource) => {
+      const waterMesh = this.createWaterMesh(waterSource);
+      if (!waterMesh) {
+        return;
+      }
+
+      this.waterMeshes.push(waterMesh);
+      this.scene.scene.add(waterMesh);
+    });
+  }
+
+  createWaterMesh(waterSource: GroundfireWaterSource): THREE.Mesh | null {
+    const gridSize = 80;
+    const cellSize = this.arenaSize / gridSize;
+    const seedColumn = Math.floor((waterSource.seedPoint[0] + this.arenaHalf) / cellSize);
+    const seedRow = Math.floor((this.arenaHalf - waterSource.seedPoint[1]) / cellSize);
+    if (seedColumn < 0 || seedColumn >= gridSize || seedRow < 0 || seedRow >= gridSize) {
+      return null;
+    }
+
+    const indexFor = (column: number, row: number): number => row * gridSize + column;
+    const worldCenter = (column: number, row: number): { x: number; y: number } => ({
+      x: -this.arenaHalf + (column + 0.5) * cellSize,
+      y: this.arenaHalf - (row + 0.5) * cellSize,
+    });
+    const canFill = (column: number, row: number): boolean => {
+      const point = worldCenter(column, row);
+      return this.ground.heightAt(point.x, point.y) <= waterSource.waterLevel;
+    };
+
+    if (!canFill(seedColumn, seedRow)) {
+      return null;
+    }
+
+    const visited = new Set<number>();
+    const queue: Array<{ column: number; row: number }> = [{column: seedColumn, row: seedRow}];
+    visited.add(indexFor(seedColumn, seedRow));
+    for (let index = 0; index < queue.length; index += 1) {
+      const {column, row} = queue[index];
+      [
+        {column: column + 1, row},
+        {column: column - 1, row},
+        {column, row: row + 1},
+        {column, row: row - 1},
+      ].forEach((next) => {
+        if (next.column < 0 || next.column >= gridSize || next.row < 0 || next.row >= gridSize) {
+          return;
+        }
+
+        const nextIndex = indexFor(next.column, next.row);
+        if (visited.has(nextIndex) || !canFill(next.column, next.row)) {
+          return;
+        }
+
+        visited.add(nextIndex);
+        queue.push(next);
+      });
+    }
+
+    const vertices: number[] = [];
+    const z = waterSource.waterLevel + 0.6;
+    visited.forEach((cellIndex) => {
+      const column = cellIndex % gridSize;
+      const row = Math.floor(cellIndex / gridSize);
+      const minX = -this.arenaHalf + column * cellSize;
+      const maxX = minX + cellSize;
+      const maxY = this.arenaHalf - row * cellSize;
+      const minY = maxY - cellSize;
+      vertices.push(
+          minX, minY, z,
+          maxX, minY, z,
+          maxX, maxY, z,
+          minX, minY, z,
+          maxX, maxY, z,
+          minX, maxY, z,
+      );
+      this.waterMinimapCells.push({x: minX, y: minY, size: cellSize});
+    });
+
+    if (vertices.length === 0) {
+      return null;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x35a9c6,
+      transparent: true,
+      opacity: 0.62,
+      roughness: 0.18,
+      metalness: 0.02,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `water:${waterSource.id}`;
+    mesh.receiveShadow = true;
+    return mesh;
   }
 
   initializePowerups(powerups: Powerup[]): void {
@@ -731,7 +963,7 @@ class World {
     }
 
     const {origin, direction} = this.localTank.getAimRay();
-    const raycaster = new THREE.Raycaster(origin, direction, 0, ARENA_SIZE * 2);
+    const raycaster = new THREE.Raycaster(origin, direction, 0, this.arenaSize * 2);
     const wallMeshes = this.walls
         .filter((wall) => !wall.destroyed && wall.mesh.parent)
         .map((wall) => wall.mesh);
@@ -744,12 +976,12 @@ class World {
     const groundHit = new THREE.Vector3();
     if (raycaster.ray.intersectPlane(groundPlane, groundHit)) {
       const distanceToGround = origin.distanceTo(groundHit);
-      if (distanceToGround > 0 && distanceToGround <= ARENA_SIZE * 2) {
+      if (distanceToGround > 0 && distanceToGround <= this.arenaSize * 2) {
         return groundHit;
       }
     }
 
-    return origin.clone().add(direction.multiplyScalar(ARENA_SIZE));
+    return origin.clone().add(direction.multiplyScalar(this.arenaSize));
   }
 
   updateMinimap(): void {
@@ -778,10 +1010,10 @@ class World {
     const mapSize = Math.max(1, Math.min(cssWidth - padding * 2, cssHeight - padding - topPadding));
     const mapLeft = (cssWidth - mapSize) / 2;
     const mapTop = topPadding;
-    const scale = mapSize / ARENA_SIZE;
+    const scale = mapSize / this.arenaSize;
     const toMap = (position: THREE.Vector3): { x: number; y: number } => ({
-      x: mapLeft + (position.x + ARENA_HALF) * scale,
-      y: mapTop + (ARENA_HALF - position.y) * scale,
+      x: mapLeft + (position.x + this.arenaHalf) * scale,
+      y: mapTop + (this.arenaHalf - position.y) * scale,
     });
 
     context.fillStyle = 'rgba(32, 48, 28, 0.92)';
@@ -812,6 +1044,7 @@ class World {
       context.stroke();
     }
 
+    this.drawMinimapWater(context, toMap, scale);
     this.drawMinimapWalls(context, toMap, scale);
     this.remoteTanks.forEach((tank) => this.drawMinimapTank(context, tank, toMap, '#ff6048', 4.5));
     this.drawMinimapTank(context, this.localTank, toMap, '#d7ff58', 5.5);
@@ -842,6 +1075,22 @@ class World {
           Math.max(1, wall.size.y * scale),
       );
       context.restore();
+    });
+  }
+
+  drawMinimapWater(
+      context: CanvasRenderingContext2D,
+      toMap: (position: THREE.Vector3) => { x: number; y: number },
+      scale: number,
+  ): void {
+    if (this.waterMinimapCells.length === 0) {
+      return;
+    }
+
+    context.fillStyle = 'rgba(53, 169, 198, 0.54)';
+    this.waterMinimapCells.forEach((cell) => {
+      const topLeft = toMap(new THREE.Vector3(cell.x, cell.y + cell.size, 0));
+      context.fillRect(topLeft.x, topLeft.y, Math.max(1, cell.size * scale), Math.max(1, cell.size * scale));
     });
   }
 
@@ -1204,6 +1453,10 @@ class World {
     this.nickInput.addEventListener('input', () => {
       localStorage.setItem(STORAGE_KEYS.nick, sanitizeNick(this.nickInput.value));
     });
+    this.mapSelectInput.addEventListener('change', () => {
+      this.selectedMapId = this.mapSelectInput.value || DEFAULT_MAP_ID;
+      localStorage.setItem(STORAGE_KEYS.mapId, this.selectedMapId);
+    });
     this.createButton.addEventListener('click', () => {
       void this.createBattle();
     });
@@ -1258,6 +1511,7 @@ class World {
         playerId: this.playerId,
         title: this.battleTitleInput.value.trim() || 'BattleTanks arena',
         maxPlayers: Number(this.maxPlayersInput.value) || 4,
+        mapId: this.selectedMapId,
       }),
     });
     if (!response.ok) {
@@ -1270,7 +1524,7 @@ class World {
     localStorage.setItem(STORAGE_KEYS.battleId, data.battle.id);
     this.battleIdInput.value = data.battle.id;
     this.currentBattle = data.battle;
-    this.startOnlineGame();
+    await this.startOnlineGame();
   }
 
   async joinBattle(id: string): Promise<void> {
@@ -1297,12 +1551,20 @@ class World {
     localStorage.setItem(STORAGE_KEYS.playerId, this.playerId);
     localStorage.setItem(STORAGE_KEYS.battleId, data.battle.id);
     this.currentBattle = data.battle;
-    this.startOnlineGame();
+    await this.startOnlineGame();
   }
 
-  startOnlineGame(): void {
+  async startOnlineGame(): Promise<void> {
+    const battleMapId = this.currentBattle?.mapId || this.selectedMapId;
+    let mapWasRebuilt = false;
+    if (battleMapId !== this.mapData.id) {
+      await this.loadMapById(battleMapId, true);
+      mapWasRebuilt = true;
+    }
     this.applySelectedTankToLocal();
-    this.resetArena();
+    if (!mapWasRebuilt) {
+      this.resetArena();
+    }
     this.camera.setMode('chase');
     this.menu.classList.add('hidden');
     this.replay.classList.add('hidden');
@@ -1416,7 +1678,7 @@ class World {
         Object.assign(tank, this.tankConfig(definition));
         tank.setTankModel(this.tankMeshFor(definition), definition);
       }
-      applyNetworkTank(tank, tankData);
+      applyNetworkTank(tank, tankData, this.arenaHalf);
       this.snapTankToTerrain(tank);
     });
     this.remoteTanks.forEach((tank, id) => {
@@ -1430,7 +1692,7 @@ class World {
   syncLocalTank(force: boolean): void {
     if (!this.localTank || !this.webSocket || this.webSocket.readyState !== WebSocket.OPEN) return;
     const now = Date.now();
-    const tank = createNetworkTank(this.localTank, this.playerId);
+    const tank = createNetworkTank(this.localTank, this.playerId, this.arenaHalf);
     const snapshot = `${tank.tankModelId}:${Math.round(tank.x)}:${Math.round(tank.y)}:${Math.round(tank.angle)}:${Math.round(tank.turretAngle ?? 0)}:${Math.round(tank.lives)}`;
     if (!force && snapshot === this.lastSentSnapshot && now - this.lastSentAt < 160) return;
     this.lastSentSnapshot = snapshot;

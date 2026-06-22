@@ -109,6 +109,106 @@ export type MapDefinition = {
   terrainPatches: TerrainPatch[];
 };
 
+export type GroundfireVector2 = [number, number];
+export type GroundfireVector3 = [number, number, number];
+
+export type GroundfireTerrainFeature = {
+  id: string;
+  type: 'hill' | 'depression' | 'ridge';
+  center: GroundfireVector2;
+  radius: number | GroundfireVector2;
+  height: number;
+  rotation?: number;
+  falloff?: number;
+};
+
+export type GroundfireTerrainMaterial = {
+  type: 'texture-set' | 'height-ramp';
+  textureSet?: string;
+  colorRamp?: Array<{
+    height: number;
+    color: string;
+  }>;
+};
+
+export type GroundfireTerrain = {
+  resolution: number;
+  heightmapAsset?: string;
+  heightScale?: number;
+  heightOffset?: number;
+  material: GroundfireTerrainMaterial;
+  features?: GroundfireTerrainFeature[];
+};
+
+export type GroundfireElementType = 'wall' | 'building' | 'obstacle';
+
+export type GroundfireDestructibleConfig = {
+  enabled: boolean;
+  health: number;
+};
+
+export type GroundfireMapElement = {
+  id: string;
+  type: GroundfireElementType;
+  position: GroundfireVector3;
+  rotation: GroundfireVector3;
+  size: GroundfireVector3;
+  stacking?: {
+    enabled: boolean;
+    baseElementId?: string | null;
+  };
+  destructible?: GroundfireDestructibleConfig;
+  material: string;
+  role?: 'maze' | 'boundary' | 'building' | 'prop';
+};
+
+export type GroundfireMapGroup = {
+  id: string;
+  name: string;
+  elementIds: string[];
+};
+
+export type GroundfireWaterSource = {
+  id: string;
+  seedPoint: GroundfireVector2;
+  waterLevel: number;
+  material: string;
+};
+
+export type GroundfireSpawn = {
+  id: string;
+  position: GroundfireVector3;
+  rotation: number;
+};
+
+export type GroundfireMap = {
+  version: 2;
+  id: string;
+  name: string;
+  arena: {
+    size: number;
+  };
+  terrain: GroundfireTerrain;
+  materials: {
+    terrain: string;
+    wall: string;
+    building: string;
+    obstacle: string;
+    water: string;
+  };
+  elements: GroundfireMapElement[];
+  groups: GroundfireMapGroup[];
+  water: GroundfireWaterSource[];
+  spawns: GroundfireSpawn[];
+};
+
+export type GroundfireMapSummary = {
+  id: string;
+  name: string;
+  version: number;
+  arenaSize: number;
+};
+
 export const BattleMode = {
   Ffa: 'ffa',
   Teams: 'teams',
@@ -134,6 +234,7 @@ export type BattleSummary = {
   title: string;
   mode: BattleMode;
   status: BattleStatus;
+  mapId: string;
   maxPlayers: number;
   createdAt: string;
   winnerUid: string | null;
@@ -253,6 +354,7 @@ export type SerializedBattle = {
   title: string;
   mode: BattleMode;
   status: BattleStatus;
+  mapId: string;
   maxPlayers: number;
   createdAt: string;
   winnerUid: string | null;
@@ -304,6 +406,7 @@ export type Battle = {
   title: string;
   mode: BattleMode;
   status: BattleStatus;
+  mapId: string;
   maxPlayers: number;
   createdAt: string;
   winnerUid: string | null;
@@ -321,6 +424,7 @@ export type PlayerPayload = {
 export type CreateBattlePayload = PlayerPayload & {
   title?: unknown;
   maxPlayers?: unknown;
+  mapId?: unknown;
 };
 
 export type ApiError = Error & {

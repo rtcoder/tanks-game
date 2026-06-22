@@ -1,0 +1,148 @@
+.editor-page {
+  background: #060806;
+  color: #f5f1df;
+  margin: 0;
+  overflow: hidden;
+}
+
+.editor {
+  display: grid;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  height: 100vh;
+  letter-spacing: 0;
+  width: 100vw;
+}
+
+.editor__viewport {
+  min-width: 0;
+  position: relative;
+}
+
+.editor__viewport canvas {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.editor__panel {
+  background: linear-gradient(180deg, rgba(16, 24, 14, 0.98), rgba(7, 10, 8, 0.98));
+  border-left: 1px solid rgba(221, 228, 188, 0.18);
+  box-shadow: -16px 0 44px rgba(0, 0, 0, 0.32);
+  display: grid;
+  gap: 12px;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+.editor__brand {
+  border-bottom: 1px solid rgba(221, 228, 188, 0.18);
+  display: grid;
+  gap: 4px;
+  padding-bottom: 14px;
+  text-transform: uppercase;
+}
+
+.editor__brand span {
+  color: #d7ff58;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.editor__brand strong {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.editor label {
+  color: #b8c5a2;
+  display: grid;
+  font-size: 12px;
+  font-weight: 900;
+  gap: 6px;
+  text-transform: uppercase;
+}
+
+.editor input,
+.editor select {
+  background: rgba(3, 6, 4, 0.88);
+  border: 1px solid rgba(221, 228, 188, 0.24);
+  color: #f5f1df;
+  font: inherit;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.editor input[type="range"] {
+  accent-color: #d7ff58;
+  min-height: 28px;
+  padding: 0;
+}
+
+.editor input:focus,
+.editor select:focus,
+.editor button:focus-visible {
+  border-color: #d7ff58;
+  outline: none;
+}
+
+.editor__check {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+}
+
+.editor__check input {
+  min-height: auto;
+  width: auto;
+}
+
+.editor__row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.editor button {
+  background: #253016;
+  border: 1px solid rgba(221, 228, 188, 0.24);
+  color: #f5f1df;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  min-height: 40px;
+  padding: 0 10px;
+  text-transform: uppercase;
+}
+
+.editor button:hover {
+  background: #33431e;
+  border-color: rgba(215, 255, 88, 0.55);
+}
+
+.editor__status {
+  background: rgba(0, 0, 0, 0.26);
+  border: 1px solid rgba(221, 228, 188, 0.16);
+  color: #d7ff58;
+  font-size: 12px;
+  font-weight: 900;
+  margin: 0;
+  padding: 10px;
+  text-transform: uppercase;
+}
+
+@media (max-width: 900px) {
+  .editor {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(260px, 42vh);
+  }
+
+  .editor__panel {
+    border-left: 0;
+    border-top: 1px solid rgba(221, 228, 188, 0.18);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

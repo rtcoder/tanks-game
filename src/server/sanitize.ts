@@ -28,9 +28,20 @@ export function sanitizePlayerId(playerId: unknown): string {
     : crypto.randomUUID();
 }
 
+export function sanitizeMapId(mapId: unknown): string {
+  if (typeof mapId !== 'string') {
+    return 'default';
+  }
+
+  const normalizedMapId = mapId.trim();
+  return /^[a-z0-9][a-z0-9_-]{0,63}$/i.test(normalizedMapId) ? normalizedMapId : 'default';
+}
+
 export function sanitizeTank(tank: any, uid: string): Tank {
   return {
     uid,
+    tankModelId: typeof tank?.tankModelId === 'string' ? tank.tankModelId.slice(0, 80) : undefined,
+    turretAngle: Number.isFinite(Number(tank?.turretAngle)) ? clamp(tank?.turretAngle, -720, 720) : undefined,
     lives: clamp(tank?.lives, 0, 250),
     x: clamp(tank?.x, 25, GAME_BOUNDS.width - 25),
     y: clamp(tank?.y, 25, GAME_BOUNDS.height - 25),

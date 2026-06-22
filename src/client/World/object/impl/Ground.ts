@@ -13,7 +13,13 @@ export type TerrainFeature = {
 
 export type TerrainData = {
   resolution: number;
-  features: TerrainFeature[];
+  features?: TerrainFeature[];
+  heightmap?: {
+    resolution: number;
+    samples: number[];
+    heightScale: number;
+    heightOffset: number;
+  };
 };
 
 export class Ground extends BaseObject {
@@ -90,7 +96,11 @@ export class Ground extends BaseObject {
   }
 
   heightAt(x: number, y: number): number {
-    return this.terrain.features.reduce((height, feature) => height + this.featureHeightAt(feature, x, y), 0);
+    const heightmapHeight = this.terrain.heightmap ? this.heightmapHeightAt(x, y) : 0;
+    return (this.terrain.features ?? []).reduce(
+        (height, feature) => height + this.featureHeightAt(feature, x, y),
+        heightmapHeight,
+    );
   }
 
   normalAt(x: number, y: number, sampleDistance = 12): THREE.Vector3 {
@@ -127,5 +137,40 @@ export class Ground extends BaseObject {
       return -Math.abs(feature.height) * smooth;
     }
     return feature.height * smooth;
+  }
+
+  private heightmapHeightAt(x: number, y: number): number {
+    const heightmap = this.terrain.heightmap;
+    if (!heightmap || heightmap.samples.length === 0) {
+      return 0;
+    }
+
+    const resolution = heightmap.resolution;
+    const u = THREE.MathUtils.clamp((x / this.planeSize) + 0.5, 0, 1);
+    const v = THREE.MathUtils.clamp(0.5 - (y / this.planeSize), 0, 1);
+    const sampleX = u * (resolution - 1);
+    const sampleY = v * (resolution - 1);
+    const x0 = Math.floor(sampleX);
+    const y0 = Math.floor(sampleY);
+    const x1 = Math.min(resolution - 1, x0 + 1);
+    const y1 = Math.min(resolution - 1, y0 + 1);
+    const tx = sampleX - x0;
+    const ty = sampleY - y0;
+    const topLeft = this.heightmapSample(x0, y0);
+    const topRight = this.heightmapSample(x1, y0);
+    const bottomLeft = this.heightmapSample(x0, y1);
+    const bottomRight = this.heightmapSample(x1, y1);
+    const top = THREE.MathUtils.lerp(topLeft, topRight, tx);
+    const bottom = THREE.MathUtils.lerp(bottomLeft, bottomRight, tx);
+    return THREE.MathUtils.lerp(top, bottom, ty) * heightmap.heightScale + heightmap.heightOffset;
+  }
+
+  private heightmapSample(x: number, y: number): number {
+    const heightmap = this.terrain.heightmap;
+    if (!heightmap) {
+      return 0;
+    }
+
+    return heightmap.samples[y * heightmap.resolution + x] ?? 0;
   }
 }

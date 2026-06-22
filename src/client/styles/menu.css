@@ -100,7 +100,8 @@
   text-transform: uppercase;
 }
 
-.online-menu input {
+.online-menu input,
+.online-menu select {
   background: rgba(3, 6, 4, 0.86);
   border: 1px solid rgba(221, 228, 188, 0.22);
   color: #f5f1df;
@@ -110,7 +111,8 @@
   width: 100%;
 }
 
-.online-menu input:focus {
+.online-menu input:focus,
+.online-menu select:focus {
   border-color: #d7e65c;
   outline: none;
 }

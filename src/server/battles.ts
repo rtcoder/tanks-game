@@ -15,6 +15,7 @@ import {
   clamp,
   sanitizeDestroyedSegmentIds,
   sanitizeMine,
+  sanitizeMapId,
   sanitizePlayerId,
   sanitizeProjectile,
   sanitizeTank,
@@ -23,13 +24,14 @@ import {
 
 const battles = new Map<string, Battle>();
 
-export function createBattle({title, maxPlayers, nick, playerId}: CreateBattlePayload): { battle: Battle; player: Player } {
+export function createBattle({title, maxPlayers, mapId, nick, playerId}: CreateBattlePayload): { battle: Battle; player: Player } {
   const id = crypto.randomUUID();
   const battle: Battle = {
     id,
     title: sanitizeText(title, 'Untitled battle', 40),
     mode: BattleMode.Ffa,
     status: BattleStatus.Waiting,
+    mapId: sanitizeMapId(mapId),
     maxPlayers: clamp(maxPlayers, 2, 16),
     createdAt: new Date().toISOString(),
     winnerUid: null,
@@ -89,6 +91,7 @@ export function serializeBattle(battle: Battle): SerializedBattle {
     title: battle.title,
     mode: battle.mode,
     status: battle.status,
+    mapId: battle.mapId,
     maxPlayers: battle.maxPlayers,
     createdAt: battle.createdAt,
     winnerUid: battle.winnerUid,
