@@ -14,8 +14,14 @@ type DragState = {
   offsets: Map<string, THREE.Vector3>;
 };
 
+type PlacementSample = {
+  point: THREE.Vector3;
+  baseElementId: string | null;
+};
+
 const HEIGHTMAP_RESOLUTION = 128;
 const TERRAIN_SEGMENTS = HEIGHTMAP_RESOLUTION - 1;
+const EDITOR_GRID_SIZE = 10;
 
 export class MapEditor {
   root: HTMLElement;
@@ -27,12 +33,15 @@ export class MapEditor {
   pointer = new THREE.Vector2();
   terrainGeometry!: THREE.PlaneGeometry;
   terrainMesh!: THREE.Mesh;
+  gridHelper: THREE.GridHelper | null = null;
   ghostMesh!: THREE.Mesh;
   waterMeshes: THREE.Mesh[] = [];
   elements = new Map<string, EditorElement>();
   groups: GroundfireMapGroup[] = [];
   selectedIds = new Set<string>();
+  selectedWaterId: string | null = null;
   dragState: DragState | null = null;
+  lastPlacement: PlacementSample | null = null;
   mapIdInput!: HTMLInputElement;
   mapNameInput!: HTMLInputElement;
   mapSizeInput!: HTMLInputElement;
@@ -44,6 +53,7 @@ export class MapEditor {
   destructibleInput!: HTMLInputElement;
   healthInput!: HTMLInputElement;
   waterLevelInput!: HTMLInputElement;
+  waterListElement!: HTMLElement;
   statusElement!: HTMLElement;
   terrainSize = 1500;
   tool: EditorTool = 'raise';
@@ -71,7 +81,8 @@ export class MapEditor {
     this.bindEvents();
     this.resize();
     this.animate();
-    this.setStatus('Editor ready');
+    this.renderWaterList();
+    this.setStatus(`Editor ready - grid ${EDITOR_GRID_SIZE}`);
   }
 
   template(): string {
@@ -114,6 +125,10 @@ export class MapEditor {
           <label class="editor__check"><input id="editor-destructible" type="checkbox" checked> Destructible</label>
           <label>Health<input id="editor-health" type="number" min="1" max="9999" value="20"></label>
           <label>Water level<input id="editor-water-level" type="number" step="5" value="0"></label>
+          <section class="editor__section">
+            <div class="editor__section-title">Water sources</div>
+            <div class="editor__water-list" id="editor-water-list"></div>
+          </section>
           <div class="editor__row">
             <button id="editor-rotate-left" type="button">Rotate -90</button>
             <button id="editor-rotate-right" type="button">Rotate +90</button>
@@ -144,6 +159,7 @@ export class MapEditor {
     this.destructibleInput = document.getElementById('editor-destructible') as HTMLInputElement;
     this.healthInput = document.getElementById('editor-health') as HTMLInputElement;
     this.waterLevelInput = document.getElementById('editor-water-level') as HTMLInputElement;
+    this.waterListElement = document.getElementById('editor-water-list') as HTMLElement;
     this.statusElement = document.getElementById('editor-status') as HTMLElement;
   }
 
@@ -180,6 +196,31 @@ export class MapEditor {
     this.terrainMesh.name = 'terrain';
     this.terrainMesh.receiveShadow = true;
     this.scene.add(this.terrainMesh);
+    this.refreshGridHelper();
+  }
+
+  refreshGridHelper(): void {
+    if (this.gridHelper) {
+      this.scene.remove(this.gridHelper);
+      this.gridHelper.geometry.dispose();
+      const material = this.gridHelper.material;
+      if (Array.isArray(material)) {
+        material.forEach((item) => item.dispose());
+      } else {
+        material.dispose();
+      }
+    }
+
+    const divisions = Math.max(1, Math.round(this.terrainSize / EDITOR_GRID_SIZE));
+    this.gridHelper = new THREE.GridHelper(this.terrainSize, divisions, 0xd7e65c, 0x55663e);
+    this.gridHelper.position.y = 0.35;
+    this.gridHelper.renderOrder = 1;
+    const material = this.gridHelper.material;
+    if (!Array.isArray(material)) {
+      material.transparent = true;
+      material.opacity = 0.32;
+    }
+    this.scene.add(this.gridHelper);
   }
 
   createGhost(): void {
@@ -210,6 +251,7 @@ export class MapEditor {
     document.getElementById('editor-delete')?.addEventListener('click', () => this.deleteSelection());
     document.getElementById('editor-export-json')?.addEventListener('click', () => this.exportJson());
     document.getElementById('editor-export-heightmap')?.addEventListener('click', () => this.exportHeightmap());
+    this.waterListElement.addEventListener('click', (event) => this.handleWaterListClick(event));
 
     this.renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
     this.renderer.domElement.addEventListener('pointerdown', (event) => this.onPointerDown(event));
@@ -354,8 +396,9 @@ export class MapEditor {
   }
 
   updateGhost(): void {
-    const hit = this.intersectPlacement();
-    if (!hit) {
+    const placement = this.placementFromPointer();
+    this.lastPlacement = placement;
+    if (!placement) {
       this.ghostMesh.visible = false;
       return;
     }
@@ -363,7 +406,7 @@ export class MapEditor {
     const preset = this.currentPreset();
     const height = preset.size[2];
     this.ghostMesh.visible = true;
-    this.ghostMesh.position.set(hit.point.x, this.topSurfaceFromHit(hit) + height / 2, hit.point.z);
+    this.ghostMesh.position.set(placement.point.x, placement.point.y + height / 2, placement.point.z);
     this.ghostMesh.rotation.y = this.ghostRotation;
   }
 
@@ -418,9 +461,7 @@ export class MapEditor {
   }
 
   baseElementIdUnderGhost(): string | null {
-    const hit = this.intersectPlacement();
-    const elementId = hit?.object.userData.elementId;
-    return typeof elementId === 'string' ? elementId : null;
+    return this.lastPlacement?.baseElementId ?? null;
   }
 
   topSurfaceFromHit(hit: THREE.Intersection): number {
@@ -436,10 +477,69 @@ export class MapEditor {
     return hit.point.y;
   }
 
+  placementFromPointer(): PlacementSample | null {
+    const hit = this.intersectPlacement();
+    if (!hit) {
+      return null;
+    }
+
+    return this.surfaceAtGridPoint(this.snapToGrid(hit.point.x), this.snapToGrid(hit.point.z));
+  }
+
+  surfaceAtGridPoint(x: number, z: number): PlacementSample {
+    const meshes = [
+      ...Array.from(this.elements.values()).map((element) => element.mesh),
+      this.terrainMesh,
+    ];
+    const surfaceRay = new THREE.Raycaster(
+        new THREE.Vector3(x, 10000, z),
+        new THREE.Vector3(0, -1, 0),
+        0,
+        20000,
+    );
+    const [hit] = surfaceRay.intersectObjects(meshes, false);
+    if (!hit) {
+      return {
+        point: new THREE.Vector3(x, this.heightAt(x, z), z),
+        baseElementId: null,
+      };
+    }
+
+    const elementId = hit.object.userData.elementId;
+    return {
+      point: new THREE.Vector3(x, this.topSurfaceFromHit(hit), z),
+      baseElementId: typeof elementId === 'string' ? elementId : null,
+    };
+  }
+
+  snapToGrid(value: number): number {
+    const halfSize = this.terrainSize / 2;
+    return THREE.MathUtils.clamp(
+        Math.round(value / EDITOR_GRID_SIZE) * EDITOR_GRID_SIZE,
+        -halfSize,
+        halfSize,
+    );
+  }
+
+  snappedTerrainPoint(point: THREE.Vector3): THREE.Vector3 {
+    const x = this.snapToGrid(point.x);
+    const z = this.snapToGrid(point.z);
+    return new THREE.Vector3(x, this.heightAt(x, z), z);
+  }
+
   handleSelection(append: boolean): void {
     const hit = this.intersectObjects();
     const id = typeof hit?.object.userData.elementId === 'string' ? hit.object.userData.elementId : null;
     if (!id) {
+      const waterHit = this.intersectWater();
+      const waterId = typeof waterHit?.object.userData.waterSourceId === 'string'
+        ? waterHit.object.userData.waterSourceId
+        : null;
+      if (waterId) {
+        this.selectWater(waterId);
+        return;
+      }
+
       if (!append) {
         this.clearSelection();
       }
@@ -456,10 +556,13 @@ export class MapEditor {
       this.selectOnly(id);
     }
 
+    this.selectedWaterId = null;
     this.syncSelectionMaterials();
+    this.syncWaterSelectionMaterials();
+    this.renderWaterList();
     const terrainHit = this.intersectTerrain();
     if (terrainHit) {
-      this.dragState = this.createDragState(terrainHit.point);
+      this.dragState = this.createDragState(this.snappedTerrainPoint(terrainHit.point));
     }
   }
 
@@ -481,6 +584,7 @@ export class MapEditor {
       return;
     }
 
+    const anchor = this.snappedTerrainPoint(hit.point);
     this.dragState.ids.forEach((id) => {
       const element = this.elements.get(id);
       const offset = this.dragState?.offsets.get(id);
@@ -488,7 +592,11 @@ export class MapEditor {
         return;
       }
 
-      element.mesh.position.set(hit.point.x + offset.x, hit.point.y + offset.y, hit.point.z + offset.z);
+      element.mesh.position.set(
+          this.snapToGrid(anchor.x + offset.x),
+          anchor.y + offset.y,
+          this.snapToGrid(anchor.z + offset.z),
+      );
       this.writeElementFromMesh(element);
     });
   }
@@ -533,6 +641,11 @@ export class MapEditor {
   }
 
   deleteSelection(): void {
+    if (this.selectedWaterId && this.selectedIds.size === 0) {
+      this.removeWaterSource(this.selectedWaterId);
+      return;
+    }
+
     this.selectedGroupIds().forEach((id) => {
       const element = this.elements.get(id);
       if (!element) {
@@ -566,7 +679,10 @@ export class MapEditor {
       material: 'water-clear',
     };
     this.waterSources.push(waterSource);
+    this.selectedWaterId = waterSource.id;
+    this.clearElementSelection();
     this.refreshWaterPreview();
+    this.renderWaterList();
     this.setStatus('Water source added');
   }
 
@@ -584,10 +700,13 @@ export class MapEditor {
     this.waterSources.forEach((waterSource) => {
       const mesh = this.createWaterPreviewMesh(waterSource);
       if (mesh) {
+        mesh.name = `water:${waterSource.id}`;
+        mesh.userData.waterSourceId = waterSource.id;
         this.waterMeshes.push(mesh);
         this.scene.add(mesh);
       }
     });
+    this.syncWaterSelectionMaterials();
   }
 
   createWaterPreviewMesh(waterSource: GroundfireWaterSource): THREE.Mesh | null {
@@ -668,6 +787,75 @@ export class MapEditor {
     return new THREE.Mesh(geometry, material);
   }
 
+  handleWaterListClick(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const row = target.closest<HTMLElement>('[data-water-id]');
+    const waterId = row?.dataset.waterId;
+    if (!waterId) {
+      return;
+    }
+
+    if (target.matches('[data-water-action="remove"]')) {
+      this.removeWaterSource(waterId);
+      return;
+    }
+
+    this.selectWater(waterId);
+  }
+
+  renderWaterList(): void {
+    if (this.waterSources.length === 0) {
+      this.waterListElement.innerHTML = '<p class="editor__empty">No water sources</p>';
+      return;
+    }
+
+    this.waterListElement.innerHTML = this.waterSources.map((waterSource, index) => {
+      const selectedClass = waterSource.id === this.selectedWaterId ? ' editor__water-item--selected' : '';
+      const [x, z] = waterSource.seedPoint;
+      return `
+        <button class="editor__water-item${selectedClass}" type="button" data-water-id="${waterSource.id}">
+          <span>
+            <strong>Water ${index + 1}</strong>
+            <small>x ${Math.round(x)} | z ${Math.round(z)} | level ${Math.round(waterSource.waterLevel)}</small>
+          </span>
+          <span class="editor__water-remove" data-water-action="remove" aria-label="Remove water">X</span>
+        </button>
+      `;
+    }).join('');
+  }
+
+  selectWater(waterId: string): void {
+    if (!this.waterSources.some((waterSource) => waterSource.id === waterId)) {
+      return;
+    }
+
+    this.selectedWaterId = waterId;
+    this.clearElementSelection();
+    this.syncWaterSelectionMaterials();
+    this.renderWaterList();
+    this.setStatus('Water selected');
+  }
+
+  removeWaterSource(waterId: string): void {
+    const previousCount = this.waterSources.length;
+    this.waterSources = this.waterSources.filter((waterSource) => waterSource.id !== waterId);
+    if (this.selectedWaterId === waterId) {
+      this.selectedWaterId = null;
+    }
+
+    if (this.waterSources.length === previousCount) {
+      return;
+    }
+
+    this.refreshWaterPreview();
+    this.renderWaterList();
+    this.setStatus('Water removed');
+  }
+
   currentPreset(): GroundfireElementPreset {
     return MAP_ASSET_MANIFEST.elementPresets.find((preset) => preset.key === this.presetInput.value)
       ?? MAP_ASSET_MANIFEST.elementPresets[0];
@@ -736,6 +924,11 @@ export class MapEditor {
     return hit ?? null;
   }
 
+  intersectWater(): THREE.Intersection | null {
+    const [hit] = this.raycaster.intersectObjects(this.waterMeshes, false);
+    return hit ?? null;
+  }
+
   intersectPlacement(): THREE.Intersection | null {
     const meshes = [
       ...Array.from(this.elements.values()).map((element) => element.mesh),
@@ -746,11 +939,21 @@ export class MapEditor {
   }
 
   selectOnly(id: string): void {
+    this.selectedWaterId = null;
     this.selectedIds = new Set([id]);
     this.syncSelectionMaterials();
+    this.syncWaterSelectionMaterials();
+    this.renderWaterList();
   }
 
   clearSelection(): void {
+    this.selectedWaterId = null;
+    this.clearElementSelection();
+    this.syncWaterSelectionMaterials();
+    this.renderWaterList();
+  }
+
+  clearElementSelection(): void {
     this.selectedIds.clear();
     this.syncSelectionMaterials();
   }
@@ -765,6 +968,22 @@ export class MapEditor {
       if (material instanceof THREE.MeshStandardMaterial) {
         material.emissive = new THREE.Color(selected ? 0x385000 : 0x000000);
         material.emissiveIntensity = selected ? 0.6 : 0;
+      }
+    });
+  }
+
+  syncWaterSelectionMaterials(): void {
+    this.waterMeshes.forEach((mesh) => {
+      const selected = mesh.userData.waterSourceId === this.selectedWaterId;
+      const material = mesh.material;
+      if (Array.isArray(material)) {
+        return;
+      }
+      if (material instanceof THREE.MeshStandardMaterial) {
+        material.color = new THREE.Color(selected ? 0x7deeff : 0x35a9c6);
+        material.emissive = new THREE.Color(selected ? 0x174452 : 0x000000);
+        material.emissiveIntensity = selected ? 0.65 : 0;
+        material.opacity = selected ? 0.72 : 0.52;
       }
     });
   }
