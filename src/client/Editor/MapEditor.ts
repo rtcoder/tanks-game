@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {MAP_ASSET_MANIFEST, type GroundfireElementPreset} from '../../shared/map-assets';
 import {normalizeGroundfireMap} from '../../shared/map-normalizer';
+import {createStoredZip, readStoredZipEntries} from '../../shared/zip';
 import type {
   GroundfireMap,
   GroundfireMapElement,
@@ -71,6 +72,7 @@ export class MapEditor {
   waterExplosionMultiplierInput!: HTMLInputElement;
   importJsonInput!: HTMLInputElement;
   importHeightmapInput!: HTMLInputElement;
+  importPackageInput!: HTMLInputElement;
   heatmapInput!: HTMLInputElement;
   waterListElement!: HTMLElement;
   statusElement!: HTMLElement;
@@ -129,8 +131,12 @@ export class MapEditor {
             <div class="editor__section-title">Import</div>
             <input class="editor__file-input" id="editor-import-json-input" type="file" accept="application/json,.json">
             <input class="editor__file-input" id="editor-import-heightmap-input" type="file" accept="image/png,image/jpeg,image/webp">
+            <input class="editor__file-input" id="editor-import-package-input" type="file" accept=".zip,application/zip,application/x-zip-compressed">
             <div class="editor__row">
+              <button id="editor-import-package" type="button">Load package</button>
               <button id="editor-import-json" type="button">Load JSON</button>
+            </div>
+            <div class="editor__row">
               <button id="editor-import-heightmap" type="button">Load heightmap</button>
             </div>
             <label class="editor__check"><input id="editor-heatmap" type="checkbox"> Heatmap view</label>
@@ -197,7 +203,10 @@ export class MapEditor {
             <button id="editor-delete" type="button">Delete</button>
           </div>
           <div class="editor__row">
+            <button id="editor-export-package" type="button">Export package</button>
             <button id="editor-export-json" type="button">Export JSON</button>
+          </div>
+          <div class="editor__row">
             <button id="editor-export-heightmap" type="button">Export heightmap</button>
           </div>
           <p class="editor__status" id="editor-status">Loading</p>
@@ -228,6 +237,7 @@ export class MapEditor {
     this.waterExplosionMultiplierInput = document.getElementById('editor-water-explosion') as HTMLInputElement;
     this.importJsonInput = document.getElementById('editor-import-json-input') as HTMLInputElement;
     this.importHeightmapInput = document.getElementById('editor-import-heightmap-input') as HTMLInputElement;
+    this.importPackageInput = document.getElementById('editor-import-package-input') as HTMLInputElement;
     this.heatmapInput = document.getElementById('editor-heatmap') as HTMLInputElement;
     this.waterListElement = document.getElementById('editor-water-list') as HTMLElement;
     this.statusElement = document.getElementById('editor-status') as HTMLElement;
@@ -335,10 +345,19 @@ export class MapEditor {
     document.getElementById('editor-rotate-right')?.addEventListener('click', () => this.rotateSelection(Math.PI / 2));
     document.getElementById('editor-group')?.addEventListener('click', () => this.groupSelection());
     document.getElementById('editor-delete')?.addEventListener('click', () => this.deleteSelection());
+    document.getElementById('editor-export-package')?.addEventListener('click', () => void this.exportPackage());
     document.getElementById('editor-export-json')?.addEventListener('click', () => this.exportJson());
     document.getElementById('editor-export-heightmap')?.addEventListener('click', () => this.exportHeightmap());
+    document.getElementById('editor-import-package')?.addEventListener('click', () => this.importPackageInput.click());
     document.getElementById('editor-import-json')?.addEventListener('click', () => this.importJsonInput.click());
     document.getElementById('editor-import-heightmap')?.addEventListener('click', () => this.importHeightmapInput.click());
+    this.importPackageInput.addEventListener('change', () => {
+      const file = this.importPackageInput.files?.[0];
+      this.importPackageInput.value = '';
+      if (file) {
+        void this.importMapPackage(file);
+      }
+    });
     this.importJsonInput.addEventListener('change', () => {
       const file = this.importJsonInput.files?.[0];
       this.importJsonInput.value = '';
@@ -1075,7 +1094,36 @@ export class MapEditor {
     }
   }
 
-  async loadMapIntoEditor(map: GroundfireMap): Promise<void> {
+  async importMapPackage(file: File): Promise<void> {
+    try {
+      const entries = readStoredZipEntries(new Uint8Array(await file.arrayBuffer()));
+      const mapEntry = entries.get('map.json') ?? entries.get(`${this.safeIdFromFileName(file.name)}.json`);
+      if (!mapEntry) {
+        throw new Error('Map package does not contain map.json');
+      }
+
+      const rawMap = JSON.parse(new TextDecoder().decode(mapEntry)) as {
+        terrain?: {
+          heightmapAsset?: unknown;
+        };
+      };
+      const map = normalizeGroundfireMap(rawMap, this.safeIdFromFileName(file.name));
+      const heightmapEntryName = this.packageAssetName(entries, rawMap.terrain?.heightmapAsset, 'heightmap.png');
+      const heightmapImageData = heightmapEntryName
+        ? await this.imageDataFromBytes(entries.get(heightmapEntryName) ?? new Uint8Array(), 'image/png')
+        : undefined;
+      await this.loadMapIntoEditor(map, {heightmapImageData});
+      this.setStatus(`Loaded package ${file.name}`);
+    } catch (error) {
+      console.error('Could not import map package', error);
+      this.setStatus('Could not load map package');
+    }
+  }
+
+  async loadMapIntoEditor(
+      map: GroundfireMap,
+      options: { heightmapImageData?: ImageData } = {},
+  ): Promise<void> {
     this.clearEditorContent();
     this.mapIdInput.value = map.id;
     this.mapNameInput.value = map.name;
@@ -1084,7 +1132,13 @@ export class MapEditor {
     this.createTerrain();
 
     let heightmapLoaded = false;
-    if (map.terrain.heightmapAsset) {
+    if (options.heightmapImageData) {
+      this.applyHeightmapImageData(options.heightmapImageData, {
+        heightScale: map.terrain.heightScale ?? 120,
+        heightOffset: map.terrain.heightOffset ?? 0,
+      });
+      heightmapLoaded = true;
+    } else if (map.terrain.heightmapAsset) {
       try {
         await this.loadHeightmapFromUrl(map.terrain.heightmapAsset, {
           heightScale: map.terrain.heightScale ?? 120,
@@ -1201,6 +1255,15 @@ export class MapEditor {
     }
   }
 
+  async imageDataFromBytes(bytes: Uint8Array, type: string): Promise<ImageData> {
+    const url = URL.createObjectURL(new Blob([this.uint8BlobPart(bytes)], {type}));
+    try {
+      return await this.imageDataFromSource(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
   async imageDataFromSource(source: string): Promise<ImageData> {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image();
@@ -1309,6 +1372,28 @@ export class MapEditor {
 
   safeIdFromFileName(fileName: string): string {
     return (fileName.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'imported-map').slice(0, 64);
+  }
+
+  packageAssetName(entries: Map<string, Uint8Array>, assetName: unknown, fallbackName: string): string | null {
+    const candidates = new Set<string>();
+    if (typeof assetName === 'string' && assetName.trim()) {
+      const normalized = assetName
+        .replace(/\\/g, '/')
+        .replace(/^\/api\/maps\/[^/]+\/assets\//, '')
+        .replace(/^\/+/, '')
+        .replace(/^\.\//, '');
+      candidates.add(normalized);
+      candidates.add(normalized.split('/').pop() ?? normalized);
+    }
+    candidates.add(fallbackName);
+
+    for (const candidate of candidates) {
+      if (entries.has(candidate)) {
+        return candidate;
+      }
+    }
+
+    return Array.from(entries.keys()).find((entryName) => entryName.split('/').pop() === fallbackName) ?? null;
   }
 
   currentPreset(): GroundfireElementPreset {
@@ -1514,17 +1599,17 @@ export class MapEditor {
     element.data.rotation = [0, 0, element.mesh.rotation.y];
   }
 
-  exportJson(): void {
+  createMapDefinition(heightmapAsset: string): GroundfireMap {
     const heightStats = this.heightStats();
     const id = this.safeMapId();
-    const map: GroundfireMap = {
+    return {
       version: 2,
       id,
       name: this.mapNameInput.value.trim() || id,
       arena: {size: this.terrainSize},
       terrain: {
         resolution: HEIGHTMAP_RESOLUTION,
-        heightmapAsset: `/api/maps/${id}/assets/heightmap.png`,
+        heightmapAsset,
         heightScale: Math.max(1, heightStats.max - heightStats.min),
         heightOffset: heightStats.min,
         material: {
@@ -1545,17 +1630,45 @@ export class MapEditor {
       water: this.waterSources,
       spawns: this.defaultSpawns(),
     };
+  }
+
+  async exportPackage(): Promise<void> {
+    const id = this.safeMapId();
+    const heightmapBlob = await this.heightmapBlob();
+    const zip = createStoredZip([
+      {
+        name: 'map.json',
+        bytes: new TextEncoder().encode(JSON.stringify(this.createMapDefinition('heightmap.png'), null, 2)),
+      },
+      {
+        name: 'heightmap.png',
+        bytes: new Uint8Array(await heightmapBlob.arrayBuffer()),
+      },
+    ]);
+    this.downloadBlob(`${id}.zip`, new Blob([this.uint8BlobPart(zip)], {type: 'application/zip'}), 'application/zip');
+  }
+
+  exportJson(): void {
+    const id = this.safeMapId();
+    const map = this.createMapDefinition(`/api/maps/${id}/assets/heightmap.png`);
     this.downloadBlob(`${id}.json`, JSON.stringify(map, null, 2), 'application/json');
   }
 
   exportHeightmap(): void {
-    const canvas = this.heightmapCanvas();
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        return;
-      }
+    void this.heightmapBlob().then((blob) => {
       this.downloadBlob('heightmap.png', blob, 'image/png');
-    }, 'image/png');
+    });
+  }
+
+  async heightmapBlob(): Promise<Blob> {
+    const canvas = this.heightmapCanvas();
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/png');
+    });
+    if (!blob) {
+      throw new Error('Could not export heightmap');
+    }
+    return blob;
   }
 
   heightmapCanvas(): HTMLCanvasElement {
@@ -1620,6 +1733,12 @@ export class MapEditor {
     link.click();
     URL.revokeObjectURL(url);
     this.setStatus(`Exported ${name}`);
+  }
+
+  uint8BlobPart(bytes: Uint8Array): ArrayBuffer {
+    const buffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(buffer).set(bytes);
+    return buffer;
   }
 
   resize(): void {
