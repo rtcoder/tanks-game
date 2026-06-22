@@ -5,6 +5,8 @@ import type {
   GroundfireTerrain,
   GroundfireTerrainFeature,
   GroundfireVector3,
+  GroundfireWaterGameplay,
+  GroundfireWaterSource,
 } from './types';
 
 type LegacyWall = {
@@ -68,7 +70,7 @@ export function normalizeGroundfireMap(source: unknown, fallbackId = 'default'):
     materials: readMaterials(map?.materials),
     elements: [...elements, ...legacyElements],
     groups: Array.isArray(map?.groups) ? map.groups as GroundfireMap['groups'] : [],
-    water: Array.isArray(map?.water) ? map.water as GroundfireMap['water'] : [],
+    water: readWaterSources(map?.water),
     spawns: readSpawns(map?.spawns, arenaSize),
   };
 }
@@ -211,6 +213,49 @@ function readSpawns(source: unknown, arenaSize: number): GroundfireSpawn[] {
   ];
 }
 
+function readWaterSources(source: unknown): GroundfireWaterSource[] {
+  if (!Array.isArray(source)) {
+    return [];
+  }
+
+  return source
+    .map((waterSource, index) => readWaterSource(waterSource, `water-${index + 1}`))
+    .filter((waterSource): waterSource is GroundfireWaterSource => Boolean(waterSource));
+}
+
+function readWaterSource(source: unknown, fallbackId: string): GroundfireWaterSource | null {
+  if (!source || typeof source !== 'object') {
+    return null;
+  }
+
+  const waterSource = source as Partial<GroundfireWaterSource>;
+  const waterType = waterSource.type === 'source' || waterSource.type === 'drain' ? waterSource.type : 'basin';
+  return {
+    id: readId(waterSource.id, fallbackId),
+    type: waterType,
+    seedPoint: readVector2(waterSource.seedPoint, [0, 0]),
+    waterLevel: readNumber(waterSource.waterLevel, 0),
+    flowRate: readOptionalNumber(waterSource.flowRate),
+    maxVolume: readOptionalNumber(waterSource.maxVolume),
+    gameplay: readWaterGameplay(waterSource.gameplay),
+    material: typeof waterSource.material === 'string' ? waterSource.material : 'water-clear',
+  };
+}
+
+function readWaterGameplay(source: unknown): GroundfireWaterGameplay {
+  const gameplay = source && typeof source === 'object' ? source as Partial<GroundfireWaterGameplay> : {};
+  const projectileImpact = gameplay.projectileImpact === 'pass-through' || gameplay.projectileImpact === 'none'
+    ? gameplay.projectileImpact
+    : 'splash';
+  return {
+    blocksMovement: Boolean(gameplay.blocksMovement),
+    speedMultiplier: Math.max(0.05, Math.min(readNumber(gameplay.speedMultiplier, 0.45), 1)),
+    depthBlockThreshold: Math.max(0, readNumber(gameplay.depthBlockThreshold, 28)),
+    projectileImpact,
+    explosionMultiplier: Math.max(0, Math.min(readNumber(gameplay.explosionMultiplier, 0.35), 1)),
+  };
+}
+
 function isTerrainFeature(feature: unknown): boolean {
   if (!feature || typeof feature !== 'object') {
     return false;
@@ -233,6 +278,17 @@ function readVector3(value: unknown, fallback: GroundfireVector3): GroundfireVec
     readNumber(value[0], fallback[0]),
     readNumber(value[1], fallback[1]),
     readNumber(value[2], fallback[2]),
+  ];
+}
+
+function readVector2(value: unknown, fallback: [number, number]): [number, number] {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+
+  return [
+    readNumber(value[0], fallback[0]),
+    readNumber(value[1], fallback[1]),
   ];
 }
 

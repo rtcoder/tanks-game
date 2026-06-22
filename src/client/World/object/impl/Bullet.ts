@@ -6,6 +6,10 @@ import {Ground} from './Ground';
 import {Tank} from './Tank';
 import {Wall} from './Wall';
 
+export type BulletWaterHit = {
+  position: THREE.Vector3;
+};
+
 export class Bullet extends MovableObject {
   mesh: THREE.Group;
   listeners: THREE.AudioListener[];
@@ -42,15 +46,27 @@ export class Bullet extends MovableObject {
     this.onWallHit = onWallHit;
   }
 
-  update(ground: Ground, bullets: Bullet[], walls: Wall[], tanks: Tank[], _delta: number) {
+  update(
+      ground: Ground,
+      bullets: Bullet[],
+      walls: Wall[],
+      tanks: Tank[],
+      _delta: number,
+      waterHitAt?: (position: THREE.Vector3) => BulletWaterHit | null,
+      onWaterHit?: (bullet: Bullet, hit: BulletWaterHit) => void,
+  ) {
     // Keep this flat projectile API ready for later ground-to-ground rockets.
     const hitWall = walls.find(wall => checkCollisionBulletWithWall(this, wall));
-    if (this.mesh.position.z < ground.heightAt(this.mesh.position.x, this.mesh.position.y) || hitWall || !ground.inBoundary(this.mesh.position)) {
+    const waterHit = waterHitAt?.(this.mesh.position) ?? null;
+    if (waterHit || this.mesh.position.z < ground.heightAt(this.mesh.position.x, this.mesh.position.y) || hitWall || !ground.inBoundary(this.mesh.position)) {
       this.listeners.forEach(listener => {
         const sound = new THREE.PositionalAudio(listener);
         sound.setBuffer(this.audio['Bullet_hit']).setVolume(20).play();
       });
 
+      if (waterHit) {
+        onWaterHit?.(this, waterHit);
+      }
       if (hitWall) {
         this.onWallHit?.(hitWall, this);
       }

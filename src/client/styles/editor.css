@@ -124,6 +124,10 @@
   gap: 6px;
 }
 
+.editor__file-input {
+  display: none;
+}
+
 .editor__water-item {
   align-items: center;
   display: grid;

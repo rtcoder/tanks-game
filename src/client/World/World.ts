@@ -9,6 +9,7 @@ import type {
   GameConfig,
   GroundfireMap,
   GroundfireMapSummary,
+  GroundfireWaterGameplay,
   GroundfireWaterSource,
   Tank as NetworkTank,
   WsMessage,
@@ -40,6 +41,14 @@ import {type TankDefinition} from './tank-definitions/shared/tank-definition.typ
 const DEFAULT_ARENA_SIZE = 1500;
 const DEFAULT_MAP_ID = 'default';
 const MAP_BLOCK_HEIGHT = 50;
+const WATER_GRID_SIZE = 80;
+const DEFAULT_WATER_GAMEPLAY: GroundfireWaterGameplay = {
+  blocksMovement: false,
+  speedMultiplier: 0.45,
+  depthBlockThreshold: 28,
+  projectileImpact: 'splash',
+  explosionMultiplier: 0.35,
+};
 const STORAGE_KEYS = {
   nick: 'tanks:nick',
   battleId: 'tanks:battle-id',
@@ -49,6 +58,24 @@ const STORAGE_KEYS = {
 };
 
 type KeyboardState = Record<string, number>;
+
+type WaterCell = {
+  key: string;
+  column: number;
+  row: number;
+  x: number;
+  y: number;
+  size: number;
+  level: number;
+  depth: number;
+  sourceId: string;
+  gameplay: GroundfireWaterGameplay;
+};
+
+type WaterProjectileHit = {
+  position: THREE.Vector3;
+  cell: WaterCell;
+};
 
 const encodeMessage = (message: ClientMessage): string => JSON.stringify(message);
 const decodeMessage = (message: string): WsMessage => JSON.parse(message) as WsMessage;
@@ -147,7 +174,11 @@ class World {
   arenaSize = DEFAULT_ARENA_SIZE;
   arenaHalf = DEFAULT_ARENA_SIZE / 2;
   waterMeshes: THREE.Mesh[] = [];
+  waterCells: WaterCell[] = [];
+  waterCellLookup = new Map<string, WaterCell>();
   waterMinimapCells: Array<{ x: number; y: number; size: number }> = [];
+  waterFlowAccumulator = 0;
+  waterRebuildPending = false;
   listeners: THREE.AudioListener[] = [];
   bgAudio: THREE.Audio | null = null;
   localTank: Tank | null = null;
@@ -728,17 +759,11 @@ class World {
     this.walls.forEach((wall) => wall.destruct());
     this.walls = [];
     this.surrounding_walls = [];
-    this.waterMeshes.forEach((mesh) => {
-      mesh.parent?.remove(mesh);
-      mesh.geometry.dispose();
-      if (Array.isArray(mesh.material)) {
-        mesh.material.forEach((material) => material.dispose());
-      } else {
-        mesh.material.dispose();
-      }
-    });
-    this.waterMeshes = [];
+    this.disposeWaterMeshes();
+    this.waterCells = [];
+    this.waterCellLookup.clear();
     this.waterMinimapCells = [];
+    this.waterFlowAccumulator = 0;
     this.destroyedWallIds.clear();
     this.occludedWallIds.clear();
     this.initializeWalls(this.walls, this.surrounding_walls);
@@ -791,26 +816,71 @@ class World {
   }
 
   initializeWater(): void {
-    this.mapData.water.forEach((waterSource) => {
-      const waterMesh = this.createWaterMesh(waterSource);
-      if (!waterMesh) {
-        return;
-      }
-
-      this.waterMeshes.push(waterMesh);
-      this.scene.scene.add(waterMesh);
-    });
+    this.rebuildWaterSimulation();
   }
 
-  createWaterMesh(waterSource: GroundfireWaterSource): THREE.Mesh | null {
-    const gridSize = 80;
+  rebuildWaterSimulation(): void {
+    this.disposeWaterMeshes();
+    this.waterCells = [];
+    this.waterCellLookup.clear();
+    this.waterMinimapCells = [];
+    this.waterRebuildPending = false;
+
+    const cellsByKey = new Map<string, WaterCell>();
+    this.mapData.water
+      .filter((waterSource) => (waterSource.type ?? 'basin') !== 'drain')
+      .forEach((waterSource) => {
+        this.computeWaterCells(waterSource).forEach((cell) => {
+          const existing = cellsByKey.get(cell.key);
+          if (!existing || cell.depth > existing.depth) {
+            cellsByKey.set(cell.key, cell);
+          }
+        });
+      });
+
+    this.mapData.water
+      .filter((waterSource) => waterSource.type === 'drain')
+      .forEach((waterSource) => {
+        this.computeWaterCells(waterSource, false).forEach((cell) => cellsByKey.delete(cell.key));
+      });
+
+    this.waterCells = Array.from(cellsByKey.values());
+    this.waterCells.forEach((cell) => {
+      this.waterCellLookup.set(cell.key, cell);
+      this.waterMinimapCells.push({x: cell.x, y: cell.y, size: cell.size});
+    });
+
+    const mesh = this.createWaterMeshFromCells(this.waterCells);
+    if (mesh) {
+      this.waterMeshes.push(mesh);
+      this.scene.scene.add(mesh);
+    }
+  }
+
+  disposeWaterMeshes(): void {
+    this.waterMeshes.forEach((mesh) => {
+      mesh.parent?.remove(mesh);
+      mesh.geometry.dispose();
+      if (Array.isArray(mesh.material)) {
+        mesh.material.forEach((material) => material.dispose());
+      } else {
+        mesh.material.dispose();
+      }
+    });
+    this.waterMeshes = [];
+  }
+
+  computeWaterCells(waterSource: GroundfireWaterSource, useVolumeLimit = true): WaterCell[] {
+    const gridSize = WATER_GRID_SIZE;
     const cellSize = this.arenaSize / gridSize;
     const seedColumn = Math.floor((waterSource.seedPoint[0] + this.arenaHalf) / cellSize);
     const seedRow = Math.floor((this.arenaHalf - waterSource.seedPoint[1]) / cellSize);
     if (seedColumn < 0 || seedColumn >= gridSize || seedRow < 0 || seedRow >= gridSize) {
-      return null;
+      return [];
     }
 
+    const gameplay = this.waterGameplay(waterSource);
+    const cellKey = (column: number, row: number): string => `${column}:${row}`;
     const indexFor = (column: number, row: number): number => row * gridSize + column;
     const worldCenter = (column: number, row: number): { x: number; y: number } => ({
       x: -this.arenaHalf + (column + 0.5) * cellSize,
@@ -818,18 +888,45 @@ class World {
     });
     const canFill = (column: number, row: number): boolean => {
       const point = worldCenter(column, row);
-      return this.ground.heightAt(point.x, point.y) <= waterSource.waterLevel;
+      const terrainHeight = this.ground.heightAt(point.x, point.y);
+      return terrainHeight <= waterSource.waterLevel
+        && !this.waterCellBlockedByWall(point.x, point.y, waterSource.waterLevel, cellSize);
     };
 
     if (!canFill(seedColumn, seedRow)) {
-      return null;
+      return [];
     }
 
     const visited = new Set<number>();
+    const cells: WaterCell[] = [];
     const queue: Array<{ column: number; row: number }> = [{column: seedColumn, row: seedRow}];
+    const maxVolume = useVolumeLimit ? waterSource.maxVolume ?? 0 : 0;
+    let volume = 0;
     visited.add(indexFor(seedColumn, seedRow));
     for (let index = 0; index < queue.length; index += 1) {
       const {column, row} = queue[index];
+      const point = worldCenter(column, row);
+      const depth = Math.max(0, waterSource.waterLevel - this.ground.heightAt(point.x, point.y));
+      const minX = -this.arenaHalf + column * cellSize;
+      const maxY = this.arenaHalf - row * cellSize;
+      const cell: WaterCell = {
+        key: cellKey(column, row),
+        column,
+        row,
+        x: minX,
+        y: maxY - cellSize,
+        size: cellSize,
+        level: waterSource.waterLevel,
+        depth,
+        sourceId: waterSource.id,
+        gameplay,
+      };
+      cells.push(cell);
+      volume += depth * cellSize * cellSize;
+      if (maxVolume > 0 && volume >= maxVolume) {
+        continue;
+      }
+
       [
         {column: column + 1, row},
         {column: column - 1, row},
@@ -850,15 +947,24 @@ class World {
       });
     }
 
+    return cells;
+  }
+
+  createWaterMeshFromCells(cells: WaterCell[]): THREE.Mesh | null {
+    if (cells.length === 0) {
+      return null;
+    }
+
     const vertices: number[] = [];
-    const z = waterSource.waterLevel + 0.6;
-    visited.forEach((cellIndex) => {
-      const column = cellIndex % gridSize;
-      const row = Math.floor(cellIndex / gridSize);
-      const minX = -this.arenaHalf + column * cellSize;
-      const maxX = minX + cellSize;
-      const maxY = this.arenaHalf - row * cellSize;
-      const minY = maxY - cellSize;
+    const colors: number[] = [];
+    const shallow = new THREE.Color(0x5bd9df);
+    const deep = new THREE.Color(0x176f9c);
+    cells.forEach((cell) => {
+      const minX = cell.x;
+      const maxX = cell.x + cell.size;
+      const minY = cell.y;
+      const maxY = cell.y + cell.size;
+      const z = cell.level + 0.6;
       vertices.push(
           minX, minY, z,
           maxX, minY, z,
@@ -867,18 +973,19 @@ class World {
           maxX, maxY, z,
           minX, maxY, z,
       );
-      this.waterMinimapCells.push({x: minX, y: minY, size: cellSize});
+      const color = shallow.clone().lerp(deep, THREE.MathUtils.clamp(cell.depth / 80, 0, 1));
+      for (let index = 0; index < 6; index += 1) {
+        colors.push(color.r, color.g, color.b);
+      }
     });
-
-    if (vertices.length === 0) {
-      return null;
-    }
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geometry.computeVertexNormals();
     const material = new THREE.MeshStandardMaterial({
-      color: 0x35a9c6,
+      color: 0xffffff,
+      vertexColors: true,
       transparent: true,
       opacity: 0.62,
       roughness: 0.18,
@@ -886,9 +993,137 @@ class World {
       side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = `water:${waterSource.id}`;
+    mesh.name = 'water:simulation';
     mesh.receiveShadow = true;
     return mesh;
+  }
+
+  waterGameplay(waterSource: GroundfireWaterSource): GroundfireWaterGameplay {
+    return {
+      ...DEFAULT_WATER_GAMEPLAY,
+      ...(waterSource.gameplay ?? {}),
+    };
+  }
+
+  waterCellBlockedByWall(x: number, y: number, waterLevel: number, cellSize: number): boolean {
+    const halfSize = cellSize / 2;
+    const cellBox = new THREE.Box3(
+        new THREE.Vector3(x - halfSize, y - halfSize, waterLevel - 2),
+        new THREE.Vector3(x + halfSize, y + halfSize, waterLevel + 2),
+    );
+    return this.walls.some((wall) => {
+      if (wall.destroyed || !wall.mesh.parent) {
+        return false;
+      }
+      const wallBox = new THREE.Box3().setFromObject(wall.mesh);
+      if (waterLevel < wallBox.min.z - 2 || waterLevel > wallBox.max.z + 2) {
+        return false;
+      }
+
+      const wallFootprint = new THREE.Box3(
+          new THREE.Vector3(wallBox.min.x, wallBox.min.y, waterLevel - 2),
+          new THREE.Vector3(wallBox.max.x, wallBox.max.y, waterLevel + 2),
+      ).expandByScalar(cellSize * 0.08);
+      return cellBox.intersectsBox(wallFootprint);
+    });
+  }
+
+  waterCellAt(x: number, y: number): WaterCell | null {
+    const cellSize = this.arenaSize / WATER_GRID_SIZE;
+    const column = Math.floor((x + this.arenaHalf) / cellSize);
+    const row = Math.floor((this.arenaHalf - y) / cellSize);
+    if (column < 0 || column >= WATER_GRID_SIZE || row < 0 || row >= WATER_GRID_SIZE) {
+      return null;
+    }
+    return this.waterCellLookup.get(`${column}:${row}`) ?? null;
+  }
+
+  waterDepthAt(x: number, y: number): number {
+    return this.waterCellAt(x, y)?.depth ?? 0;
+  }
+
+  waterMovementAt(x: number, y: number): { movementMultiplier: number; blocksMovement: boolean } {
+    const cell = this.waterCellAt(x, y);
+    if (!cell) {
+      return {movementMultiplier: 1, blocksMovement: false};
+    }
+
+    return {
+      movementMultiplier: cell.gameplay.speedMultiplier,
+      blocksMovement: cell.gameplay.blocksMovement && cell.depth >= cell.gameplay.depthBlockThreshold,
+    };
+  }
+
+  projectileWaterHitAt(position: THREE.Vector3): WaterProjectileHit | null {
+    const cell = this.waterCellAt(position.x, position.y);
+    if (!cell || cell.gameplay.projectileImpact !== 'splash') {
+      return null;
+    }
+    if (position.z > cell.level + 1.5) {
+      return null;
+    }
+    return {
+      position: new THREE.Vector3(position.x, position.y, cell.level + 1.2),
+      cell,
+    };
+  }
+
+  updateWaterSimulation(delta: number): void {
+    this.waterFlowAccumulator += delta;
+    if (this.waterFlowAccumulator < 1 && !this.waterRebuildPending) {
+      return;
+    }
+
+    const elapsed = this.waterFlowAccumulator;
+    this.waterFlowAccumulator = 0;
+    let changed = this.waterRebuildPending;
+    this.mapData.water.forEach((waterSource) => {
+      if (waterSource.type !== 'source' || !waterSource.flowRate || waterSource.flowRate <= 0) {
+        return;
+      }
+      waterSource.waterLevel += waterSource.flowRate * elapsed;
+      changed = true;
+    });
+
+    if (changed) {
+      this.rebuildWaterSimulation();
+      this.updateMinimap();
+    }
+  }
+
+  queueWaterRebuild(): void {
+    this.waterRebuildPending = true;
+  }
+
+  spawnWaterSplash(position: THREE.Vector3): void {
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: 0x9df4ff,
+      transparent: true,
+      opacity: 0.78,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(3, 7, 24), ringMaterial);
+    ring.position.copy(position);
+    ring.rotation.x = 0;
+    ring.renderOrder = 4;
+    this.scene.scene.add(ring);
+
+    const start = performance.now();
+    const duration = 360;
+    const animate = (): void => {
+      const progress = Math.min(1, (performance.now() - start) / duration);
+      ring.scale.setScalar(1 + progress * 3.4);
+      ringMaterial.opacity = 0.78 * (1 - progress);
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+        return;
+      }
+      ring.parent?.remove(ring);
+      ring.geometry.dispose();
+      ringMaterial.dispose();
+    };
+    requestAnimationFrame(animate);
   }
 
   initializePowerups(powerups: Powerup[]): void {
@@ -908,7 +1143,18 @@ class World {
     this.loop.updatableLists.push([this.localTank], this.powerups, this.bullets, this.walls);
     Tank.onTick = (tank: Tank, delta: number) => {
       if (tank !== this.localTank) return;
-      tank.update(this.keyboard, this.scene, this.ground, this.tanks, this.walls, this.surrounding_walls, this.bullets, delta);
+      this.updateWaterSimulation(delta);
+      tank.update(
+          this.keyboard,
+          this.scene,
+          this.ground,
+          this.tanks,
+          this.walls,
+          this.surrounding_walls,
+          this.bullets,
+          delta,
+          this.waterMovementAt(tank.mesh.position.x, tank.mesh.position.y),
+      );
       this.snapTankToTerrain(tank);
       this.camera.updateView(false, this.ground);
       this.updateCrosshairPosition();
@@ -918,7 +1164,15 @@ class World {
       this.syncLocalTank(false);
     };
     Bullet.onTick = (bullet: Bullet, delta: number) => {
-      bullet.update(this.ground, this.bullets, this.walls, this.tanks, delta);
+      bullet.update(
+          this.ground,
+          this.bullets,
+          this.walls,
+          this.tanks,
+          delta,
+          (position) => this.projectileWaterHitAt(position),
+          (_bullet, hit) => this.spawnWaterSplash(hit.position),
+      );
     };
     Powerup.onTick = (powerup: Powerup) => {
       powerup.update(this.powerups, this.localTank ? [this.localTank] : [], this.walls);
@@ -1673,6 +1927,7 @@ class World {
     }
 
     this.destroyedWallIds.add(wall.id);
+    this.queueWaterRebuild();
     this.syncDestroyedWalls();
   }
 
@@ -1688,6 +1943,7 @@ class World {
       }
       wall.destroyed = true;
       wall.startDestroyAnimation();
+      this.queueWaterRebuild();
     });
   }
 

@@ -168,10 +168,24 @@ export type GroundfireMapGroup = {
   elementIds: string[];
 };
 
+export type GroundfireWaterType = 'basin' | 'source' | 'drain';
+
+export type GroundfireWaterGameplay = {
+  blocksMovement: boolean;
+  speedMultiplier: number;
+  depthBlockThreshold: number;
+  projectileImpact: 'splash' | 'pass-through' | 'none';
+  explosionMultiplier: number;
+};
+
 export type GroundfireWaterSource = {
   id: string;
+  type?: GroundfireWaterType;
   seedPoint: GroundfireVector2;
   waterLevel: number;
+  flowRate?: number;
+  maxVolume?: number;
+  gameplay?: GroundfireWaterGameplay;
   material: string;
 };
 

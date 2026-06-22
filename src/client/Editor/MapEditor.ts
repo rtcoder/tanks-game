@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import {MAP_ASSET_MANIFEST, type GroundfireElementPreset} from '../../shared/map-assets';
-import type {GroundfireMap, GroundfireMapElement, GroundfireMapGroup, GroundfireWaterSource} from '../../shared/types';
+import {normalizeGroundfireMap} from '../../shared/map-normalizer';
+import type {
+  GroundfireMap,
+  GroundfireMapElement,
+  GroundfireMapGroup,
+  GroundfireTerrainFeature,
+  GroundfireWaterSource,
+} from '../../shared/types';
 
 type EditorTool = 'raise' | 'lower' | 'smooth' | 'flatten' | 'place' | 'select' | 'water';
 
@@ -33,6 +40,7 @@ export class MapEditor {
   pointer = new THREE.Vector2();
   terrainGeometry!: THREE.PlaneGeometry;
   terrainMesh!: THREE.Mesh;
+  terrainMaterial!: THREE.MeshStandardMaterial;
   gridHelper: THREE.GridHelper | null = null;
   ghostMesh!: THREE.Mesh;
   waterMeshes: THREE.Mesh[] = [];
@@ -53,12 +61,24 @@ export class MapEditor {
   destructibleInput!: HTMLInputElement;
   healthInput!: HTMLInputElement;
   waterLevelInput!: HTMLInputElement;
+  waterTypeInput!: HTMLSelectElement;
+  waterFlowRateInput!: HTMLInputElement;
+  waterMaxVolumeInput!: HTMLInputElement;
+  waterBlocksMovementInput!: HTMLInputElement;
+  waterSpeedMultiplierInput!: HTMLInputElement;
+  waterDepthBlockThresholdInput!: HTMLInputElement;
+  waterProjectileImpactInput!: HTMLSelectElement;
+  waterExplosionMultiplierInput!: HTMLInputElement;
+  importJsonInput!: HTMLInputElement;
+  importHeightmapInput!: HTMLInputElement;
+  heatmapInput!: HTMLInputElement;
   waterListElement!: HTMLElement;
   statusElement!: HTMLElement;
   terrainSize = 1500;
   tool: EditorTool = 'raise';
   brushSize = 110;
   brushStrength = 18;
+  heatmapEnabled = false;
   ghostRotation = 0;
   waterSources: GroundfireWaterSource[] = [];
   isPainting = false;
@@ -105,6 +125,16 @@ export class MapEditor {
             <button id="editor-apply-size" type="button">Apply size</button>
             <button id="editor-reset-terrain" type="button">Flat terrain</button>
           </div>
+          <section class="editor__section">
+            <div class="editor__section-title">Import</div>
+            <input class="editor__file-input" id="editor-import-json-input" type="file" accept="application/json,.json">
+            <input class="editor__file-input" id="editor-import-heightmap-input" type="file" accept="image/png,image/jpeg,image/webp">
+            <div class="editor__row">
+              <button id="editor-import-json" type="button">Load JSON</button>
+              <button id="editor-import-heightmap" type="button">Load heightmap</button>
+            </div>
+            <label class="editor__check"><input id="editor-heatmap" type="checkbox"> Heatmap view</label>
+          </section>
           <label>Tool
             <select id="editor-tool">
               <option value="raise">Raise</option>
@@ -125,6 +155,35 @@ export class MapEditor {
           <label class="editor__check"><input id="editor-destructible" type="checkbox" checked> Destructible</label>
           <label>Health<input id="editor-health" type="number" min="1" max="9999" value="20"></label>
           <label>Water level<input id="editor-water-level" type="number" step="5" value="0"></label>
+          <section class="editor__section">
+            <div class="editor__section-title">Water lvl 2</div>
+            <label>Water type
+              <select id="editor-water-type">
+                <option value="basin">Basin</option>
+                <option value="source">Source</option>
+                <option value="drain">Drain</option>
+              </select>
+            </label>
+            <div class="editor__row">
+              <label>Flow<input id="editor-water-flow-rate" type="number" min="0" step="0.1" value="0"></label>
+              <label>Max volume<input id="editor-water-max-volume" type="number" min="0" step="10" value="0"></label>
+            </div>
+            <label class="editor__check"><input id="editor-water-blocks" type="checkbox"> Blocks movement</label>
+            <div class="editor__row">
+              <label>Speed mult<input id="editor-water-speed" type="number" min="0.05" max="1" step="0.05" value="0.45"></label>
+              <label>Block depth<input id="editor-water-block-depth" type="number" min="0" step="1" value="28"></label>
+            </div>
+            <div class="editor__row">
+              <label>Projectile
+                <select id="editor-water-projectile">
+                  <option value="splash">Splash</option>
+                  <option value="pass-through">Pass through</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
+              <label>Explosion mult<input id="editor-water-explosion" type="number" min="0" max="1" step="0.05" value="0.35"></label>
+            </div>
+          </section>
           <section class="editor__section">
             <div class="editor__section-title">Water sources</div>
             <div class="editor__water-list" id="editor-water-list"></div>
@@ -159,6 +218,17 @@ export class MapEditor {
     this.destructibleInput = document.getElementById('editor-destructible') as HTMLInputElement;
     this.healthInput = document.getElementById('editor-health') as HTMLInputElement;
     this.waterLevelInput = document.getElementById('editor-water-level') as HTMLInputElement;
+    this.waterTypeInput = document.getElementById('editor-water-type') as HTMLSelectElement;
+    this.waterFlowRateInput = document.getElementById('editor-water-flow-rate') as HTMLInputElement;
+    this.waterMaxVolumeInput = document.getElementById('editor-water-max-volume') as HTMLInputElement;
+    this.waterBlocksMovementInput = document.getElementById('editor-water-blocks') as HTMLInputElement;
+    this.waterSpeedMultiplierInput = document.getElementById('editor-water-speed') as HTMLInputElement;
+    this.waterDepthBlockThresholdInput = document.getElementById('editor-water-block-depth') as HTMLInputElement;
+    this.waterProjectileImpactInput = document.getElementById('editor-water-projectile') as HTMLSelectElement;
+    this.waterExplosionMultiplierInput = document.getElementById('editor-water-explosion') as HTMLInputElement;
+    this.importJsonInput = document.getElementById('editor-import-json-input') as HTMLInputElement;
+    this.importHeightmapInput = document.getElementById('editor-import-heightmap-input') as HTMLInputElement;
+    this.heatmapInput = document.getElementById('editor-heatmap') as HTMLInputElement;
     this.waterListElement = document.getElementById('editor-water-list') as HTMLElement;
     this.statusElement = document.getElementById('editor-status') as HTMLElement;
   }
@@ -183,20 +253,22 @@ export class MapEditor {
     if (this.terrainMesh) {
       this.scene.remove(this.terrainMesh);
       this.terrainGeometry.dispose();
+      this.terrainMaterial.dispose();
     }
 
     this.terrainGeometry = new THREE.PlaneGeometry(this.terrainSize, this.terrainSize, TERRAIN_SEGMENTS, TERRAIN_SEGMENTS);
     this.terrainGeometry.rotateX(-Math.PI / 2);
-    const material = new THREE.MeshStandardMaterial({
+    this.terrainMaterial = new THREE.MeshStandardMaterial({
       color: 0x788842,
       roughness: 0.92,
       metalness: 0,
     });
-    this.terrainMesh = new THREE.Mesh(this.terrainGeometry, material);
+    this.terrainMesh = new THREE.Mesh(this.terrainGeometry, this.terrainMaterial);
     this.terrainMesh.name = 'terrain';
     this.terrainMesh.receiveShadow = true;
     this.scene.add(this.terrainMesh);
     this.refreshGridHelper();
+    this.updateTerrainHeatmap();
   }
 
   refreshGridHelper(): void {
@@ -243,6 +315,20 @@ export class MapEditor {
       this.brushStrength = Number(this.brushStrengthInput.value);
     });
     this.presetInput.addEventListener('change', () => this.refreshGhost());
+    [
+      this.waterLevelInput,
+      this.waterTypeInput,
+      this.waterFlowRateInput,
+      this.waterMaxVolumeInput,
+      this.waterBlocksMovementInput,
+      this.waterSpeedMultiplierInput,
+      this.waterDepthBlockThresholdInput,
+      this.waterProjectileImpactInput,
+      this.waterExplosionMultiplierInput,
+    ].forEach((input) => {
+      input.addEventListener('input', () => this.updateSelectedWaterFromControls());
+      input.addEventListener('change', () => this.updateSelectedWaterFromControls());
+    });
     document.getElementById('editor-apply-size')?.addEventListener('click', () => this.applyTerrainSize());
     document.getElementById('editor-reset-terrain')?.addEventListener('click', () => this.resetTerrain());
     document.getElementById('editor-rotate-left')?.addEventListener('click', () => this.rotateSelection(-Math.PI / 2));
@@ -251,15 +337,39 @@ export class MapEditor {
     document.getElementById('editor-delete')?.addEventListener('click', () => this.deleteSelection());
     document.getElementById('editor-export-json')?.addEventListener('click', () => this.exportJson());
     document.getElementById('editor-export-heightmap')?.addEventListener('click', () => this.exportHeightmap());
+    document.getElementById('editor-import-json')?.addEventListener('click', () => this.importJsonInput.click());
+    document.getElementById('editor-import-heightmap')?.addEventListener('click', () => this.importHeightmapInput.click());
+    this.importJsonInput.addEventListener('change', () => {
+      const file = this.importJsonInput.files?.[0];
+      this.importJsonInput.value = '';
+      if (file) {
+        void this.importJsonMap(file);
+      }
+    });
+    this.importHeightmapInput.addEventListener('change', () => {
+      const file = this.importHeightmapInput.files?.[0];
+      this.importHeightmapInput.value = '';
+      if (file) {
+        void this.importHeightmap(file);
+      }
+    });
+    this.heatmapInput.addEventListener('change', () => {
+      this.heatmapEnabled = this.heatmapInput.checked;
+      this.updateTerrainHeatmap();
+    });
     this.waterListElement.addEventListener('click', (event) => this.handleWaterListClick(event));
 
     this.renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
     this.renderer.domElement.addEventListener('pointerdown', (event) => this.onPointerDown(event));
     this.renderer.domElement.addEventListener('pointermove', (event) => this.onPointerMove(event));
     window.addEventListener('pointerup', () => {
+      const shouldRefreshWater = this.isPainting || Boolean(this.dragState);
       this.isPainting = false;
       this.isOrbiting = false;
       this.dragState = null;
+      if (shouldRefreshWater) {
+        this.refreshWaterPreview();
+      }
     });
     this.renderer.domElement.addEventListener('wheel', (event) => {
       event.preventDefault();
@@ -372,6 +482,7 @@ export class MapEditor {
 
     positions.needsUpdate = true;
     this.terrainGeometry.computeVertexNormals();
+    this.updateTerrainHeatmap();
   }
 
   averageNeighborHeight(index: number): number {
@@ -442,6 +553,7 @@ export class MapEditor {
     this.elements.set(id, {mesh, data});
     this.scene.add(mesh);
     this.selectOnly(id);
+    this.refreshWaterPreview();
     this.setStatus(`Placed ${preset.label}`);
   }
 
@@ -453,6 +565,20 @@ export class MapEditor {
       roughness: 0.86,
     });
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(preset.size[0], preset.size[2], preset.size[1]), material);
+    return mesh;
+  }
+
+  createElementMeshFromData(data: GroundfireMapElement): THREE.Mesh {
+    const material = new THREE.MeshStandardMaterial({
+      color: this.materialColor(data.material),
+      roughness: 0.86,
+    });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(data.size[0], data.size[2], data.size[1]), material);
+    mesh.position.set(data.position[0], data.position[2] + data.size[2] / 2, data.position[1]);
+    mesh.rotation.y = data.rotation[2] ?? 0;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.elementId = data.id;
     return mesh;
   }
 
@@ -651,19 +777,14 @@ export class MapEditor {
       if (!element) {
         return;
       }
-      this.scene.remove(element.mesh);
-      element.mesh.geometry.dispose();
-      if (Array.isArray(element.mesh.material)) {
-        element.mesh.material.forEach((material) => material.dispose());
-      } else {
-        element.mesh.material.dispose();
-      }
+      this.disposeMesh(element.mesh);
       this.elements.delete(id);
     });
     this.groups = this.groups
       .map((group) => ({...group, elementIds: group.elementIds.filter((id) => this.elements.has(id))}))
       .filter((group) => group.elementIds.length > 1);
     this.clearSelection();
+    this.refreshWaterPreview();
   }
 
   addWaterSource(): void {
@@ -674,8 +795,14 @@ export class MapEditor {
 
     const waterSource: GroundfireWaterSource = {
       id: `water-${crypto.randomUUID().slice(0, 8)}`,
+      type: this.waterTypeInput.value === 'source' || this.waterTypeInput.value === 'drain'
+        ? this.waterTypeInput.value
+        : 'basin',
       seedPoint: [hit.point.x, hit.point.z],
       waterLevel: Number(this.waterLevelInput.value) || hit.point.y,
+      flowRate: this.optionalNumberInput(this.waterFlowRateInput),
+      maxVolume: this.optionalNumberInput(this.waterMaxVolumeInput),
+      gameplay: this.waterGameplayFromInputs(),
       material: 'water-clear',
     };
     this.waterSources.push(waterSource);
@@ -688,13 +815,7 @@ export class MapEditor {
 
   refreshWaterPreview(): void {
     this.waterMeshes.forEach((mesh) => {
-      this.scene.remove(mesh);
-      mesh.geometry.dispose();
-      if (Array.isArray(mesh.material)) {
-        mesh.material.forEach((material) => material.dispose());
-      } else {
-        mesh.material.dispose();
-      }
+      this.disposeMesh(mesh);
     });
     this.waterMeshes = [];
     this.waterSources.forEach((waterSource) => {
@@ -710,6 +831,10 @@ export class MapEditor {
   }
 
   createWaterPreviewMesh(waterSource: GroundfireWaterSource): THREE.Mesh | null {
+    if (waterSource.type === 'drain') {
+      return null;
+    }
+
     const gridSize = 80;
     const cellSize = this.terrainSize / gridSize;
     const seedColumn = Math.floor((waterSource.seedPoint[0] + this.terrainSize / 2) / cellSize);
@@ -725,7 +850,8 @@ export class MapEditor {
     });
     const canFill = (column: number, row: number): boolean => {
       const center = centerFor(column, row);
-      return this.heightAt(center.x, center.z) <= waterSource.waterLevel;
+      return this.heightAt(center.x, center.z) <= waterSource.waterLevel
+        && !this.waterCellBlockedByElement(center.x, center.z, waterSource.waterLevel, cellSize);
     };
     if (!canFill(seedColumn, seedRow)) {
       return null;
@@ -787,6 +913,27 @@ export class MapEditor {
     return new THREE.Mesh(geometry, material);
   }
 
+  waterCellBlockedByElement(x: number, z: number, waterLevel: number, cellSize: number): boolean {
+    const halfSize = cellSize / 2;
+    const cellBox = new THREE.Box3(
+        new THREE.Vector3(x - halfSize, waterLevel - 2, z - halfSize),
+        new THREE.Vector3(x + halfSize, waterLevel + 2, z + halfSize),
+    );
+
+    return Array.from(this.elements.values()).some((element) => {
+      const elementBox = new THREE.Box3().setFromObject(element.mesh);
+      if (waterLevel < elementBox.min.y - 2 || waterLevel > elementBox.max.y + 2) {
+        return false;
+      }
+
+      const elementFootprint = new THREE.Box3(
+          new THREE.Vector3(elementBox.min.x, waterLevel - 2, elementBox.min.z),
+          new THREE.Vector3(elementBox.max.x, waterLevel + 2, elementBox.max.z),
+      ).expandByScalar(cellSize * 0.08);
+      return cellBox.intersectsBox(elementFootprint);
+    });
+  }
+
   handleWaterListClick(event: Event): void {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
@@ -819,8 +966,8 @@ export class MapEditor {
       return `
         <button class="editor__water-item${selectedClass}" type="button" data-water-id="${waterSource.id}">
           <span>
-            <strong>Water ${index + 1}</strong>
-            <small>x ${Math.round(x)} | z ${Math.round(z)} | level ${Math.round(waterSource.waterLevel)}</small>
+            <strong>Water ${index + 1} - ${waterSource.type ?? 'basin'}</strong>
+            <small>x ${Math.round(x)} | z ${Math.round(z)} | level ${Math.round(waterSource.waterLevel)} | speed ${waterSource.gameplay?.speedMultiplier ?? 0.45}</small>
           </span>
           <span class="editor__water-remove" data-water-action="remove" aria-label="Remove water">X</span>
         </button>
@@ -835,9 +982,70 @@ export class MapEditor {
 
     this.selectedWaterId = waterId;
     this.clearElementSelection();
+    this.syncWaterControls();
     this.syncWaterSelectionMaterials();
     this.renderWaterList();
     this.setStatus('Water selected');
+  }
+
+  selectedWater(): GroundfireWaterSource | null {
+    return this.selectedWaterId
+      ? this.waterSources.find((waterSource) => waterSource.id === this.selectedWaterId) ?? null
+      : null;
+  }
+
+  syncWaterControls(): void {
+    const waterSource = this.selectedWater();
+    if (!waterSource) {
+      return;
+    }
+
+    this.waterLevelInput.value = String(waterSource.waterLevel);
+    this.waterTypeInput.value = waterSource.type ?? 'basin';
+    this.waterFlowRateInput.value = String(waterSource.flowRate ?? 0);
+    this.waterMaxVolumeInput.value = String(waterSource.maxVolume ?? 0);
+    this.waterBlocksMovementInput.checked = Boolean(waterSource.gameplay?.blocksMovement);
+    this.waterSpeedMultiplierInput.value = String(waterSource.gameplay?.speedMultiplier ?? 0.45);
+    this.waterDepthBlockThresholdInput.value = String(waterSource.gameplay?.depthBlockThreshold ?? 28);
+    this.waterProjectileImpactInput.value = waterSource.gameplay?.projectileImpact ?? 'splash';
+    this.waterExplosionMultiplierInput.value = String(waterSource.gameplay?.explosionMultiplier ?? 0.35);
+  }
+
+  updateSelectedWaterFromControls(): void {
+    const waterSource = this.selectedWater();
+    if (!waterSource) {
+      return;
+    }
+
+    waterSource.waterLevel = Number(this.waterLevelInput.value) || 0;
+    waterSource.type = this.waterTypeInput.value === 'source' || this.waterTypeInput.value === 'drain'
+      ? this.waterTypeInput.value
+      : 'basin';
+    waterSource.flowRate = this.optionalNumberInput(this.waterFlowRateInput);
+    waterSource.maxVolume = this.optionalNumberInput(this.waterMaxVolumeInput);
+    waterSource.gameplay = this.waterGameplayFromInputs();
+    this.refreshWaterPreview();
+    this.renderWaterList();
+    this.setStatus('Water updated');
+  }
+
+  waterGameplayFromInputs(): NonNullable<GroundfireWaterSource['gameplay']> {
+    const projectileImpact = this.waterProjectileImpactInput.value === 'pass-through'
+      || this.waterProjectileImpactInput.value === 'none'
+      ? this.waterProjectileImpactInput.value
+      : 'splash';
+    return {
+      blocksMovement: this.waterBlocksMovementInput.checked,
+      speedMultiplier: THREE.MathUtils.clamp(Number(this.waterSpeedMultiplierInput.value) || 0.45, 0.05, 1),
+      depthBlockThreshold: Math.max(0, Number(this.waterDepthBlockThresholdInput.value) || 0),
+      projectileImpact,
+      explosionMultiplier: THREE.MathUtils.clamp(Number(this.waterExplosionMultiplierInput.value) || 0.35, 0, 1),
+    };
+  }
+
+  optionalNumberInput(input: HTMLInputElement): number | undefined {
+    const value = Number(input.value);
+    return Number.isFinite(value) && value > 0 ? value : undefined;
   }
 
   removeWaterSource(waterId: string): void {
@@ -854,6 +1062,253 @@ export class MapEditor {
     this.refreshWaterPreview();
     this.renderWaterList();
     this.setStatus('Water removed');
+  }
+
+  async importJsonMap(file: File): Promise<void> {
+    try {
+      const rawMap = JSON.parse(await file.text()) as unknown;
+      const map = normalizeGroundfireMap(rawMap, this.safeIdFromFileName(file.name));
+      await this.loadMapIntoEditor(map);
+    } catch (error) {
+      console.error('Could not import map JSON', error);
+      this.setStatus('Could not load JSON map');
+    }
+  }
+
+  async loadMapIntoEditor(map: GroundfireMap): Promise<void> {
+    this.clearEditorContent();
+    this.mapIdInput.value = map.id;
+    this.mapNameInput.value = map.name;
+    this.terrainSize = THREE.MathUtils.clamp(map.arena.size, 400, 10000);
+    this.mapSizeInput.value = String(this.terrainSize);
+    this.createTerrain();
+
+    let heightmapLoaded = false;
+    if (map.terrain.heightmapAsset) {
+      try {
+        await this.loadHeightmapFromUrl(map.terrain.heightmapAsset, {
+          heightScale: map.terrain.heightScale ?? 120,
+          heightOffset: map.terrain.heightOffset ?? 0,
+        });
+        heightmapLoaded = true;
+      } catch (error) {
+        console.warn(`Could not load map heightmap: ${map.terrain.heightmapAsset}`, error);
+      }
+    }
+
+    this.applyTerrainFeatures(map.terrain.features ?? []);
+    this.elements = new Map();
+    map.elements.forEach((element) => this.addElementFromData(this.cloneMapElement(element)));
+    const existingElementIds = new Set(this.elements.keys());
+    this.groups = map.groups
+      .map((group) => ({
+        id: typeof group.id === 'string' && group.id ? group.id : `group-${crypto.randomUUID().slice(0, 8)}`,
+        name: typeof group.name === 'string' && group.name ? group.name : 'Group',
+        elementIds: Array.isArray(group.elementIds)
+          ? group.elementIds.filter((id) => existingElementIds.has(id))
+          : [],
+      }))
+      .filter((group) => group.elementIds.length > 1);
+    this.waterSources = map.water.map((waterSource, index) => {
+      const seedPoint = Array.isArray(waterSource.seedPoint) ? waterSource.seedPoint : [0, 0];
+      return {
+        id: typeof waterSource.id === 'string' && waterSource.id ? waterSource.id : `water-${index + 1}`,
+        type: waterSource.type ?? 'basin',
+        seedPoint: [
+          Number(seedPoint[0]) || 0,
+          Number(seedPoint[1]) || 0,
+        ],
+        waterLevel: Number(waterSource.waterLevel) || 0,
+        flowRate: waterSource.flowRate,
+        maxVolume: waterSource.maxVolume,
+        gameplay: waterSource.gameplay,
+        material: typeof waterSource.material === 'string' ? waterSource.material : 'water-clear',
+      };
+    });
+    this.clearSelection();
+    this.refreshWaterPreview();
+    this.renderWaterList();
+    this.updateCamera();
+    this.setStatus(heightmapLoaded ? `Loaded ${map.name} + heightmap` : `Loaded ${map.name}`);
+  }
+
+  clearEditorContent(): void {
+    this.elements.forEach((element) => this.disposeMesh(element.mesh));
+    this.elements.clear();
+    this.groups = [];
+    this.waterSources = [];
+    this.selectedIds.clear();
+    this.selectedWaterId = null;
+    this.refreshWaterPreview();
+    this.renderWaterList();
+  }
+
+  addElementFromData(data: GroundfireMapElement): void {
+    const mesh = this.createElementMeshFromData(data);
+    this.elements.set(data.id, {mesh, data});
+    this.scene.add(mesh);
+  }
+
+  cloneMapElement(element: GroundfireMapElement): GroundfireMapElement {
+    return {
+      id: element.id,
+      type: element.type,
+      position: [...element.position],
+      rotation: [...element.rotation],
+      size: [...element.size],
+      stacking: element.stacking
+        ? {
+          enabled: element.stacking.enabled,
+          baseElementId: element.stacking.baseElementId ?? null,
+        }
+        : undefined,
+      destructible: element.destructible
+        ? {
+          enabled: element.destructible.enabled,
+          health: element.destructible.health,
+        }
+        : undefined,
+      material: element.material,
+      role: element.role,
+    };
+  }
+
+  async importHeightmap(file: File): Promise<void> {
+    try {
+      const imageData = await this.imageDataFromFile(file);
+      this.applyHeightmapImageData(imageData, {heightScale: 120, heightOffset: 0});
+      this.setStatus(`Heightmap loaded: ${file.name}`);
+    } catch (error) {
+      console.error('Could not import heightmap', error);
+      this.setStatus('Could not load heightmap');
+    }
+  }
+
+  async loadHeightmapFromUrl(
+      url: string,
+      settings: { heightScale: number; heightOffset: number },
+  ): Promise<void> {
+    const imageData = await this.imageDataFromSource(url);
+    this.applyHeightmapImageData(imageData, settings);
+  }
+
+  async imageDataFromFile(file: File): Promise<ImageData> {
+    const url = URL.createObjectURL(file);
+    try {
+      return await this.imageDataFromSource(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async imageDataFromSource(source: string): Promise<ImageData> {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error(`Could not load image: ${source}`));
+      img.src = source;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, image.naturalWidth || image.width);
+    canvas.height = Math.max(1, image.naturalHeight || image.height);
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Canvas 2D context is unavailable');
+    }
+
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return context.getImageData(0, 0, canvas.width, canvas.height);
+  }
+
+  applyHeightmapImageData(
+      imageData: ImageData,
+      settings: { heightScale: number; heightOffset: number },
+  ): void {
+    const positions = this.terrainGeometry.attributes.position;
+    for (let row = 0; row < HEIGHTMAP_RESOLUTION; row += 1) {
+      for (let column = 0; column < HEIGHTMAP_RESOLUTION; column += 1) {
+        const index = row * HEIGHTMAP_RESOLUTION + column;
+        const u = column / TERRAIN_SEGMENTS;
+        const v = row / TERRAIN_SEGMENTS;
+        const sample = this.sampleHeightmapImage(imageData, u, v);
+        positions.setY(index, sample * settings.heightScale + settings.heightOffset);
+      }
+    }
+
+    positions.needsUpdate = true;
+    this.terrainGeometry.computeVertexNormals();
+    this.updateTerrainHeatmap();
+    this.refreshWaterPreview();
+  }
+
+  sampleHeightmapImage(imageData: ImageData, u: number, v: number): number {
+    const x = THREE.MathUtils.clamp(u, 0, 1) * (imageData.width - 1);
+    const y = THREE.MathUtils.clamp(v, 0, 1) * (imageData.height - 1);
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const x1 = Math.min(imageData.width - 1, x0 + 1);
+    const y1 = Math.min(imageData.height - 1, y0 + 1);
+    const tx = x - x0;
+    const ty = y - y0;
+    const top = THREE.MathUtils.lerp(this.heightmapPixel(imageData, x0, y0), this.heightmapPixel(imageData, x1, y0), tx);
+    const bottom = THREE.MathUtils.lerp(this.heightmapPixel(imageData, x0, y1), this.heightmapPixel(imageData, x1, y1), tx);
+    return THREE.MathUtils.lerp(top, bottom, ty);
+  }
+
+  heightmapPixel(imageData: ImageData, x: number, y: number): number {
+    const index = (y * imageData.width + x) * 4;
+    const red = imageData.data[index] ?? 0;
+    const green = imageData.data[index + 1] ?? red;
+    const blue = imageData.data[index + 2] ?? red;
+    return (red * 0.2126 + green * 0.7152 + blue * 0.0722) / 255;
+  }
+
+  applyTerrainFeatures(features: GroundfireTerrainFeature[]): void {
+    if (features.length === 0) {
+      return;
+    }
+
+    const positions = this.terrainGeometry.attributes.position;
+    for (let index = 0; index < positions.count; index += 1) {
+      const x = positions.getX(index);
+      const z = positions.getZ(index);
+      const featureHeight = features.reduce((height, feature) => height + this.featureHeightAt(feature, x, z), 0);
+      positions.setY(index, positions.getY(index) + featureHeight);
+    }
+    positions.needsUpdate = true;
+    this.terrainGeometry.computeVertexNormals();
+    this.updateTerrainHeatmap();
+  }
+
+  featureHeightAt(feature: GroundfireTerrainFeature, x: number, z: number): number {
+    const [centerX, centerZ] = feature.center;
+    const rotation = feature.rotation ?? 0;
+    const cos = Math.cos(-rotation);
+    const sin = Math.sin(-rotation);
+    const localX = (x - centerX) * cos - (z - centerZ) * sin;
+    const localZ = (x - centerX) * sin + (z - centerZ) * cos;
+    const [radiusX, radiusZ] = Array.isArray(feature.radius)
+      ? feature.radius
+      : [feature.radius, feature.radius];
+    const normalizedDistance = Math.sqrt(
+        (localX * localX) / (radiusX * radiusX)
+        + (localZ * localZ) / (radiusZ * radiusZ),
+    );
+    if (normalizedDistance >= 1) {
+      return 0;
+    }
+
+    const falloff = Math.max(0.5, feature.falloff ?? 2);
+    const smooth = Math.pow(1 - normalizedDistance * normalizedDistance, falloff);
+    if (feature.type === 'depression') {
+      return -Math.abs(feature.height) * smooth;
+    }
+    return feature.height * smooth;
+  }
+
+  safeIdFromFileName(fileName: string): string {
+    return (fileName.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'imported-map').slice(0, 64);
   }
 
   currentPreset(): GroundfireElementPreset {
@@ -887,6 +1342,7 @@ export class MapEditor {
     }
     positions.needsUpdate = true;
     this.terrainGeometry.computeVertexNormals();
+    this.updateTerrainHeatmap();
     this.refreshWaterPreview();
   }
 
@@ -986,6 +1442,67 @@ export class MapEditor {
         material.opacity = selected ? 0.72 : 0.52;
       }
     });
+  }
+
+  updateTerrainHeatmap(): void {
+    if (!this.terrainGeometry || !this.terrainMaterial) {
+      return;
+    }
+
+    if (!this.heatmapEnabled) {
+      this.terrainGeometry.deleteAttribute('color');
+      this.terrainMaterial.vertexColors = false;
+      this.terrainMaterial.color.set(0x788842);
+      this.terrainMaterial.needsUpdate = true;
+      return;
+    }
+
+    const positions = this.terrainGeometry.attributes.position;
+    const stats = this.heightStats();
+    const range = Math.max(1, stats.max - stats.min);
+    const colors = new Float32Array(positions.count * 3);
+    const color = new THREE.Color();
+    for (let index = 0; index < positions.count; index += 1) {
+      const normalizedHeight = (positions.getY(index) - stats.min) / range;
+      this.heatmapColor(normalizedHeight, color);
+      colors[index * 3] = color.r;
+      colors[index * 3 + 1] = color.g;
+      colors[index * 3 + 2] = color.b;
+    }
+
+    this.terrainGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    this.terrainMaterial.vertexColors = true;
+    this.terrainMaterial.color.set(0xffffff);
+    this.terrainMaterial.needsUpdate = true;
+  }
+
+  heatmapColor(value: number, target: THREE.Color): THREE.Color {
+    const stops = [
+      {at: 0, color: new THREE.Color(0x214c9a)},
+      {at: 0.35, color: new THREE.Color(0x2caab3)},
+      {at: 0.55, color: new THREE.Color(0x75a843)},
+      {at: 0.78, color: new THREE.Color(0xf1ce4a)},
+      {at: 1, color: new THREE.Color(0xc4472d)},
+    ];
+    const clamped = THREE.MathUtils.clamp(value, 0, 1);
+    for (let index = 1; index < stops.length; index += 1) {
+      const previous = stops[index - 1];
+      const next = stops[index];
+      if (clamped <= next.at) {
+        return target.copy(previous.color).lerp(next.color, (clamped - previous.at) / (next.at - previous.at));
+      }
+    }
+    return target.copy(stops[stops.length - 1].color);
+  }
+
+  disposeMesh(mesh: THREE.Mesh): void {
+    this.scene.remove(mesh);
+    mesh.geometry.dispose();
+    if (Array.isArray(mesh.material)) {
+      mesh.material.forEach((material) => material.dispose());
+    } else {
+      mesh.material.dispose();
+    }
   }
 
   writeElementFromMesh(element: EditorElement): void {

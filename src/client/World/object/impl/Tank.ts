@@ -9,6 +9,11 @@ import {Ground} from './Ground';
 import {TankModel} from './TankModel';
 import {Wall} from './Wall';
 
+export type TankEnvironment = {
+  movementMultiplier: number;
+  blocksMovement: boolean;
+};
+
 export class Tank extends MovableObject {
   mesh: THREE.Group;
   bodyRoot: THREE.Group;
@@ -264,10 +269,17 @@ export class Tank extends MovableObject {
     return current + Math.sign(delta) * maxDelta;
   }
 
-  _updatePosition(ground: Ground, walls: Wall[], tanks: Tank[], surrounding_walls: Wall[]) {
+  _updatePosition(
+      ground: Ground,
+      walls: Wall[],
+      tanks: Tank[],
+      surrounding_walls: Wall[],
+      environment: TankEnvironment = {movementMultiplier: 1, blocksMovement: false},
+  ) {
+    const movementMultiplier = environment.blocksMovement ? 0 : environment.movementMultiplier;
     const tank_object_tmp = new Tank('temp', null, null, null, null);
     tank_object_tmp.mesh.applyMatrix4(this.mesh.matrix);
-    tank_object_tmp.mesh.translateY(this.proceed * this.proceedSpeed);
+    tank_object_tmp.mesh.translateY(this.proceed * this.proceedSpeed * movementMultiplier);
     tank_object_tmp.mesh.rotateZ(this.rotate * this.rotateSpeed);
     tank_object_tmp.mesh.position.z = ground.heightAt(tank_object_tmp.mesh.position.x, tank_object_tmp.mesh.position.y);
     tank_object_tmp.mesh.updateMatrix();
@@ -276,7 +288,7 @@ export class Tank extends MovableObject {
         (!surrounding_walls.some((wall) => checkCollisionTankWithWall(tank_object_tmp, wall)));
 
     if (this.penetrationUpgraded && not_collided_with_surrounding_walls) {
-      this.mesh.translateY(this.proceed * this.proceedSpeed);
+      this.mesh.translateY(this.proceed * this.proceedSpeed * movementMultiplier);
       this.mesh.rotateZ(this.rotate * this.rotateSpeed);
       this.mesh.position.z = ground.heightAt(this.mesh.position.x, this.mesh.position.y);
       return;
@@ -287,7 +299,7 @@ export class Tank extends MovableObject {
         && !walls.some((wall) => checkCollisionTankWithWall(tank_object_tmp, wall)));
 
     if (this.penetrationPermitted && not_collided_with_surrounding_walls || not_collided) {
-      this.mesh.translateY(this.proceed * this.proceedSpeed);
+      this.mesh.translateY(this.proceed * this.proceedSpeed * movementMultiplier);
       this.mesh.rotateZ(this.rotate * this.rotateSpeed);
       this.mesh.position.z = ground.heightAt(this.mesh.position.x, this.mesh.position.y);
 
@@ -386,12 +398,13 @@ export class Tank extends MovableObject {
       surrounding_walls: Wall[],
       bullets: Bullet[],
       delta: number,
+      environment: TankEnvironment = {movementMultiplier: 1, blocksMovement: false},
   ) {
     this._updateSpeed(keyboard, delta);
     this._updateAim(keyboard, delta);
     this._updateAimPitch(keyboard, delta);
     this._updateAimReset(delta);
-    this._updatePosition(ground, walls, tanks, surrounding_walls);
+    this._updatePosition(ground, walls, tanks, surrounding_walls, environment);
     this._createBullets(keyboard, bullets, scene);
     this.tankModel?.update({
       aimPitch: this.aimPitch,
