@@ -672,6 +672,7 @@ class World {
       if (tank !== this.localTank) return;
       tank.update(this.keyboard, this.scene, this.ground, this.tanks, this.walls, this.surrounding_walls, this.bullets, delta);
       this.snapTankToTerrain(tank);
+      this.camera.updateView();
       this.updateCrosshairPosition();
       this.updateLocalOcclusionFade();
       this.updateMinimap();
@@ -1217,7 +1218,11 @@ class World {
         this.closeTankModal(false);
         return;
       }
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyE'].includes(event.code)) {
+      if (event.code === 'KeyC' && !event.repeat && this.status !== 'menu') {
+        this.camera.toggleMode();
+        event.preventDefault();
+      }
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyE', 'KeyC'].includes(event.code)) {
         event.preventDefault();
       }
       this.keyboard[event.code] = 1;
@@ -1298,6 +1303,7 @@ class World {
   startOnlineGame(): void {
     this.applySelectedTankToLocal();
     this.resetArena();
+    this.camera.setMode('chase');
     this.menu.classList.add('hidden');
     this.replay.classList.add('hidden');
     this.instructions.classList.add('hidden');
