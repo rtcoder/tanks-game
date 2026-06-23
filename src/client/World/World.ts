@@ -627,14 +627,6 @@ class World {
         textureLoader.load(path, resolve, undefined, reject);
       });
     };
-    const optionalTexturePromise = async (path: string | undefined): Promise<THREE.Texture | undefined> => {
-      if (!path) {
-        return undefined;
-      }
-
-      return texturePromise(path);
-    };
-
     const assetBase = '/battletanks';
     const [tankEntries, bulletMesh, powerupMesh] = await Promise.all([
       Promise.all(TANK_DEFINITIONS.map(async (definition) => ({
@@ -673,50 +665,16 @@ class World {
     ]);
     this.textureDict['ground'] = {albedo, ao, height, metallic, normal, roughness};
 
-    const wallTextureUrls = import.meta.glob('../../assets/textures/brick/*.png', {
-      eager: true,
-      query: '?url',
-      import: 'default',
-    }) as Record<string, string>;
+    const wallAlbedoUrl = new URL('../../assets/textures/brick/tx.png', import.meta.url).href;
     const wallAlbedo = await texturePromise(
-        wallTextureUrls['../../assets/textures/brick/tx.png'],
+        wallAlbedoUrl,
         createFallbackBrickTexture(),
     );
     wallAlbedo.colorSpace = THREE.SRGBColorSpace;
     wallAlbedo.wrapS = THREE.RepeatWrapping;
     wallAlbedo.wrapT = THREE.RepeatWrapping;
 
-    const damagedWallUrl = wallTextureUrls['../../assets/textures/brick/tx_damaged.png'];
-    const damagedAlbedo = await optionalTexturePromise(damagedWallUrl);
-    if (damagedAlbedo) {
-      damagedAlbedo.colorSpace = THREE.SRGBColorSpace;
-      damagedAlbedo.wrapS = THREE.RepeatWrapping;
-      damagedAlbedo.wrapT = THREE.RepeatWrapping;
-    }
-
-    const destroyAlbedos = await Promise.all(
-        [1, 2, 3]
-            .map((frame) => ({
-              frame,
-              url: wallTextureUrls[`../../assets/textures/brick/tx_destroy-${frame}.png`],
-            }))
-            .filter((entry): entry is { frame: number; url: string } => Boolean(entry.url))
-            .map(async ({frame, url}) => {
-              const texture = await texturePromise(url);
-              texture.colorSpace = THREE.SRGBColorSpace;
-              texture.wrapS = THREE.RepeatWrapping;
-              texture.wrapT = THREE.RepeatWrapping;
-              return {frame, texture};
-            }),
-    );
-
     this.textureDict['wall'] = {albedo: wallAlbedo};
-    if (damagedAlbedo) {
-      this.textureDict['wall'].damagedAlbedo = damagedAlbedo;
-    }
-    destroyAlbedos.forEach(({frame, texture}) => {
-      this.textureDict['wall'][`destroyAlbedo${frame}`] = texture;
-    });
   }
 
   tankMeshKey(tankId: string): string {

@@ -9,13 +9,13 @@ export class Wall extends BaseObject {
   health: number;
   size: THREE.Vector3;
   damageTexture: THREE.CanvasTexture | null = null;
+  damageAlphaTexture: THREE.CanvasTexture | null = null;
   wallTexture: THREE.Texture | null = null;
-  damagedWallTexture: THREE.Texture | null = null;
-  destroyWallTextures: THREE.Texture[] = [];
   destroyAnimationActive = false;
   destroyAnimationElapsed = 0;
   destroyAnimationFrame = -1;
-  destroyAnimationFrameDuration = 0.05;
+  destroyAnimationFrameDuration = 0.055;
+  destroyAnimationFrameCount = 5;
   removed = false;
   occlusionFadeActive = false;
   falling = false;
@@ -65,35 +65,6 @@ export class Wall extends BaseObject {
 
         return configureWallTexture(source.clone());
       };
-      const cloneRotatedWallTexture = (source?: THREE.Texture): THREE.Texture | null => {
-        if (!source?.image) {
-          return null;
-        }
-
-        const image = source.image as CanvasImageSource & { width?: number; height?: number; naturalWidth?: number; naturalHeight?: number };
-        const width = image.naturalWidth ?? image.width ?? 0;
-        const height = image.naturalHeight ?? image.height ?? 0;
-        if (!width || !height) {
-          return cloneWallTexture(source);
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const context = canvas.getContext('2d');
-        if (!context) {
-          return cloneWallTexture(source);
-        }
-
-        context.translate(width, height);
-        context.rotate(Math.PI);
-        context.drawImage(image, 0, 0, width, height);
-
-        const rotatedTexture = new THREE.CanvasTexture(canvas);
-        rotatedTexture.colorSpace = source.colorSpace;
-        return configureWallTexture(rotatedTexture, 0);
-      };
-
       const albedoTexture = cloneWallTexture(texture['albedo']);
       const aoTexture = cloneWallTexture(texture['ao']);
       const heightTexture = cloneWallTexture(texture['height']);
@@ -101,10 +72,6 @@ export class Wall extends BaseObject {
       const normalTexture = cloneWallTexture(texture['normal']);
       const roughnessTexture = cloneWallTexture(texture['roughness']);
       this.wallTexture = albedoTexture;
-      this.damagedWallTexture = cloneWallTexture(texture['damagedAlbedo']);
-      this.destroyWallTextures = [1, 2, 3]
-          .map((frame) => cloneRotatedWallTexture(texture[`destroyAlbedo${frame}`]))
-          .filter((frameTexture): frameTexture is THREE.Texture => Boolean(frameTexture));
 
       material.map = albedoTexture;
       material.aoMap = aoTexture;
@@ -191,19 +158,13 @@ export class Wall extends BaseObject {
     const materials = Array.isArray(this.mesh.material) ? this.mesh.material : [this.mesh.material];
     materials.forEach((material) => {
       if (material instanceof THREE.MeshStandardMaterial) {
-        if (this.damagedWallTexture) {
-          material.map = this.damagedWallTexture;
-          material.transparent = true;
-          material.alphaTest = 0.35;
-          material.depthWrite = true;
-          material.side = THREE.DoubleSide;
-          material.color.set(new THREE.Color(0xffffff).lerp(new THREE.Color(0x8d8372), damageRatio * 0.12));
-        } else if (material.map && material.map !== this.damageTexture) {
-          material.color.set(new THREE.Color(0xffffff).lerp(new THREE.Color(0x5d4937), damageRatio * 0.55));
-        } else {
-          material.color.set(new THREE.Color(0x827b6c).lerp(new THREE.Color(0x514331), damageRatio * 0.5));
-          material.map = this.createDamageTexture(damageRatio);
-        }
+        material.map = this.createDamageTexture(damageRatio, false);
+        material.alphaMap = this.createDamageAlphaTexture(damageRatio, false);
+        material.transparent = true;
+        material.alphaTest = 0.18;
+        material.depthWrite = true;
+        material.side = THREE.FrontSide;
+        material.color.set(new THREE.Color(0xffffff).lerp(new THREE.Color(0x8d8372), damageRatio * 0.16));
         this.applyOcclusionMaterialState(material);
       }
     });
@@ -268,7 +229,7 @@ export class Wall extends BaseObject {
 
     this.destroyAnimationElapsed += delta;
     const nextFrame = Math.min(
-        this.destroyWallTextures.length - 1,
+        this.destroyAnimationFrameCount - 1,
         Math.floor(this.destroyAnimationElapsed / this.destroyAnimationFrameDuration),
     );
 
@@ -277,18 +238,13 @@ export class Wall extends BaseObject {
       this.applyDestroyFrame(nextFrame);
     }
 
-    if (this.destroyAnimationElapsed >= this.destroyWallTextures.length * this.destroyAnimationFrameDuration) {
+    if (this.destroyAnimationElapsed >= this.destroyAnimationFrameCount * this.destroyAnimationFrameDuration) {
       this.removeMesh();
     }
   }
 
   startDestroyAnimation(): void {
     if (this.destroyAnimationActive || this.removed) {
-      return;
-    }
-
-    if (this.destroyWallTextures.length === 0) {
-      this.destruct();
       return;
     }
 
@@ -299,19 +255,22 @@ export class Wall extends BaseObject {
   }
 
   applyDestroyFrame(frameIndex: number): void {
-    const frameTexture = this.destroyWallTextures[frameIndex];
-    if (!frameTexture) {
-      return;
-    }
+    const progress = this.destroyAnimationFrameCount <= 1
+      ? 1
+      : frameIndex / (this.destroyAnimationFrameCount - 1);
+    const damageTexture = this.createDamageTexture(0.72 + progress * 0.28, true);
+    const damageAlphaTexture = this.createDamageAlphaTexture(0.72 + progress * 0.28, true);
 
     const materials = Array.isArray(this.mesh.material) ? this.mesh.material : [this.mesh.material];
     materials.forEach((material) => {
       if (material instanceof THREE.MeshStandardMaterial) {
-        material.map = frameTexture;
+        material.map = damageTexture;
+        material.alphaMap = damageAlphaTexture;
         material.transparent = true;
-        material.alphaTest = 0.35;
-        material.side = THREE.DoubleSide;
-        material.color.set(0xffffff);
+        material.alphaTest = 0.12;
+        material.depthWrite = true;
+        material.side = THREE.FrontSide;
+        material.color.set(new THREE.Color(0xffffff).lerp(new THREE.Color(0x2b211c), progress * 0.42));
         this.applyOcclusionMaterialState(material);
       }
     });
@@ -339,16 +298,122 @@ export class Wall extends BaseObject {
     material.needsUpdate = true;
   }
 
-  createDamageTexture(damageRatio: number): THREE.CanvasTexture {
+  createDamageTexture(damageRatio: number, destructive = false): THREE.CanvasTexture {
     this.damageTexture?.dispose();
 
-    const size = 256;
+    const clampedDamage = THREE.MathUtils.clamp(damageRatio, 0, 1);
+    const size = 512;
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
     const context = canvas.getContext('2d');
     if (!context) {
       return new THREE.CanvasTexture(canvas);
+    }
+
+    this.drawBaseWallTexture(context, size);
+
+    const scorchCount = Math.max(1, Math.ceil(clampedDamage * 8));
+    for (let index = 0; index < scorchCount; index++) {
+      const seed = this.hashSeed(index + 100);
+      const x = (seed % 1000) / 1000 * size;
+      const y = (((seed >>> 7) % 1000) / 1000) * size;
+      const radius = Math.max(1, 18 + clampedDamage * 58 + ((seed >>> 13) % 24));
+      const gradient = context.createRadialGradient(x, y, 2, x, y, radius);
+      gradient.addColorStop(0, `rgba(18, 13, 10, ${0.34 + clampedDamage * 0.42})`);
+      gradient.addColorStop(0.62, `rgba(54, 42, 32, ${0.18 + clampedDamage * 0.22})`);
+      gradient.addColorStop(1, 'rgba(54, 42, 32, 0)');
+      context.fillStyle = gradient;
+      context.beginPath();
+      context.arc(x, y, radius, 0, Math.PI * 2);
+      context.fill();
+    }
+
+    const crackCount = Math.max(2, Math.ceil(clampedDamage * 12));
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    for (let index = 0; index < crackCount; index++) {
+      const seed = this.hashSeed(index + 200);
+      let x = (seed % 1000) / 1000 * size;
+      let y = (((seed >>> 6) % 1000) / 1000) * size;
+      context.strokeStyle = `rgba(19, 14, 11, ${0.28 + clampedDamage * 0.58})`;
+      context.lineWidth = 1 + clampedDamage * 2.1;
+      context.beginPath();
+      context.moveTo(x, y);
+      const steps = 2 + (seed % 3);
+      for (let step = 0; step < steps; step++) {
+        x += (((seed >>> (step + 9)) % 100) - 50) * 0.75;
+        y += 12 + (((seed >>> (step + 14)) % 100) - 50) * 0.35;
+        context.lineTo(x, y);
+      }
+      context.stroke();
+    }
+
+    this.drawDamageHoleShadows(context, size, clampedDamage, destructive);
+
+    const chipCount = Math.max(2, Math.ceil(clampedDamage * 16));
+    for (let index = 0; index < chipCount; index++) {
+      const seed = this.hashSeed(index + 300);
+      const x = (seed % 1000) / 1000 * size;
+      const y = (((seed >>> 5) % 1000) / 1000) * size;
+      const radius = Math.max(1, 2 + ((seed >>> 11) % 7));
+      context.fillStyle = `rgba(188, 178, 142, ${0.2 + clampedDamage * 0.24})`;
+      context.beginPath();
+      context.arc(x, y, radius, 0, Math.PI * 2);
+      context.fill();
+    }
+
+    this.damageTexture = new THREE.CanvasTexture(canvas);
+    this.configureGeneratedWallTexture(this.damageTexture);
+    this.damageTexture.colorSpace = THREE.SRGBColorSpace;
+    return this.damageTexture;
+  }
+
+  createDamageAlphaTexture(damageRatio: number, destructive = false): THREE.CanvasTexture {
+    this.damageAlphaTexture?.dispose();
+
+    const clampedDamage = THREE.MathUtils.clamp(damageRatio, 0, 1);
+    const size = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, size, size);
+    context.fillStyle = '#000000';
+    this.damageHoles(size, clampedDamage, destructive)
+        .forEach((hole) => this.drawJaggedBlob(context, hole.x, hole.y, hole.radius, hole.seed));
+
+    this.damageAlphaTexture = new THREE.CanvasTexture(canvas);
+    this.configureGeneratedWallTexture(this.damageAlphaTexture);
+    return this.damageAlphaTexture;
+  }
+
+  configureGeneratedWallTexture(texture: THREE.Texture): void {
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(Math.max(1, this.size.y / 120), Math.max(1, this.size.z / 90));
+    texture.center.set(0.5, 0.5);
+    texture.rotation = Math.PI;
+    texture.needsUpdate = true;
+  }
+
+  drawBaseWallTexture(context: CanvasRenderingContext2D, size: number): void {
+    const image = this.wallTexture?.image as CanvasImageSource & {
+      width?: number;
+      height?: number;
+      naturalWidth?: number;
+      naturalHeight?: number;
+    } | undefined;
+    const width = image ? image.naturalWidth ?? image.width ?? 0 : 0;
+    const height = image ? image.naturalHeight ?? image.height ?? 0 : 0;
+    if (image && width > 0 && height > 0) {
+      context.drawImage(image, 0, 0, size, size);
+      return;
     }
 
     context.fillStyle = '#80775f';
@@ -362,61 +427,71 @@ export class Wall extends BaseObject {
       context.fillStyle = '#6f674f';
       context.fillRect(x + ((x / 42) % 2) * 18, 0, 2, size);
     }
+  }
 
-    const scorchCount = Math.max(1, Math.ceil(damageRatio * 5));
-    for (let index = 0; index < scorchCount; index++) {
-      const seed = this.hashSeed(index + 100);
-      const x = (seed % 1000) / 1000 * size;
-      const y = (((seed >>> 7) % 1000) / 1000) * size;
-      const radius = Math.max(1, 15 + damageRatio * 36 + ((seed >>> 13) % 14));
-      const gradient = context.createRadialGradient(x, y, 2, x, y, radius);
-      gradient.addColorStop(0, `rgba(24, 18, 14, ${0.42 + damageRatio * 0.38})`);
-      gradient.addColorStop(0.62, `rgba(54, 42, 32, ${0.24 + damageRatio * 0.2})`);
-      gradient.addColorStop(1, 'rgba(54, 42, 32, 0)');
+  damageHoles(
+      size: number,
+      damageRatio: number,
+      destructive: boolean,
+  ): Array<{ x: number; y: number; radius: number; seed: number }> {
+    const holeCount = Math.max(1, Math.ceil((destructive ? 10 : 5) * damageRatio));
+    const holes: Array<{ x: number; y: number; radius: number; seed: number }> = [];
+    for (let index = 0; index < holeCount; index++) {
+      const seed = this.hashSeed(index + (destructive ? 700 : 500));
+      holes.push({
+        seed,
+        x: (seed % 1000) / 1000 * size,
+        y: (((seed >>> 8) % 1000) / 1000) * size,
+        radius: Math.max(4, (destructive ? 18 : 8) + damageRatio * (destructive ? 88 : 46) + ((seed >>> 16) % 24)),
+      });
+    }
+    return holes;
+  }
+
+  drawDamageHoleShadows(
+      context: CanvasRenderingContext2D,
+      size: number,
+      damageRatio: number,
+      destructive: boolean,
+  ): void {
+    const holes = this.damageHoles(size, damageRatio, destructive);
+    context.save();
+    context.globalCompositeOperation = 'source-over';
+    holes.forEach((hole) => {
+      const gradient = context.createRadialGradient(hole.x, hole.y, Math.max(2, hole.radius * 0.35), hole.x, hole.y, hole.radius * 1.14);
+      gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      gradient.addColorStop(0.58, `rgba(17, 12, 8, ${0.18 + damageRatio * 0.24})`);
+      gradient.addColorStop(1, 'rgba(17, 12, 8, 0)');
       context.fillStyle = gradient;
       context.beginPath();
-      context.arc(x, y, radius, 0, Math.PI * 2);
+      context.arc(hole.x, hole.y, hole.radius * 1.18, 0, Math.PI * 2);
       context.fill();
-    }
+    });
+    context.restore();
+  }
 
-    const crackCount = Math.max(2, Math.ceil(damageRatio * 9));
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    for (let index = 0; index < crackCount; index++) {
-      const seed = this.hashSeed(index + 200);
-      let x = (seed % 1000) / 1000 * size;
-      let y = (((seed >>> 6) % 1000) / 1000) * size;
-      context.strokeStyle = `rgba(19, 14, 11, ${0.35 + damageRatio * 0.55})`;
-      context.lineWidth = 1 + damageRatio * 1.3;
-      context.beginPath();
-      context.moveTo(x, y);
-      const steps = 2 + (seed % 3);
-      for (let step = 0; step < steps; step++) {
-        x += (((seed >>> (step + 9)) % 100) - 50) * 0.75;
-        y += 12 + (((seed >>> (step + 14)) % 100) - 50) * 0.35;
-        context.lineTo(x, y);
+  drawJaggedBlob(
+      context: CanvasRenderingContext2D,
+      x: number,
+      y: number,
+      radius: number,
+      seed: number,
+  ): void {
+    const pointCount = 9 + (seed % 7);
+    context.beginPath();
+    for (let pointIndex = 0; pointIndex < pointCount; pointIndex++) {
+      const angle = (pointIndex / pointCount) * Math.PI * 2;
+      const noise = 0.64 + (((seed >>> (pointIndex % 18)) % 100) / 100) * 0.62;
+      const px = x + Math.cos(angle) * radius * noise;
+      const py = y + Math.sin(angle) * radius * noise;
+      if (pointIndex === 0) {
+        context.moveTo(px, py);
+      } else {
+        context.lineTo(px, py);
       }
-      context.stroke();
     }
-
-    const chipCount = Math.max(2, Math.ceil(damageRatio * 12));
-    for (let index = 0; index < chipCount; index++) {
-      const seed = this.hashSeed(index + 300);
-      const x = (seed % 1000) / 1000 * size;
-      const y = (((seed >>> 5) % 1000) / 1000) * size;
-      const radius = Math.max(1, 2 + ((seed >>> 11) % 7));
-      context.fillStyle = `rgba(188, 178, 142, ${0.25 + damageRatio * 0.28})`;
-      context.beginPath();
-      context.arc(x, y, radius, 0, Math.PI * 2);
-      context.fill();
-    }
-
-    this.damageTexture = new THREE.CanvasTexture(canvas);
-    this.damageTexture.wrapS = THREE.RepeatWrapping;
-    this.damageTexture.wrapT = THREE.RepeatWrapping;
-    this.damageTexture.repeat.set(Math.max(1, this.size.y / 64), 1);
-    this.damageTexture.colorSpace = THREE.SRGBColorSpace;
-    return this.damageTexture;
+    context.closePath();
+    context.fill();
   }
 
   hashSeed(salt: number): number {
@@ -439,9 +514,8 @@ export class Wall extends BaseObject {
     }
     this.removed = true;
     this.damageTexture?.dispose();
+    this.damageAlphaTexture?.dispose();
     this.wallTexture?.dispose();
-    this.damagedWallTexture?.dispose();
-    this.destroyWallTextures.forEach((texture) => texture.dispose());
     const materials = Array.isArray(this.mesh.material) ? this.mesh.material : [this.mesh.material];
     materials.forEach((material) => {
       if (material instanceof THREE.MeshStandardMaterial) {
@@ -452,10 +526,11 @@ export class Wall extends BaseObject {
           material.metalnessMap,
           material.normalMap,
           material.roughnessMap,
+          material.alphaMap,
         ]);
         textureSet.delete(this.wallTexture);
-        textureSet.delete(this.damagedWallTexture);
-        this.destroyWallTextures.forEach((texture) => textureSet.delete(texture));
+        textureSet.delete(this.damageTexture);
+        textureSet.delete(this.damageAlphaTexture);
         textureSet.forEach((texture) => texture?.dispose());
       }
       material.dispose();

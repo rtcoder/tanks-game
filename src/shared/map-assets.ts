@@ -10,10 +10,6 @@ export type GroundfireTextureSet = {
     metallic?: string;
     normal?: string;
     roughness?: string;
-    damagedAlbedo?: string;
-    destroyAlbedo1?: string;
-    destroyAlbedo2?: string;
-    destroyAlbedo3?: string;
   };
 };
 
