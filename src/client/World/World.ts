@@ -50,6 +50,8 @@ const STRUCTURAL_MIN_SUPPORT_AREA = 16;
 const STRUCTURAL_IMPACT_FREE_DISTANCE = 6;
 const STRUCTURAL_IMPACT_DAMAGE_PER_UNIT = 0.35;
 const WATER_GRID_SIZE = 80;
+const MINIMAP_WORLD_VIEW_SIZE = 500;
+const MINIMAP_EDGE_INSET = 10;
 const DEFAULT_WATER_GAMEPLAY: GroundfireWaterGameplay = {
   blocksMovement: false,
   speedMultiplier: 0.45,
@@ -1360,51 +1362,124 @@ class World {
     context.scale(dpr, dpr);
     context.clearRect(0, 0, cssWidth, cssHeight);
 
-    const padding = 14;
-    const topPadding = 30;
-    const mapSize = Math.max(1, Math.min(cssWidth - padding * 2, cssHeight - padding - topPadding));
-    const mapLeft = (cssWidth - mapSize) / 2;
-    const mapTop = topPadding;
-    const scale = mapSize / this.arenaSize;
+    const centerX = cssWidth / 2;
+    const centerY = cssHeight / 2;
+    const radius = Math.max(1, Math.min(cssWidth, cssHeight) / 2 - MINIMAP_EDGE_INSET);
+    const scale = (radius * 2) / MINIMAP_WORLD_VIEW_SIZE;
+    const localPosition = this.localTank.mesh.position;
+    const localHeading = this.localTank.mesh.rotation.z;
+    const headingCos = Math.cos(-localHeading);
+    const headingSin = Math.sin(-localHeading);
     const toMap = (position: THREE.Vector3): { x: number; y: number } => ({
-      x: mapLeft + (position.x + this.arenaHalf) * scale,
-      y: mapTop + (this.arenaHalf - position.y) * scale,
+      x: centerX + ((position.x - localPosition.x) * headingCos - (position.y - localPosition.y) * headingSin) * scale,
+      y: centerY - ((position.x - localPosition.x) * headingSin + (position.y - localPosition.y) * headingCos) * scale,
     });
 
-    context.fillStyle = 'rgba(32, 48, 28, 0.92)';
-    context.fillRect(mapLeft, mapTop, mapSize, mapSize);
-    context.strokeStyle = 'rgba(215, 230, 92, 0.38)';
+    context.fillStyle = 'rgba(16, 25, 15, 0.94)';
+    context.beginPath();
+    context.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    context.fill();
+
+    context.strokeStyle = 'rgba(215, 230, 92, 0.3)';
     context.lineWidth = 1;
-    context.strokeRect(mapLeft + 0.5, mapTop + 0.5, mapSize - 1, mapSize - 1);
+    [0.34, 0.67, 1].forEach((ringScale) => {
+      context.beginPath();
+      context.arc(centerX, centerY, radius * ringScale, 0, Math.PI * 2);
+      context.stroke();
+    });
+
+    context.strokeStyle = 'rgba(215, 230, 92, 0.12)';
+    context.beginPath();
+    context.moveTo(centerX - radius, centerY);
+    context.lineTo(centerX + radius, centerY);
+    context.moveTo(centerX, centerY - radius);
+    context.lineTo(centerX, centerY + radius);
+    context.stroke();
 
     context.save();
     context.beginPath();
-    context.rect(mapLeft, mapTop, mapSize, mapSize);
+    context.arc(centerX, centerY, radius, 0, Math.PI * 2);
     context.clip();
 
     context.strokeStyle = 'rgba(215, 230, 92, 0.08)';
     context.lineWidth = 1;
-    const gridStep = mapSize / 5;
-    for (let index = 1; index < 5; index += 1) {
-      const offset = mapLeft + index * gridStep;
+    const gridStep = 25 * scale;
+    const gridExtent = Math.ceil(radius / gridStep) * gridStep;
+    for (let offset = -gridExtent; offset <= gridExtent; offset += gridStep) {
+      const verticalStart = this.rotateMinimapOffset(offset, -gridExtent, localHeading);
+      const verticalEnd = this.rotateMinimapOffset(offset, gridExtent, localHeading);
       context.beginPath();
-      context.moveTo(offset, mapTop);
-      context.lineTo(offset, mapTop + mapSize);
+      context.moveTo(centerX + verticalStart.x, centerY + verticalStart.y);
+      context.lineTo(centerX + verticalEnd.x, centerY + verticalEnd.y);
       context.stroke();
 
-      const y = mapTop + index * gridStep;
+      const horizontalStart = this.rotateMinimapOffset(-gridExtent, offset, localHeading);
+      const horizontalEnd = this.rotateMinimapOffset(gridExtent, offset, localHeading);
       context.beginPath();
-      context.moveTo(mapLeft, y);
-      context.lineTo(mapLeft + mapSize, y);
+      context.moveTo(centerX + horizontalStart.x, centerY + horizontalStart.y);
+      context.lineTo(centerX + horizontalEnd.x, centerY + horizontalEnd.y);
       context.stroke();
     }
 
-    this.drawMinimapWater(context, toMap, scale);
-    this.drawMinimapWalls(context, toMap, scale);
-    this.remoteTanks.forEach((tank) => this.drawMinimapTank(context, tank, toMap, '#ff6048', 4.5));
-    this.drawMinimapTank(context, this.localTank, toMap, '#d7ff58', 5.5);
+    this.drawMinimapWater(context, toMap, scale, localHeading);
+    this.drawMinimapWalls(context, toMap, scale, localHeading);
+    this.remoteTanks.forEach((tank) => this.drawMinimapTank(context, tank, toMap, '#ff6048', 4.5, localHeading));
+    this.drawMinimapTank(context, this.localTank, toMap, '#d7ff58', 5.8, localHeading);
 
     context.restore();
+    this.drawMinimapCompass(context, centerX, centerY, radius, localHeading);
+
+    context.strokeStyle = 'rgba(243, 255, 168, 0.54)';
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(centerX, centerY, radius - 0.5, 0, Math.PI * 2);
+    context.stroke();
+
+    context.restore();
+  }
+
+  rotateMinimapOffset(x: number, y: number, heading: number): { x: number; y: number } {
+    const cos = Math.cos(heading);
+    const sin = Math.sin(heading);
+    return {
+      x: x * cos - y * sin,
+      y: x * sin + y * cos,
+    };
+  }
+
+  drawMinimapCompass(
+      context: CanvasRenderingContext2D,
+      centerX: number,
+      centerY: number,
+      radius: number,
+      heading: number,
+  ): void {
+    const compassRadius = Math.max(1, radius - 16);
+    const cos = Math.cos(-heading);
+    const sin = Math.sin(-heading);
+    const directions = [
+      {label: 'N', x: 0, y: 1},
+      {label: 'E', x: 1, y: 0},
+      {label: 'S', x: 0, y: -1},
+      {label: 'W', x: -1, y: 0},
+    ];
+
+    context.save();
+    context.font = '900 10px sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    directions.forEach((direction) => {
+      const rotatedX = direction.x * cos - direction.y * sin;
+      const rotatedY = direction.x * sin + direction.y * cos;
+      const x = centerX + rotatedX * compassRadius;
+      const y = centerY - rotatedY * compassRadius;
+      context.fillStyle = 'rgba(6, 10, 7, 0.72)';
+      context.beginPath();
+      context.arc(x, y, 9, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = direction.label === 'N' ? '#f7ff78' : 'rgba(223, 226, 199, 0.9)';
+      context.fillText(direction.label, x, y + 0.5);
+    });
     context.restore();
   }
 
@@ -1412,6 +1487,7 @@ class World {
       context: CanvasRenderingContext2D,
       toMap: (position: THREE.Vector3) => { x: number; y: number },
       scale: number,
+      localHeading: number,
   ): void {
     context.fillStyle = 'rgba(226, 224, 194, 0.24)';
     this.walls.forEach((wall) => {
@@ -1422,7 +1498,7 @@ class World {
       const point = toMap(wall.mesh.position);
       context.save();
       context.translate(point.x, point.y);
-      context.rotate(-wall.mesh.rotation.z);
+      context.rotate(localHeading - wall.mesh.rotation.z);
       context.fillRect(
           -wall.size.x * scale / 2,
           -wall.size.y * scale / 2,
@@ -1437,6 +1513,7 @@ class World {
       context: CanvasRenderingContext2D,
       toMap: (position: THREE.Vector3) => { x: number; y: number },
       scale: number,
+      localHeading: number,
   ): void {
     if (this.waterMinimapCells.length === 0) {
       return;
@@ -1444,8 +1521,13 @@ class World {
 
     context.fillStyle = 'rgba(53, 169, 198, 0.54)';
     this.waterMinimapCells.forEach((cell) => {
-      const topLeft = toMap(new THREE.Vector3(cell.x, cell.y + cell.size, 0));
-      context.fillRect(topLeft.x, topLeft.y, Math.max(1, cell.size * scale), Math.max(1, cell.size * scale));
+      const point = toMap(new THREE.Vector3(cell.x + cell.size / 2, cell.y + cell.size / 2, 0));
+      const size = Math.max(1, cell.size * scale);
+      context.save();
+      context.translate(point.x, point.y);
+      context.rotate(localHeading);
+      context.fillRect(-size / 2, -size / 2, size, size);
+      context.restore();
     });
   }
 
@@ -1455,10 +1537,11 @@ class World {
       toMap: (position: THREE.Vector3) => { x: number; y: number },
       color: string,
       radius: number,
+      localHeading: number,
   ): void {
     const point = toMap(tank.mesh.position);
-    const heading = -tank.mesh.rotation.z;
-    const aimHeading = -(tank.mesh.rotation.z + tank.aimYaw);
+    const heading = -(tank.mesh.rotation.z - localHeading);
+    const aimHeading = -(tank.mesh.rotation.z + tank.aimYaw - localHeading);
 
     context.save();
     context.translate(point.x, point.y);

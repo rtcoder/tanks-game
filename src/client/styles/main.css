@@ -80,10 +80,11 @@ body {
 }
 
 .minimap {
-  background: rgba(8, 12, 9, 0.74);
-  border: 1px solid rgba(223, 226, 199, 0.24);
+  background: radial-gradient(circle at 50% 50%, rgba(27, 44, 22, 0.92), rgba(8, 12, 9, 0.82) 72%);
+  border: 1px solid rgba(243, 255, 168, 0.24);
+  border-radius: 50%;
   bottom: 22px;
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.34), inset 0 0 24px rgba(215, 230, 92, 0.08);
   height: 220px;
   overflow: hidden;
   pointer-events: none;
@@ -91,24 +92,6 @@ body {
   right: 22px;
   width: 220px;
   z-index: 6;
-}
-
-.minimap__label {
-  background: rgba(7, 10, 8, 0.82);
-  border-bottom: 1px solid rgba(223, 226, 199, 0.16);
-  color: #d7e65c;
-  font-size: 10px;
-  font-weight: 950;
-  left: 0;
-  letter-spacing: 0.12em;
-  line-height: 1;
-  padding: 7px 9px;
-  position: absolute;
-  text-align: left;
-  text-transform: uppercase;
-  top: 0;
-  width: 100%;
-  z-index: 1;
 }
 
 .minimap canvas {
