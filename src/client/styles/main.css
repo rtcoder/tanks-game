@@ -75,8 +75,59 @@ body {
 .header:not(.hidden) ~ #scene-container .weapon-status,
 .header:not(.hidden) ~ #scene-container .powerups,
 .header:not(.hidden) ~ #scene-container .crosshair,
+.header:not(.hidden) ~ #scene-container .heading-compass,
 .header:not(.hidden) ~ #scene-container .minimap {
   display: none;
+}
+
+.heading-compass {
+  background: linear-gradient(180deg, rgba(17, 24, 17, 0.84), rgba(8, 12, 9, 0.66));
+  border: 1px solid rgba(243, 255, 168, 0.22);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.26), inset 0 0 18px rgba(215, 230, 92, 0.06);
+  height: 58px;
+  left: 50%;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  top: 10px;
+  transform: translateX(-50%);
+  width: clamp(320px, 34vw, 420px);
+  z-index: 7;
+}
+
+.heading-compass::before {
+  background: linear-gradient(
+    90deg,
+    rgba(6, 8, 6, 0.82),
+    rgba(6, 8, 6, 0) 22%,
+    rgba(6, 8, 6, 0) 78%,
+    rgba(6, 8, 6, 0.82)
+  );
+  content: '';
+  inset: 0;
+  position: absolute;
+  z-index: 1;
+}
+
+.heading-compass::after {
+  background: #d8ff63;
+  box-shadow: 0 0 12px rgba(216, 255, 99, 0.75);
+  content: '';
+  height: 30px;
+  left: 50%;
+  position: absolute;
+  top: 7px;
+  transform: translateX(-50%);
+  width: 2px;
+  z-index: 2;
+}
+
+.heading-compass canvas {
+  display: block;
+  height: 100%;
+  position: relative;
+  width: 100%;
+  z-index: 0;
 }
 
 .minimap {
@@ -163,6 +214,12 @@ body {
 }
 
 @media (max-width: 720px) {
+  .heading-compass {
+    height: 50px;
+    top: 8px;
+    width: min(320px, calc(100vw - 28px));
+  }
+
   .minimap {
     bottom: 14px;
     height: 154px;

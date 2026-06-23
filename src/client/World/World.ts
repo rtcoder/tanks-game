@@ -52,6 +52,7 @@ const STRUCTURAL_IMPACT_DAMAGE_PER_UNIT = 0.35;
 const WATER_GRID_SIZE = 80;
 const MINIMAP_WORLD_VIEW_SIZE = 1500;
 const MINIMAP_EDGE_INSET = 10;
+const COMPASS_VISIBLE_DEGREES = 100;
 const DEFAULT_WATER_GAMEPLAY: GroundfireWaterGameplay = {
   blocksMovement: false,
   speedMultiplier: 0.45,
@@ -161,6 +162,8 @@ class World {
   createButton: HTMLButtonElement;
   joinButton: HTMLButtonElement;
   healthContainer: HTMLElement;
+  headingCompassCanvas: HTMLCanvasElement;
+  headingCompassContext: CanvasRenderingContext2D | null;
   minimapCanvas: HTMLCanvasElement;
   minimapContext: CanvasRenderingContext2D | null;
   playerWinBanner: HTMLElement;
@@ -237,6 +240,8 @@ class World {
     this.createButton = document.getElementById('create-battle-button') as HTMLButtonElement;
     this.joinButton = document.getElementById('join-battle-button') as HTMLButtonElement;
     this.healthContainer = document.getElementById('player1-container') as HTMLElement;
+    this.headingCompassCanvas = document.getElementById('heading-compass-canvas') as HTMLCanvasElement;
+    this.headingCompassContext = this.headingCompassCanvas.getContext('2d');
     this.minimapCanvas = document.getElementById('minimap-canvas') as HTMLCanvasElement;
     this.minimapContext = this.minimapCanvas.getContext('2d');
     this.playerWinBanner = document.getElementById('player1-win-banner') as HTMLElement;
@@ -1255,6 +1260,7 @@ class World {
       this.snapTankToTerrain(tank);
       this.camera.updateView(false, this.ground);
       this.updateCrosshairPosition();
+      this.updateHeadingCompass();
       this.updateLocalOcclusionFade();
       this.updateMinimap();
       this.attachDestructionHooks();
@@ -1339,6 +1345,125 @@ class World {
     }
 
     return origin.clone().add(direction.multiplyScalar(this.arenaSize));
+  }
+
+  updateHeadingCompass(): void {
+    const context = this.headingCompassContext;
+    if (!context) {
+      return;
+    }
+
+    const rect = this.headingCompassCanvas.getBoundingClientRect();
+    const cssWidth = Math.max(1, Math.floor(rect.width));
+    const cssHeight = Math.max(1, Math.floor(rect.height));
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const pixelWidth = Math.floor(cssWidth * dpr);
+    const pixelHeight = Math.floor(cssHeight * dpr);
+    if (this.headingCompassCanvas.width !== pixelWidth || this.headingCompassCanvas.height !== pixelHeight) {
+      this.headingCompassCanvas.width = pixelWidth;
+      this.headingCompassCanvas.height = pixelHeight;
+    }
+
+    context.save();
+    context.scale(dpr, dpr);
+    context.clearRect(0, 0, cssWidth, cssHeight);
+
+    if (!this.localTank) {
+      context.restore();
+      return;
+    }
+
+    const headingDegrees = this.compassBearingFromRadians(this.localTank.mesh.rotation.z + this.localTank.aimYaw);
+    const centerX = cssWidth / 2;
+    const pixelsPerDegree = cssWidth / COMPASS_VISIBLE_DEGREES;
+    const tickTop = 7;
+    const labelY = Math.min(cssHeight - 16, 34);
+    const start = Math.floor((headingDegrees - COMPASS_VISIBLE_DEGREES / 2) / 5) * 5;
+    const end = Math.ceil((headingDegrees + COMPASS_VISIBLE_DEGREES / 2) / 5) * 5;
+
+    context.save();
+    context.beginPath();
+    context.rect(0, 0, cssWidth, cssHeight);
+    context.clip();
+
+    for (let bearing = start; bearing <= end; bearing += 5) {
+      const normalizedBearing = this.normalizeCompassDegrees(bearing);
+      const delta = this.shortestCompassDelta(normalizedBearing, headingDegrees);
+      const x = centerX + delta * pixelsPerDegree;
+      const isDirectionTick = normalizedBearing % 45 === 0;
+      const isMajorTick = normalizedBearing % 15 === 0;
+      const isMediumTick = normalizedBearing % 10 === 0;
+      const tickHeight = isDirectionTick ? 20 : isMajorTick ? 15 : isMediumTick ? 11 : 7;
+      const alpha = isDirectionTick ? 0.95 : isMajorTick ? 0.7 : 0.42;
+
+      context.strokeStyle = `rgba(223, 226, 199, ${alpha})`;
+      context.lineWidth = isDirectionTick ? 2 : 1;
+      context.beginPath();
+      context.moveTo(x, tickTop);
+      context.lineTo(x, tickTop + tickHeight);
+      context.stroke();
+
+      const directionLabel = this.compassDirectionLabel(normalizedBearing);
+      const label = directionLabel ?? (normalizedBearing % 30 === 0 ? normalizedBearing.toString().padStart(3, '0') : '');
+      if (label) {
+        context.fillStyle = directionLabel ? '#d8ff63' : 'rgba(243, 240, 220, 0.72)';
+        context.font = directionLabel ? '900 11px sans-serif' : '800 9px sans-serif';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText(label, x, labelY);
+      }
+    }
+
+    context.restore();
+
+    const readout = `${Math.round(headingDegrees).toString().padStart(3, '0')}° ${this.compassSectorLabel(headingDegrees)}`;
+    const readoutWidth = Math.max(62, Math.min(94, readout.length * 8));
+    const readoutHeight = 17;
+    const readoutX = centerX - readoutWidth / 2;
+    const readoutY = cssHeight - readoutHeight - 3;
+    context.fillStyle = 'rgba(6, 9, 7, 0.76)';
+    context.fillRect(readoutX, readoutY, readoutWidth, readoutHeight);
+    context.strokeStyle = 'rgba(216, 255, 99, 0.22)';
+    context.strokeRect(readoutX + 0.5, readoutY + 0.5, readoutWidth - 1, readoutHeight - 1);
+    context.fillStyle = '#f4f0dc';
+    context.font = '900 10px sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(readout, centerX, readoutY + readoutHeight / 2 + 0.5);
+
+    context.restore();
+  }
+
+  compassBearingFromRadians(radians: number): number {
+    return this.normalizeCompassDegrees(-THREE.MathUtils.radToDeg(radians));
+  }
+
+  normalizeCompassDegrees(degrees: number): number {
+    return ((degrees % 360) + 360) % 360;
+  }
+
+  shortestCompassDelta(target: number, center: number): number {
+    return ((target - center + 540) % 360) - 180;
+  }
+
+  compassDirectionLabel(degrees: number): string | null {
+    const labels: Record<number, string> = {
+      0: 'N',
+      45: 'NE',
+      90: 'E',
+      135: 'SE',
+      180: 'S',
+      225: 'SW',
+      270: 'W',
+      315: 'NW',
+    };
+    return labels[Math.round(degrees)] ?? null;
+  }
+
+  compassSectorLabel(degrees: number): string {
+    const labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    const index = Math.round(this.normalizeCompassDegrees(degrees) / 45) % labels.length;
+    return labels[index];
   }
 
   updateMinimap(): void {
@@ -1989,6 +2114,7 @@ class World {
       this.renderer.renderer.setSize(window.innerWidth, window.innerHeight);
       this.renderer.renderer.setPixelRatio(window.devicePixelRatio);
       this.resizeTankPreview();
+      this.updateHeadingCompass();
       this.updateMinimap();
     });
   }
@@ -2073,7 +2199,10 @@ class World {
     this.instructions.classList.add('hidden');
     this.status = 'playing';
     this.resume();
-    requestAnimationFrame(() => this.updateMinimap());
+    requestAnimationFrame(() => {
+      this.updateHeadingCompass();
+      this.updateMinimap();
+    });
     this.connectWebSocket();
   }
 
