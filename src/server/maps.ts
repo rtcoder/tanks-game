@@ -20,20 +20,13 @@ type MapFileLike = {
 
 export async function listMaps(): Promise<GroundfireMapSummary[]> {
   const files = await fs.readdir(mapsDir);
-  const mapFiles = new Map<string, string>();
-  files
-    .filter((file) => file.endsWith('.json') || file.endsWith('.zip'))
-    .forEach((file) => {
-      const extension = path.extname(file);
-      const id = path.basename(file, extension);
-      if (!mapFiles.has(id) || extension === '.zip') {
-        mapFiles.set(id, file);
-      }
-    });
+  const mapIds = files
+    .filter((file) => file.endsWith('.zip'))
+    .map((file) => path.basename(file, '.zip'));
 
   const summaries = await Promise.all(
-    Array.from(mapFiles)
-      .map(async ([id]) => {
+    mapIds
+      .map(async (id) => {
         try {
           const map = await readMapFile(id);
           return summarizeMap(id, map);
@@ -70,22 +63,8 @@ export async function getMapAsset(
     return null;
   }
 
-  const mapAssetDir = path.resolve(mapsDir, id);
-  const assetPath = path.resolve(mapAssetDir, assetName);
-  if (!assetPath.startsWith(`${mapAssetDir}${path.sep}`)) {
-    return null;
-  }
-
   try {
-    const zipAsset = await readMapPackageAsset(id, assetName);
-    if (zipAsset) {
-      return zipAsset;
-    }
-
-    return {
-      bytes: await fs.readFile(assetPath),
-      contentType: contentTypeFor(assetPath),
-    };
+    return await readMapPackageAsset(id, assetName);
   } catch {
     return null;
   }
@@ -93,16 +72,7 @@ export async function getMapAsset(
 
 async function readMapFile(id: string): Promise<unknown> {
   const zipPath = path.resolve(mapsDir, `${sanitizeMapId(id)}.zip`);
-  if (await fileExists(zipPath)) {
-    return readMapPackage(id, zipPath);
-  }
-
-  const filePath = path.resolve(mapsDir, `${sanitizeMapId(id)}.json`);
-  if (!filePath.startsWith(mapsDir)) {
-    throw new Error('Invalid map path');
-  }
-
-  return JSON.parse(await fs.readFile(filePath, 'utf8')) as unknown;
+  return readMapPackage(id, zipPath);
 }
 
 async function readMapPackage(id: string, filePath: string): Promise<unknown> {
@@ -111,7 +81,7 @@ async function readMapPackage(id: string, filePath: string): Promise<unknown> {
   }
 
   const entries = readStoredZipEntries(await fs.readFile(filePath));
-  const mapEntry = entries.get('map.json') ?? entries.get(`${sanitizeMapId(id)}.json`);
+  const mapEntry = entries.get('map.json');
   if (!mapEntry) {
     throw new Error('Map package does not contain map.json');
   }
@@ -134,10 +104,6 @@ async function readMapPackageAsset(
     assetName: string,
 ): Promise<{ bytes: Buffer; contentType: string } | null> {
   const zipPath = path.resolve(mapsDir, `${sanitizeMapId(id)}.zip`);
-  if (!await fileExists(zipPath)) {
-    return null;
-  }
-
   const entries = readStoredZipEntries(await fs.readFile(zipPath));
   const entryName = findPackageAsset(entries, assetName);
   if (!entryName) {
@@ -190,15 +156,6 @@ function normalizePackageAssetName(assetName: string): string {
     .replace(/^\/api\/maps\/[^/]+\/assets\//, '')
     .replace(/^\/+/, '')
     .replace(/^\.\//, '');
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function summarizeMap(id: string, map: unknown): GroundfireMapSummary {
