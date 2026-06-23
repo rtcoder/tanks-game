@@ -7,10 +7,11 @@ import type {
   GroundfireMapElement,
   GroundfireMapGroup,
   GroundfireTerrainFeature,
+  GroundfireTerrainSurfacePatch,
   GroundfireWaterSource,
 } from '../../shared/types';
 
-type EditorTool = 'raise' | 'lower' | 'smooth' | 'flatten' | 'place' | 'select' | 'water';
+type EditorTool = 'raise' | 'lower' | 'smooth' | 'flatten' | 'paint' | 'place' | 'select' | 'water';
 
 type EditorElement = {
   mesh: THREE.Mesh;
@@ -26,6 +27,8 @@ type PlacementSample = {
   point: THREE.Vector3;
   baseElementId: string | null;
 };
+
+type PaintShape = 'brush' | 'tile';
 
 const HEIGHTMAP_RESOLUTION = 128;
 const TERRAIN_SEGMENTS = HEIGHTMAP_RESOLUTION - 1;
@@ -44,9 +47,11 @@ export class MapEditor {
   terrainMaterial!: THREE.MeshStandardMaterial;
   gridHelper: THREE.GridHelper | null = null;
   ghostMesh!: THREE.Mesh;
+  surfacePatchPreviewMesh!: THREE.Mesh;
   waterMeshes: THREE.Mesh[] = [];
   elements = new Map<string, EditorElement>();
   groups: GroundfireMapGroup[] = [];
+  surfacePatches: GroundfireTerrainSurfacePatch[] = [];
   selectedIds = new Set<string>();
   selectedWaterId: string | null = null;
   dragState: DragState | null = null;
@@ -58,6 +63,13 @@ export class MapEditor {
   brushStrengthInput!: HTMLInputElement;
   flattenHeightInput!: HTMLInputElement;
   presetInput!: HTMLSelectElement;
+  terrainMaterialInput!: HTMLSelectElement;
+  objectMaterialInput!: HTMLSelectElement;
+  paintMaterialInput!: HTMLSelectElement;
+  paintShapeInput!: HTMLSelectElement;
+  surfaceTileWidthInput!: HTMLInputElement;
+  surfaceTileDepthInput!: HTMLInputElement;
+  surfaceFrictionInput!: HTMLInputElement;
   destructibleInput!: HTMLInputElement;
   healthInput!: HTMLInputElement;
   waterLevelInput!: HTMLInputElement;
@@ -86,6 +98,8 @@ export class MapEditor {
   cameraDistance = 1750;
   cameraTarget = new THREE.Vector3();
   isOrbiting = false;
+  isPanning = false;
+  paintRotation = 0;
   lastPointer = new THREE.Vector2();
 
   constructor() {
@@ -97,6 +111,7 @@ export class MapEditor {
     this.setupScene();
     this.createTerrain();
     this.createGhost();
+    this.createSurfacePatchPreview();
     this.bindEvents();
     this.resize();
     this.animate();
@@ -107,6 +122,12 @@ export class MapEditor {
   template(): string {
     const presetOptions = MAP_ASSET_MANIFEST.elementPresets.map((preset) => (
       `<option value="${preset.key}">${preset.label}</option>`
+    )).join('');
+    const terrainMaterialOptions = MAP_ASSET_MANIFEST.terrainTextureSets.map((material) => (
+      `<option value="${material.key}">${material.label}</option>`
+    )).join('');
+    const objectMaterialOptions = MAP_ASSET_MANIFEST.materials.map((material) => (
+      `<option value="${material.key}">${material.label}</option>`
     )).join('');
 
     return `
@@ -137,6 +158,7 @@ export class MapEditor {
               <option value="lower">Lower</option>
               <option value="smooth">Smooth</option>
               <option value="flatten">Flatten</option>
+              <option value="paint">Paint surface</option>
               <option value="place">Place object</option>
               <option value="select">Select / move</option>
               <option value="water">Pour water</option>
@@ -145,9 +167,41 @@ export class MapEditor {
           <label>Brush size<input id="editor-brush-size" type="range" min="20" max="420" value="110"></label>
           <label>Brush strength<input id="editor-brush-strength" type="range" min="1" max="80" value="18"></label>
           <label>Flatten height<input id="editor-flatten-height" type="number" step="5" value="0"></label>
+          <section class="editor__section">
+            <div class="editor__section-title">Terrain materials</div>
+            <label>Base terrain
+              <select id="editor-terrain-material">${terrainMaterialOptions}</select>
+            </label>
+            <label>Paint mode
+              <select id="editor-paint-shape">
+                <option value="brush">Brush</option>
+                <option value="tile">Tile rectangle</option>
+              </select>
+            </label>
+            <div class="editor__row">
+              <label>Paint material
+                <select id="editor-paint-material">${terrainMaterialOptions}</select>
+              </label>
+              <label>Grip<input id="editor-surface-friction" type="number" min="0.05" max="3" step="0.05" value="1"></label>
+            </div>
+            <div class="editor__row">
+              <label>Tile W<input id="editor-surface-tile-width" type="number" min="${EDITOR_GRID_SIZE}" max="1000" step="${EDITOR_GRID_SIZE}" value="40"></label>
+              <label>Tile D<input id="editor-surface-tile-depth" type="number" min="${EDITOR_GRID_SIZE}" max="1000" step="${EDITOR_GRID_SIZE}" value="40"></label>
+            </div>
+          </section>
           <label>Object
             <select id="editor-preset">${presetOptions}</select>
           </label>
+          <section class="editor__section">
+            <div class="editor__section-title">Object materials</div>
+            <label>Texture / material
+              <select id="editor-object-material">${objectMaterialOptions}</select>
+            </label>
+            <div class="editor__row">
+              <button id="editor-apply-material" type="button">Apply material</button>
+              <button id="editor-apply-group-texture" type="button">Group texture</button>
+            </div>
+          </section>
           <label class="editor__check"><input id="editor-destructible" type="checkbox" checked> Destructible</label>
           <label>Health<input id="editor-health" type="number" min="1" max="9999" value="20"></label>
           <label>Water level<input id="editor-water-level" type="number" step="5" value="0"></label>
@@ -196,6 +250,7 @@ export class MapEditor {
             <button id="editor-export-package" type="button">Export package</button>
           </div>
           <p class="editor__status" id="editor-status">Loading</p>
+          <p class="editor__hint">Right mouse rotates. Shift + right mouse or middle mouse pans. Wheel zooms.</p>
         </aside>
       </main>
     `;
@@ -209,6 +264,13 @@ export class MapEditor {
     this.brushStrengthInput = document.getElementById('editor-brush-strength') as HTMLInputElement;
     this.flattenHeightInput = document.getElementById('editor-flatten-height') as HTMLInputElement;
     this.presetInput = document.getElementById('editor-preset') as HTMLSelectElement;
+    this.terrainMaterialInput = document.getElementById('editor-terrain-material') as HTMLSelectElement;
+    this.objectMaterialInput = document.getElementById('editor-object-material') as HTMLSelectElement;
+    this.paintMaterialInput = document.getElementById('editor-paint-material') as HTMLSelectElement;
+    this.paintShapeInput = document.getElementById('editor-paint-shape') as HTMLSelectElement;
+    this.surfaceTileWidthInput = document.getElementById('editor-surface-tile-width') as HTMLInputElement;
+    this.surfaceTileDepthInput = document.getElementById('editor-surface-tile-depth') as HTMLInputElement;
+    this.surfaceFrictionInput = document.getElementById('editor-surface-friction') as HTMLInputElement;
     this.destructibleInput = document.getElementById('editor-destructible') as HTMLInputElement;
     this.healthInput = document.getElementById('editor-health') as HTMLInputElement;
     this.waterLevelInput = document.getElementById('editor-water-level') as HTMLInputElement;
@@ -252,7 +314,7 @@ export class MapEditor {
     this.terrainGeometry = new THREE.PlaneGeometry(this.terrainSize, this.terrainSize, TERRAIN_SEGMENTS, TERRAIN_SEGMENTS);
     this.terrainGeometry.rotateX(-Math.PI / 2);
     this.terrainMaterial = new THREE.MeshStandardMaterial({
-      color: 0x788842,
+      color: this.terrainMaterialColor(this.terrainMaterialInput?.value || 'grassy-meadow'),
       roughness: 0.92,
       metalness: 0,
     });
@@ -295,19 +357,51 @@ export class MapEditor {
     this.scene.add(this.ghostMesh);
   }
 
+  createSurfacePatchPreview(): void {
+    const material = new THREE.MeshBasicMaterial({
+      color: this.terrainMaterialColor(this.paintMaterialInput?.value || 'asphalt-road'),
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    });
+    this.surfacePatchPreviewMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
+    this.surfacePatchPreviewMesh.rotation.x = -Math.PI / 2;
+    this.surfacePatchPreviewMesh.position.y = 1;
+    this.surfacePatchPreviewMesh.renderOrder = 3;
+    this.surfacePatchPreviewMesh.visible = false;
+    this.scene.add(this.surfacePatchPreviewMesh);
+  }
+
   bindEvents(): void {
     window.addEventListener('resize', () => this.resize());
     this.toolInput.addEventListener('change', () => {
       this.tool = this.toolInput.value as EditorTool;
       this.ghostMesh.visible = this.tool === 'place';
+      this.updateSurfacePatchPreview();
     });
     this.brushSizeInput.addEventListener('input', () => {
       this.brushSize = Number(this.brushSizeInput.value);
+      this.updateSurfacePatchPreview();
     });
     this.brushStrengthInput.addEventListener('input', () => {
       this.brushStrength = Number(this.brushStrengthInput.value);
     });
-    this.presetInput.addEventListener('change', () => this.refreshGhost());
+    this.presetInput.addEventListener('change', () => {
+      this.objectMaterialInput.value = this.currentPreset().material;
+      this.refreshGhost();
+    });
+    this.terrainMaterialInput.addEventListener('change', () => this.updateTerrainHeatmap());
+    this.paintMaterialInput.addEventListener('change', () => {
+      const material = this.terrainMaterialDefinition(this.paintMaterialInput.value);
+      if (material?.friction) {
+        this.surfaceFrictionInput.value = String(material.friction);
+      }
+      this.refreshSurfacePatchPreviewMaterial();
+      this.updateSurfacePatchPreview();
+    });
+    this.paintShapeInput.addEventListener('change', () => this.updateSurfacePatchPreview());
+    this.surfaceTileWidthInput.addEventListener('input', () => this.updateSurfacePatchPreview());
+    this.surfaceTileDepthInput.addEventListener('input', () => this.updateSurfacePatchPreview());
     [
       this.waterLevelInput,
       this.waterTypeInput,
@@ -326,6 +420,8 @@ export class MapEditor {
     document.getElementById('editor-reset-terrain')?.addEventListener('click', () => this.resetTerrain());
     document.getElementById('editor-rotate-left')?.addEventListener('click', () => this.rotateSelection(-Math.PI / 2));
     document.getElementById('editor-rotate-right')?.addEventListener('click', () => this.rotateSelection(Math.PI / 2));
+    document.getElementById('editor-apply-material')?.addEventListener('click', () => this.applyMaterialToSelection(false));
+    document.getElementById('editor-apply-group-texture')?.addEventListener('click', () => this.applyMaterialToSelection(true));
     document.getElementById('editor-group')?.addEventListener('click', () => this.groupSelection());
     document.getElementById('editor-delete')?.addEventListener('click', () => this.deleteSelection());
     document.getElementById('editor-export-package')?.addEventListener('click', () => void this.exportPackage());
@@ -350,6 +446,7 @@ export class MapEditor {
       const shouldRefreshWater = this.isPainting || Boolean(this.dragState);
       this.isPainting = false;
       this.isOrbiting = false;
+      this.isPanning = false;
       this.dragState = null;
       if (shouldRefreshWater) {
         this.refreshWaterPreview();
@@ -370,6 +467,11 @@ export class MapEditor {
   onPointerDown(event: PointerEvent): void {
     this.updatePointer(event);
     this.lastPointer.set(event.clientX, event.clientY);
+
+    if (event.button === 1 || (event.button === 2 && event.shiftKey)) {
+      this.isPanning = true;
+      return;
+    }
 
     if (event.button === 2) {
       this.isOrbiting = true;
@@ -407,6 +509,15 @@ export class MapEditor {
       return;
     }
 
+    if (this.isPanning) {
+      const dx = event.clientX - this.lastPointer.x;
+      const dy = event.clientY - this.lastPointer.y;
+      this.panCamera(dx, dy);
+      this.lastPointer.set(event.clientX, event.clientY);
+      this.updateCamera();
+      return;
+    }
+
     if (this.dragState) {
       this.dragSelection();
       return;
@@ -415,6 +526,10 @@ export class MapEditor {
     if (this.tool === 'place') {
       this.updateGhost();
       return;
+    }
+
+    if (this.tool === 'paint') {
+      this.updateSurfacePatchPreview();
     }
 
     if (this.isPainting) {
@@ -439,6 +554,16 @@ export class MapEditor {
   }
 
   applyBrush(centerX: number, centerZ: number): void {
+    if (this.tool === 'paint') {
+      if (this.paintShape() === 'tile') {
+        this.addSurfaceTilePatch(centerX, centerZ);
+      } else {
+        this.addSurfacePatch(centerX, centerZ);
+      }
+      this.updateTerrainHeatmap();
+      return;
+    }
+
     const positions = this.terrainGeometry.attributes.position;
     const flattenHeight = Number(this.flattenHeightInput.value) || 0;
     for (let index = 0; index < positions.count; index += 1) {
@@ -469,6 +594,64 @@ export class MapEditor {
     this.updateTerrainHeatmap();
   }
 
+  addSurfacePatch(centerX: number, centerZ: number): void {
+    const materialKey = this.paintMaterialInput.value || 'grassy-meadow';
+    const friction = THREE.MathUtils.clamp(Number(this.surfaceFrictionInput.value) || 1, 0.05, 3);
+    const previous = this.surfacePatches[this.surfacePatches.length - 1];
+    if (previous) {
+      const distance = Math.hypot(previous.center[0] - centerX, previous.center[1] - centerZ);
+      if (distance < this.brushSize * 0.28 && previous.material === materialKey && previous.friction === friction) {
+        return;
+      }
+    }
+
+    this.surfacePatches.push({
+      id: `surface-${crypto.randomUUID().slice(0, 8)}`,
+      type: 'paint',
+      shape: 'circle',
+      center: [centerX, centerZ],
+      radius: this.brushSize,
+      material: materialKey,
+      friction,
+      opacity: 0.9,
+    });
+  }
+
+  addSurfaceTilePatch(centerX: number, centerZ: number): void {
+    const [width, depth] = this.surfaceTileSize();
+    const materialKey = this.paintMaterialInput.value || 'grassy-meadow';
+    const friction = THREE.MathUtils.clamp(Number(this.surfaceFrictionInput.value) || 1, 0.05, 3);
+    const snappedX = this.snapToGrid(centerX);
+    const snappedZ = this.snapToGrid(centerZ);
+    const rotation = this.normalizedRightAngle(this.paintRotation);
+    const previous = this.surfacePatches[this.surfacePatches.length - 1];
+    if (
+      previous?.shape === 'rect'
+      && previous.center[0] === snappedX
+      && previous.center[1] === snappedZ
+      && previous.size?.[0] === width
+      && previous.size?.[1] === depth
+      && previous.material === materialKey
+      && previous.friction === friction
+      && this.normalizedRightAngle(previous.rotation ?? 0) === rotation
+    ) {
+      return;
+    }
+
+    this.surfacePatches.push({
+      id: `surface-${crypto.randomUUID().slice(0, 8)}`,
+      type: 'paint',
+      shape: 'rect',
+      center: [snappedX, snappedZ],
+      radius: Math.hypot(width, depth) / 2,
+      size: [width, depth],
+      rotation,
+      material: materialKey,
+      friction,
+      opacity: 0.96,
+    });
+  }
+
   averageNeighborHeight(index: number): number {
     const positions = this.terrainGeometry.attributes.position;
     const side = HEIGHTMAP_RESOLUTION;
@@ -488,6 +671,19 @@ export class MapEditor {
       }
     }
     return count > 0 ? total / count : positions.getY(index);
+  }
+
+  panCamera(dx: number, dy: number): void {
+    const scale = THREE.MathUtils.clamp(this.cameraDistance * 0.0012, 0.35, 8);
+    const right = new THREE.Vector3(Math.sin(this.cameraYaw), 0, -Math.cos(this.cameraYaw)).normalize();
+    const forward = new THREE.Vector3(-Math.cos(this.cameraYaw), 0, -Math.sin(this.cameraYaw)).normalize();
+    this.cameraTarget
+        .addScaledVector(right, -dx * scale)
+        .addScaledVector(forward, dy * scale);
+    const halfSize = this.terrainSize / 2;
+    this.cameraTarget.x = THREE.MathUtils.clamp(this.cameraTarget.x, -halfSize, halfSize);
+    this.cameraTarget.z = THREE.MathUtils.clamp(this.cameraTarget.z, -halfSize, halfSize);
+    this.cameraTarget.y = this.heightAt(this.cameraTarget.x, this.cameraTarget.z);
   }
 
   updateGhost(): void {
@@ -531,7 +727,11 @@ export class MapEditor {
         enabled: this.destructibleInput.checked,
         health: Number(this.healthInput.value) || preset.destructible.health,
       },
-      material: preset.material,
+      material: this.objectMaterialInput.value || preset.material,
+      textureMapping: {
+        mode: 'single',
+        material: this.objectMaterialInput.value || preset.material,
+      },
       role: preset.type === 'building' ? 'building' : 'maze',
     };
     this.elements.set(id, {mesh, data});
@@ -543,7 +743,7 @@ export class MapEditor {
 
   createElementMesh(preset: GroundfireElementPreset, ghost: boolean): THREE.Mesh {
     const material = new THREE.MeshStandardMaterial({
-      color: ghost ? 0xd7ff58 : this.materialColor(preset.material),
+      color: ghost ? 0xd7ff58 : this.materialColor(this.objectMaterialInput?.value || preset.material),
       transparent: ghost,
       opacity: ghost ? 0.38 : 1,
       roughness: 0.86,
@@ -568,6 +768,14 @@ export class MapEditor {
 
   materialColor(materialKey: string): THREE.ColorRepresentation {
     return MAP_ASSET_MANIFEST.materials.find((material) => material.key === materialKey)?.color ?? '#8a8062';
+  }
+
+  terrainMaterialColor(materialKey: string): THREE.ColorRepresentation {
+    return this.terrainMaterialDefinition(materialKey)?.color ?? '#788842';
+  }
+
+  terrainMaterialDefinition(materialKey: string) {
+    return MAP_ASSET_MANIFEST.terrainTextureSets.find((material) => material.key === materialKey);
   }
 
   baseElementIdUnderGhost(): string | null {
@@ -635,6 +843,67 @@ export class MapEditor {
     const x = this.snapToGrid(point.x);
     const z = this.snapToGrid(point.z);
     return new THREE.Vector3(x, this.heightAt(x, z), z);
+  }
+
+  paintShape(): PaintShape {
+    return this.paintShapeInput.value === 'tile' ? 'tile' : 'brush';
+  }
+
+  surfaceTileSize(): [number, number] {
+    return [
+      this.snapLengthToGrid(Number(this.surfaceTileWidthInput.value) || 40),
+      this.snapLengthToGrid(Number(this.surfaceTileDepthInput.value) || 40),
+    ];
+  }
+
+  snapLengthToGrid(value: number): number {
+    return Math.max(EDITOR_GRID_SIZE, Math.round(value / EDITOR_GRID_SIZE) * EDITOR_GRID_SIZE);
+  }
+
+  normalizedRightAngle(angle: number): number {
+    const quarterTurns = Math.round(angle / (Math.PI / 2));
+    return quarterTurns * (Math.PI / 2);
+  }
+
+  updateSurfacePatchPreview(): void {
+    if (!this.surfacePatchPreviewMesh) {
+      return;
+    }
+
+    const shouldShow = this.tool === 'paint' && this.paintShape() === 'tile';
+    if (!shouldShow) {
+      this.surfacePatchPreviewMesh.visible = false;
+      return;
+    }
+
+    const hit = this.intersectTerrain();
+    if (!hit) {
+      this.surfacePatchPreviewMesh.visible = false;
+      return;
+    }
+
+    const [width, depth] = this.surfaceTileSize();
+    const x = this.snapToGrid(hit.point.x);
+    const z = this.snapToGrid(hit.point.z);
+    this.surfacePatchPreviewMesh.visible = true;
+    this.surfacePatchPreviewMesh.position.set(x, this.heightAt(x, z) + 1.2, z);
+    this.surfacePatchPreviewMesh.rotation.set(-Math.PI / 2, 0, this.normalizedRightAngle(this.paintRotation));
+    this.surfacePatchPreviewMesh.scale.set(width, depth, 1);
+    this.refreshSurfacePatchPreviewMaterial();
+  }
+
+  refreshSurfacePatchPreviewMaterial(): void {
+    if (!this.surfacePatchPreviewMesh) {
+      return;
+    }
+    const material = this.surfacePatchPreviewMesh.material;
+    if (Array.isArray(material)) {
+      return;
+    }
+    if (material instanceof THREE.MeshBasicMaterial) {
+      material.color.set(this.terrainMaterialColor(this.paintMaterialInput.value || 'asphalt-road'));
+      material.needsUpdate = true;
+    }
   }
 
   handleSelection(append: boolean): void {
@@ -718,6 +987,12 @@ export class MapEditor {
   }
 
   rotateSelection(delta: number): void {
+    if (this.tool === 'paint' && this.paintShape() === 'tile') {
+      this.paintRotation = this.normalizedRightAngle(this.paintRotation + delta);
+      this.updateSurfacePatchPreview();
+      return;
+    }
+
     if (this.tool === 'place' || this.selectedIds.size === 0) {
       this.ghostRotation += delta;
       this.updateGhost();
@@ -748,6 +1023,115 @@ export class MapEditor {
     };
     this.groups.push(group);
     this.setStatus(`Grouped ${ids.length} objects`);
+  }
+
+  applyMaterialToSelection(groupAtlas: boolean): void {
+    const ids = this.selectedGroupIds();
+    if (ids.length === 0) {
+      this.setStatus('Select objects first');
+      return;
+    }
+
+    const material = this.objectMaterialInput.value || 'brick-wall';
+    if (!groupAtlas || ids.length === 1) {
+      ids.forEach((id) => {
+        const element = this.elements.get(id);
+        if (!element) {
+          return;
+        }
+        element.data.material = material;
+        element.data.textureMapping = {mode: 'single', material};
+        this.updateElementPreviewMaterial(element);
+      });
+      this.setStatus(`Applied ${material} to ${ids.length} objects`);
+      return;
+    }
+
+    const group = this.ensureGroupForIds(ids);
+    const bounds = this.elementFootprintBounds(ids);
+    const width = Math.max(1, bounds.maxX - bounds.minX);
+    const depth = Math.max(1, bounds.maxZ - bounds.minZ);
+    group.material = material;
+    group.textureMapping = {
+      mode: 'group-atlas',
+      material,
+      bounds: [bounds.minX, bounds.minZ, width, depth],
+    };
+
+    ids.forEach((id) => {
+      const element = this.elements.get(id);
+      if (!element) {
+        return;
+      }
+
+      const box = new THREE.Box3().setFromObject(element.mesh);
+      const u = (box.min.x - bounds.minX) / width;
+      const v = (box.min.z - bounds.minZ) / depth;
+      const w = (box.max.x - box.min.x) / width;
+      const h = (box.max.z - box.min.z) / depth;
+      element.data.material = material;
+      element.data.textureMapping = {
+        mode: 'group-atlas',
+        material,
+        groupId: group.id,
+        uv: [
+          THREE.MathUtils.clamp(u, 0, 1),
+          THREE.MathUtils.clamp(v, 0, 1),
+          THREE.MathUtils.clamp(w, 0, 1),
+          THREE.MathUtils.clamp(h, 0, 1),
+        ],
+      };
+      this.updateElementPreviewMaterial(element);
+    });
+    this.setStatus(`Applied group texture to ${ids.length} objects`);
+  }
+
+  ensureGroupForIds(ids: string[]): GroundfireMapGroup {
+    const existing = this.groups.find((group) => ids.some((id) => group.elementIds.includes(id)));
+    if (existing) {
+      existing.elementIds = Array.from(new Set([...existing.elementIds, ...ids])).filter((id) => this.elements.has(id));
+      return existing;
+    }
+
+    const group: GroundfireMapGroup = {
+      id: `group-${crypto.randomUUID().slice(0, 8)}`,
+      name: `Group ${this.groups.length + 1}`,
+      elementIds: ids,
+    };
+    this.groups.push(group);
+    return group;
+  }
+
+  elementFootprintBounds(ids: string[]): { minX: number; minZ: number; maxX: number; maxZ: number } {
+    const bounds = {
+      minX: Number.POSITIVE_INFINITY,
+      minZ: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      maxZ: Number.NEGATIVE_INFINITY,
+    };
+    ids.forEach((id) => {
+      const element = this.elements.get(id);
+      if (!element) {
+        return;
+      }
+      const box = new THREE.Box3().setFromObject(element.mesh);
+      bounds.minX = Math.min(bounds.minX, box.min.x);
+      bounds.minZ = Math.min(bounds.minZ, box.min.z);
+      bounds.maxX = Math.max(bounds.maxX, box.max.x);
+      bounds.maxZ = Math.max(bounds.maxZ, box.max.z);
+    });
+    return bounds;
+  }
+
+  updateElementPreviewMaterial(element: EditorElement): void {
+    const material = element.mesh.material;
+    if (Array.isArray(material)) {
+      return;
+    }
+    if (material instanceof THREE.MeshStandardMaterial) {
+      material.color.set(this.materialColor(element.data.material));
+      material.needsUpdate = true;
+    }
   }
 
   deleteSelection(): void {
@@ -1082,6 +1466,21 @@ export class MapEditor {
     this.mapNameInput.value = map.name;
     this.terrainSize = THREE.MathUtils.clamp(map.arena.size, 400, 10000);
     this.mapSizeInput.value = String(this.terrainSize);
+    this.terrainMaterialInput.value = map.terrain.material.textureSet ?? map.materials.terrain ?? 'grassy-meadow';
+    this.paintMaterialInput.value = this.terrainMaterialInput.value;
+    this.surfaceFrictionInput.value = String(this.terrainMaterialDefinition(this.paintMaterialInput.value)?.friction ?? 1);
+    this.surfacePatches = (map.terrain.surfacePatches ?? []).map((patch) => ({
+      id: patch.id,
+      type: 'paint',
+      shape: patch.shape,
+      center: [...patch.center],
+      radius: patch.radius,
+      size: patch.size ? [...patch.size] : undefined,
+      rotation: patch.rotation,
+      material: patch.material,
+      friction: patch.friction,
+      opacity: patch.opacity,
+    }));
     this.createTerrain();
 
     let heightmapLoaded = false;
@@ -1104,6 +1503,19 @@ export class MapEditor {
         elementIds: Array.isArray(group.elementIds)
           ? group.elementIds.filter((id) => existingElementIds.has(id))
           : [],
+        material: group.material,
+        textureMapping: group.textureMapping
+          ? {
+            mode: 'group-atlas' as const,
+            material: group.textureMapping.material,
+            bounds: [
+              group.textureMapping.bounds[0],
+              group.textureMapping.bounds[1],
+              group.textureMapping.bounds[2],
+              group.textureMapping.bounds[3],
+            ] as [number, number, number, number],
+          }
+          : undefined,
       }))
       .filter((group) => group.elementIds.length > 1);
     this.waterSources = map.water.map((waterSource, index) => {
@@ -1133,9 +1545,13 @@ export class MapEditor {
     this.elements.forEach((element) => this.disposeMesh(element.mesh));
     this.elements.clear();
     this.groups = [];
+    this.surfacePatches = [];
     this.waterSources = [];
     this.selectedIds.clear();
     this.selectedWaterId = null;
+    if (this.surfacePatchPreviewMesh) {
+      this.surfacePatchPreviewMesh.visible = false;
+    }
     this.refreshWaterPreview();
     this.renderWaterList();
   }
@@ -1166,6 +1582,14 @@ export class MapEditor {
         }
         : undefined,
       material: element.material,
+      textureMapping: element.textureMapping
+        ? {
+          mode: element.textureMapping.mode,
+          material: element.textureMapping.material,
+          groupId: element.textureMapping.groupId,
+          uv: element.textureMapping.uv ? [...element.textureMapping.uv] : undefined,
+        }
+        : undefined,
       role: element.role,
     };
   }
@@ -1450,10 +1874,7 @@ export class MapEditor {
     }
 
     if (!this.heatmapEnabled) {
-      this.terrainGeometry.deleteAttribute('color');
-      this.terrainMaterial.vertexColors = false;
-      this.terrainMaterial.color.set(0x788842);
-      this.terrainMaterial.needsUpdate = true;
+      this.applyTerrainSurfaceColors();
       return;
     }
 
@@ -1474,6 +1895,65 @@ export class MapEditor {
     this.terrainMaterial.vertexColors = true;
     this.terrainMaterial.color.set(0xffffff);
     this.terrainMaterial.needsUpdate = true;
+  }
+
+  applyTerrainSurfaceColors(): void {
+    const positions = this.terrainGeometry.attributes.position;
+    const baseColor = new THREE.Color(this.terrainMaterialColor(this.terrainMaterialInput.value || 'grassy-meadow'));
+    if (this.surfacePatches.length === 0) {
+      this.terrainGeometry.deleteAttribute('color');
+      this.terrainMaterial.vertexColors = false;
+      this.terrainMaterial.color.copy(baseColor);
+      this.terrainMaterial.needsUpdate = true;
+      return;
+    }
+
+    const colors = new Float32Array(positions.count * 3);
+    const patchColor = new THREE.Color();
+    for (let index = 0; index < positions.count; index += 1) {
+      const x = positions.getX(index);
+      const z = positions.getZ(index);
+      const color = baseColor.clone();
+      this.surfacePatches.forEach((patch) => {
+        const blend = this.surfacePatchBlendAt(patch, x, z);
+        if (blend <= 0) {
+          return;
+        }
+        patchColor.set(this.terrainMaterialColor(patch.material));
+        color.lerp(patchColor, blend);
+      });
+      colors[index * 3] = color.r;
+      colors[index * 3 + 1] = color.g;
+      colors[index * 3 + 2] = color.b;
+    }
+
+    this.terrainGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    this.terrainMaterial.vertexColors = true;
+    this.terrainMaterial.color.set(0xffffff);
+    this.terrainMaterial.needsUpdate = true;
+  }
+
+  surfacePatchBlendAt(patch: GroundfireTerrainSurfacePatch, x: number, z: number): number {
+    if (patch.shape === 'rect' && patch.size) {
+      const rotation = -(patch.rotation ?? 0);
+      const cos = Math.cos(rotation);
+      const sin = Math.sin(rotation);
+      const dx = x - patch.center[0];
+      const dz = z - patch.center[1];
+      const localX = dx * cos - dz * sin;
+      const localZ = dx * sin + dz * cos;
+      if (Math.abs(localX) > patch.size[0] / 2 || Math.abs(localZ) > patch.size[1] / 2) {
+        return 0;
+      }
+      return THREE.MathUtils.clamp(patch.opacity ?? 0.96, 0, 1);
+    }
+
+    const distance = Math.hypot(x - patch.center[0], z - patch.center[1]);
+    if (distance > patch.radius) {
+      return 0;
+    }
+    const falloff = Math.cos((distance / patch.radius) * Math.PI * 0.5);
+    return THREE.MathUtils.clamp((patch.opacity ?? 0.85) * falloff, 0, 1);
   }
 
   heatmapColor(value: number, target: THREE.Color): THREE.Color {
@@ -1529,12 +2009,13 @@ export class MapEditor {
         heightOffset: heightStats.min,
         material: {
           type: 'texture-set',
-          textureSet: 'grassy-meadow',
+          textureSet: this.terrainMaterialInput.value || 'grassy-meadow',
         },
         features: [],
+        surfacePatches: this.surfacePatches,
       },
       materials: {
-        terrain: 'grassy-meadow',
+        terrain: this.terrainMaterialInput.value || 'grassy-meadow',
         wall: 'brick-wall',
         building: 'concrete-building',
         obstacle: 'steel-obstacle',

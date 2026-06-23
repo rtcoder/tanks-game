@@ -2,6 +2,7 @@ export type GroundfireTextureSet = {
   key: string;
   label: string;
   color: string;
+  friction?: number;
   maps?: {
     albedo?: string;
     ao?: string;
@@ -34,6 +35,7 @@ export const MAP_ASSET_MANIFEST = {
       key: 'grassy-meadow',
       label: 'Grassy Meadow',
       color: '#7c8f45',
+      friction: 1,
       maps: {
         albedo: '/battletanks/grassy-meadow1-bl/grassy-meadow1_albedo.png',
         ao: '/battletanks/grassy-meadow1-bl/grassy-meadow1_ao.png',
@@ -44,9 +46,28 @@ export const MAP_ASSET_MANIFEST = {
       },
     },
     {
+      key: 'asphalt-road',
+      label: 'Asphalt Road',
+      color: '#303431',
+      friction: 1.08,
+    },
+    {
+      key: 'dirt-road',
+      label: 'Dirt Road',
+      color: '#806746',
+      friction: 0.82,
+    },
+    {
+      key: 'mud-track',
+      label: 'Mud Track',
+      color: '#4b3b2b',
+      friction: 0.56,
+    },
+    {
       key: 'height-ramp-field',
       label: 'Height Ramp Field',
       color: '#6f7f39',
+      friction: 0.95,
     },
   ] satisfies GroundfireTextureSet[],
   materials: [
@@ -54,21 +75,37 @@ export const MAP_ASSET_MANIFEST = {
       key: 'brick-wall',
       label: 'Brick Wall',
       color: '#a87952',
+      friction: 1,
     },
     {
       key: 'concrete-building',
       label: 'Concrete Building',
       color: '#858170',
+      friction: 1,
     },
     {
       key: 'steel-obstacle',
       label: 'Steel Obstacle',
       color: '#586266',
+      friction: 1,
+    },
+    {
+      key: 'asphalt-road',
+      label: 'Asphalt Road',
+      color: '#303431',
+      friction: 1.08,
+    },
+    {
+      key: 'dirt-road',
+      label: 'Dirt Road',
+      color: '#806746',
+      friction: 0.82,
     },
     {
       key: 'water-clear',
       label: 'Clear Water',
       color: '#35a9c6',
+      friction: 0.45,
     },
   ] satisfies GroundfireTextureSet[],
   elementPresets: [

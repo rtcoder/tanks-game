@@ -359,6 +359,7 @@ class World {
     const terrain: TerrainData = {
       resolution: map.terrain.resolution,
       features: map.terrain.features ?? [],
+      surfacePatches: map.terrain.surfacePatches ?? [],
     };
 
     if (map.terrain.heightmapAsset) {
@@ -820,6 +821,7 @@ class World {
               id: wallId,
               destructible: destructible.enabled,
               health: destructible.health,
+              uv: wallData.textureMapping?.uv,
             },
         );
         walls.push(wall);
@@ -1145,12 +1147,13 @@ class World {
 
   waterMovementAt(x: number, y: number): { movementMultiplier: number; blocksMovement: boolean } {
     const cell = this.waterCellAt(x, y);
+    const terrainMultiplier = this.ground.frictionAt(x, y);
     if (!cell) {
-      return {movementMultiplier: 1, blocksMovement: false};
+      return {movementMultiplier: terrainMultiplier, blocksMovement: false};
     }
 
     return {
-      movementMultiplier: cell.gameplay.speedMultiplier,
+      movementMultiplier: terrainMultiplier * cell.gameplay.speedMultiplier,
       blocksMovement: cell.gameplay.blocksMovement && cell.depth >= cell.gameplay.depthBlockThreshold,
     };
   }

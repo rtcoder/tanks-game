@@ -4,6 +4,7 @@ import type {
   GroundfireSpawn,
   GroundfireTerrain,
   GroundfireTerrainFeature,
+  GroundfireTerrainSurfacePatch,
   GroundfireVector3,
   GroundfireWaterGameplay,
   GroundfireWaterSource,
@@ -33,6 +34,7 @@ type LegacyMap = {
     heightScale?: unknown;
     heightOffset?: unknown;
     material?: unknown;
+    surfacePatches?: unknown;
   };
   materials?: unknown;
   walls?: unknown;
@@ -89,6 +91,7 @@ function readTerrain(source: LegacyMap['terrain']): GroundfireTerrain {
     features: Array.isArray(source.features)
       ? source.features.filter(isTerrainFeature) as GroundfireTerrainFeature[]
       : [],
+    surfacePatches: readTerrainSurfacePatches(source.surfacePatches),
   };
 }
 
@@ -188,8 +191,69 @@ function readElement(source: unknown, fallbackId: string): GroundfireMapElement 
       health: readNumber(destructible.health, 20),
     },
     material: typeof element.material === 'string' ? element.material : 'brick-wall',
+    textureMapping: readElementTextureMapping(element.textureMapping, typeof element.material === 'string' ? element.material : 'brick-wall'),
     role: element.role,
   };
+}
+
+function readElementTextureMapping(
+    source: unknown,
+    fallbackMaterial: string,
+): GroundfireMapElement['textureMapping'] | undefined {
+  if (!source || typeof source !== 'object') {
+    return undefined;
+  }
+
+  const mapping = source as NonNullable<GroundfireMapElement['textureMapping']>;
+  const mode = mapping.mode === 'group-atlas' ? 'group-atlas' : 'single';
+  return {
+    mode,
+    material: typeof mapping.material === 'string' ? mapping.material : fallbackMaterial,
+    groupId: typeof mapping.groupId === 'string' ? mapping.groupId : undefined,
+    uv: readUvRect(mapping.uv),
+  };
+}
+
+function readTerrainSurfacePatches(source: unknown): GroundfireTerrainSurfacePatch[] {
+  if (!Array.isArray(source)) {
+    return [];
+  }
+
+  return source
+    .map((patch, index): GroundfireTerrainSurfacePatch | null => {
+      if (!patch || typeof patch !== 'object') {
+        return null;
+      }
+      const data = patch as Partial<GroundfireTerrainSurfacePatch>;
+      const shape = data.shape === 'rect' ? 'rect' : 'circle';
+      const size = readVector2(data.size, [readNumber(data.radius, 60) * 2, readNumber(data.radius, 60) * 2]);
+      return {
+        id: readId(data.id, `surface-${index + 1}`),
+        type: 'paint',
+        shape,
+        center: readVector2(data.center, [0, 0]),
+        radius: Math.max(1, readNumber(data.radius, 60)),
+        size: shape === 'rect' ? [Math.max(1, size[0]), Math.max(1, size[1])] : undefined,
+        rotation: shape === 'rect' ? readNumber(data.rotation, 0) : undefined,
+        material: typeof data.material === 'string' ? data.material : 'grassy-meadow',
+        friction: Math.max(0.05, Math.min(readNumber(data.friction, 1), 3)),
+        opacity: readOptionalNumber(data.opacity),
+      };
+    })
+    .filter((patch): patch is GroundfireTerrainSurfacePatch => Boolean(patch));
+}
+
+function readUvRect(source: unknown): [number, number, number, number] | undefined {
+  if (!Array.isArray(source)) {
+    return undefined;
+  }
+
+  return [
+    Math.max(0, Math.min(readNumber(source[0], 0), 1)),
+    Math.max(0, Math.min(readNumber(source[1], 0), 1)),
+    Math.max(0, Math.min(readNumber(source[2], 1), 1)),
+    Math.max(0, Math.min(readNumber(source[3], 1), 1)),
+  ];
 }
 
 function readSpawns(source: unknown, arenaSize: number): GroundfireSpawn[] {

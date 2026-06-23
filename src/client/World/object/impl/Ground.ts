@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {MAP_ASSET_MANIFEST} from '../../../../shared/map-assets';
 import {BaseObject} from '../BaseObject';
 
 export type TerrainFeature = {
@@ -14,6 +15,17 @@ export type TerrainFeature = {
 export type TerrainData = {
   resolution: number;
   features?: TerrainFeature[];
+  surfacePatches?: Array<{
+    id: string;
+    shape?: 'circle' | 'rect';
+    center: [number, number];
+    radius: number;
+    size?: [number, number];
+    rotation?: number;
+    material: string;
+    friction: number;
+    opacity?: number;
+  }>;
   heightmap?: {
     resolution: number;
     samples: number[];
@@ -77,6 +89,7 @@ export class Ground extends BaseObject {
       const y = positions.getY(index);
       positions.setZ(index, this.heightAt(x, y));
     }
+    this.applySurfacePatchColors(planeGeometry, planeMaterial);
     positions.needsUpdate = true;
     planeGeometry.computeVertexNormals();
 
@@ -111,6 +124,82 @@ export class Ground extends BaseObject {
     const tangentX = new THREE.Vector3(sampleDistance * 2, 0, right - left);
     const tangentY = new THREE.Vector3(0, sampleDistance * 2, up - down);
     return tangentX.cross(tangentY).normalize();
+  }
+
+  frictionAt(x: number, y: number): number {
+    return (this.terrain.surfacePatches ?? []).reduce((friction, patch) => {
+      const blend = this.surfacePatchBlendAt(patch, x, y);
+      if (blend <= 0) {
+        return friction;
+      }
+      return THREE.MathUtils.lerp(friction, THREE.MathUtils.clamp(patch.friction, 0.05, 3), blend);
+    }, 1);
+  }
+
+  private applySurfacePatchColors(
+      geometry: THREE.PlaneGeometry,
+      material: THREE.MeshStandardMaterial,
+  ): void {
+    if (!this.terrain.surfacePatches?.length) {
+      return;
+    }
+
+    const positions = geometry.attributes.position;
+    const colors = new Float32Array(positions.count * 3);
+    const baseColor = new THREE.Color(0xffffff);
+    const patchColor = new THREE.Color();
+    for (let index = 0; index < positions.count; index += 1) {
+      const x = positions.getX(index);
+      const y = positions.getY(index);
+      const color = baseColor.clone();
+      this.terrain.surfacePatches.forEach((patch) => {
+        const blend = this.surfacePatchBlendAt(patch, x, y);
+        if (blend <= 0) {
+          return;
+        }
+        patchColor.set(this.surfacePatchColor(patch.material));
+        color.lerp(patchColor, blend);
+      });
+      colors[index * 3] = color.r;
+      colors[index * 3 + 1] = color.g;
+      colors[index * 3 + 2] = color.b;
+    }
+
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    material.vertexColors = true;
+  }
+
+  private surfacePatchColor(materialKey: string): THREE.ColorRepresentation {
+    return MAP_ASSET_MANIFEST.terrainTextureSets.find((material) => material.key === materialKey)?.color ?? '#ffffff';
+  }
+
+  private surfacePatchBlendAt(
+      patch: NonNullable<TerrainData['surfacePatches']>[number],
+      x: number,
+      y: number,
+  ): number {
+    if (patch.shape === 'rect' && patch.size) {
+      const rotation = -(patch.rotation ?? 0);
+      const cos = Math.cos(rotation);
+      const sin = Math.sin(rotation);
+      const dx = x - patch.center[0];
+      const dy = y - patch.center[1];
+      const localX = dx * cos - dy * sin;
+      const localY = dx * sin + dy * cos;
+      const halfWidth = patch.size[0] / 2;
+      const halfDepth = patch.size[1] / 2;
+      if (Math.abs(localX) > halfWidth || Math.abs(localY) > halfDepth) {
+        return 0;
+      }
+      return THREE.MathUtils.clamp(patch.opacity ?? 0.92, 0, 1);
+    }
+
+    const distance = Math.hypot(x - patch.center[0], y - patch.center[1]);
+    if (distance > patch.radius) {
+      return 0;
+    }
+    const falloff = Math.cos((distance / patch.radius) * Math.PI * 0.5);
+    return THREE.MathUtils.clamp((patch.opacity ?? 0.85) * falloff, 0, 1);
   }
 
   private featureHeightAt(feature: TerrainFeature, x: number, y: number): number {

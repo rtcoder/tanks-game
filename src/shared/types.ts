@@ -131,6 +131,19 @@ export type GroundfireTerrainMaterial = {
   }>;
 };
 
+export type GroundfireTerrainSurfacePatch = {
+  id: string;
+  type: 'paint';
+  shape?: 'circle' | 'rect';
+  center: GroundfireVector2;
+  radius: number;
+  size?: GroundfireVector2;
+  rotation?: number;
+  material: string;
+  friction: number;
+  opacity?: number;
+};
+
 export type GroundfireTerrain = {
   resolution: number;
   heightmapAsset?: string;
@@ -138,6 +151,7 @@ export type GroundfireTerrain = {
   heightOffset?: number;
   material: GroundfireTerrainMaterial;
   features?: GroundfireTerrainFeature[];
+  surfacePatches?: GroundfireTerrainSurfacePatch[];
 };
 
 export type GroundfireElementType = 'wall' | 'building' | 'obstacle';
@@ -159,6 +173,12 @@ export type GroundfireMapElement = {
   };
   destructible?: GroundfireDestructibleConfig;
   material: string;
+  textureMapping?: {
+    mode: 'single' | 'group-atlas';
+    material: string;
+    groupId?: string;
+    uv?: [number, number, number, number];
+  };
   role?: 'maze' | 'boundary' | 'building' | 'prop';
 };
 
@@ -166,6 +186,12 @@ export type GroundfireMapGroup = {
   id: string;
   name: string;
   elementIds: string[];
+  material?: string;
+  textureMapping?: {
+    mode: 'group-atlas';
+    material: string;
+    bounds: [number, number, number, number];
+  };
 };
 
 export type GroundfireWaterType = 'basin' | 'source' | 'drain';

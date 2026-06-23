@@ -30,6 +30,7 @@ export class Wall extends BaseObject {
     id?: string;
     destructible?: boolean;
     health?: number;
+    uv?: [number, number, number, number];
   } = {}) {
     super('wall', name);
     this.id = options.id ?? `wall-${position.x}:${position.y}:${rotation.z}`;
@@ -116,6 +117,9 @@ export class Wall extends BaseObject {
 
     const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
     this.rotateLongSideUvsClockwise(geometry, size);
+    if (options.uv) {
+      this.applyUvRegion(geometry, options.uv);
+    }
 
     this.mesh = new THREE.Mesh(
         geometry,
@@ -152,6 +156,17 @@ export class Wall extends BaseObject {
       }
     });
 
+    uvAttribute.needsUpdate = true;
+  }
+
+  applyUvRegion(geometry: THREE.BoxGeometry, uvRegion: [number, number, number, number]): void {
+    const [offsetU, offsetV, width, height] = uvRegion;
+    const uvAttribute = geometry.getAttribute('uv') as THREE.BufferAttribute;
+    for (let index = 0; index < uvAttribute.count; index += 1) {
+      const u = uvAttribute.getX(index);
+      const v = uvAttribute.getY(index);
+      uvAttribute.setXY(index, offsetU + u * width, offsetV + v * height);
+    }
     uvAttribute.needsUpdate = true;
   }
 
