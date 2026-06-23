@@ -119,6 +119,16 @@
   text-transform: uppercase;
 }
 
+.editor__view-pad {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.editor__view-pad span {
+  min-height: 40px;
+}
+
 .editor__water-list {
   display: grid;
   gap: 6px;

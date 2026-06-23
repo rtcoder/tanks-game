@@ -11,7 +11,7 @@ import type {
   GroundfireWaterSource,
 } from '../../shared/types';
 
-type EditorTool = 'raise' | 'lower' | 'smooth' | 'flatten' | 'paint' | 'place' | 'select' | 'water';
+type EditorTool = 'view' | 'raise' | 'lower' | 'smooth' | 'flatten' | 'paint' | 'place' | 'select' | 'water';
 
 type EditorElement = {
   mesh: THREE.Mesh;
@@ -33,6 +33,8 @@ type PaintShape = 'brush' | 'tile';
 const HEIGHTMAP_RESOLUTION = 128;
 const TERRAIN_SEGMENTS = HEIGHTMAP_RESOLUTION - 1;
 const EDITOR_GRID_SIZE = 10;
+const EDITOR_VIEW_NUDGE_PIXELS = 180;
+const EDITOR_VIEW_ROTATE_STEP = Math.PI / 8;
 
 export class MapEditor {
   root: HTMLElement;
@@ -154,6 +156,7 @@ export class MapEditor {
           </section>
           <label>Tool
             <select id="editor-tool">
+              <option value="view">Navigate view</option>
               <option value="raise">Raise</option>
               <option value="lower">Lower</option>
               <option value="smooth">Smooth</option>
@@ -167,6 +170,24 @@ export class MapEditor {
           <label>Brush size<input id="editor-brush-size" type="range" min="20" max="420" value="110"></label>
           <label>Brush strength<input id="editor-brush-strength" type="range" min="1" max="80" value="18"></label>
           <label>Flatten height<input id="editor-flatten-height" type="number" step="5" value="0"></label>
+          <section class="editor__section">
+            <div class="editor__section-title">View</div>
+            <div class="editor__row">
+              <button id="editor-view-rotate-left" type="button">Turn L</button>
+              <button id="editor-view-rotate-right" type="button">Turn R</button>
+            </div>
+            <div class="editor__view-pad">
+              <span></span>
+              <button id="editor-view-pan-up" type="button">Up</button>
+              <span></span>
+              <button id="editor-view-pan-left" type="button">Left</button>
+              <button id="editor-view-reset" type="button">Reset</button>
+              <button id="editor-view-pan-right" type="button">Right</button>
+              <span></span>
+              <button id="editor-view-pan-down" type="button">Down</button>
+              <span></span>
+            </div>
+          </section>
           <section class="editor__section">
             <div class="editor__section-title">Terrain materials</div>
             <label>Base terrain
@@ -418,6 +439,13 @@ export class MapEditor {
     });
     document.getElementById('editor-apply-size')?.addEventListener('click', () => this.applyTerrainSize());
     document.getElementById('editor-reset-terrain')?.addEventListener('click', () => this.resetTerrain());
+    document.getElementById('editor-view-rotate-left')?.addEventListener('click', () => this.rotateView(-EDITOR_VIEW_ROTATE_STEP));
+    document.getElementById('editor-view-rotate-right')?.addEventListener('click', () => this.rotateView(EDITOR_VIEW_ROTATE_STEP));
+    document.getElementById('editor-view-pan-up')?.addEventListener('click', () => this.panView(0, EDITOR_VIEW_NUDGE_PIXELS));
+    document.getElementById('editor-view-pan-down')?.addEventListener('click', () => this.panView(0, -EDITOR_VIEW_NUDGE_PIXELS));
+    document.getElementById('editor-view-pan-left')?.addEventListener('click', () => this.panView(EDITOR_VIEW_NUDGE_PIXELS, 0));
+    document.getElementById('editor-view-pan-right')?.addEventListener('click', () => this.panView(-EDITOR_VIEW_NUDGE_PIXELS, 0));
+    document.getElementById('editor-view-reset')?.addEventListener('click', () => this.resetView());
     document.getElementById('editor-rotate-left')?.addEventListener('click', () => this.rotateSelection(-Math.PI / 2));
     document.getElementById('editor-rotate-right')?.addEventListener('click', () => this.rotateSelection(Math.PI / 2));
     document.getElementById('editor-apply-material')?.addEventListener('click', () => this.applyMaterialToSelection(false));
@@ -456,8 +484,12 @@ export class MapEditor {
       event.preventDefault();
       this.cameraDistance = THREE.MathUtils.clamp(this.cameraDistance + event.deltaY * 1.2, 280, 5600);
       this.updateCamera();
+      this.updateSurfacePatchPreview();
     }, {passive: false});
     window.addEventListener('keydown', (event) => {
+      if (this.isEditableKeyboardTarget(event.target)) {
+        return;
+      }
       if (event.key === 'Delete' || event.key === 'Backspace') {
         this.deleteSelection();
       }
@@ -475,6 +507,11 @@ export class MapEditor {
 
     if (event.button === 2) {
       this.isOrbiting = true;
+      return;
+    }
+
+    if (this.tool === 'view') {
+      this.isPanning = true;
       return;
     }
 
@@ -684,6 +721,33 @@ export class MapEditor {
     this.cameraTarget.x = THREE.MathUtils.clamp(this.cameraTarget.x, -halfSize, halfSize);
     this.cameraTarget.z = THREE.MathUtils.clamp(this.cameraTarget.z, -halfSize, halfSize);
     this.cameraTarget.y = this.heightAt(this.cameraTarget.x, this.cameraTarget.z);
+  }
+
+  panView(dx: number, dy: number): void {
+    this.panCamera(dx, dy);
+    this.updateCamera();
+    this.updateSurfacePatchPreview();
+  }
+
+  rotateView(delta: number): void {
+    this.cameraYaw += delta;
+    this.updateCamera();
+    this.updateSurfacePatchPreview();
+  }
+
+  resetView(): void {
+    this.cameraYaw = -Math.PI / 4;
+    this.cameraPitch = 0.92;
+    this.cameraDistance = 1750;
+    this.cameraTarget.set(0, this.heightAt(0, 0), 0);
+    this.updateCamera();
+    this.updateSurfacePatchPreview();
+  }
+
+  isEditableKeyboardTarget(target: EventTarget | null): boolean {
+    return target instanceof HTMLInputElement
+      || target instanceof HTMLSelectElement
+      || target instanceof HTMLTextAreaElement;
   }
 
   updateGhost(): void {
