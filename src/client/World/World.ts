@@ -1542,32 +1542,60 @@ class World {
     const point = toMap(tank.mesh.position);
     const heading = -(tank.mesh.rotation.z - localHeading);
     const aimHeading = -(tank.mesh.rotation.z + tank.aimYaw - localHeading);
+    const isLocalTank = tank === this.localTank;
+    const contactRadius = radius * (isLocalTank ? 2.35 : 2);
+    const hullLength = radius * (isLocalTank ? 2.9 : 2.55);
+    const hullWidth = radius * (isLocalTank ? 1.7 : 1.5);
+    const lineAlpha = isLocalTank ? 0.9 : 0.62;
 
     context.save();
     context.translate(point.x, point.y);
-    context.rotate(heading);
-    context.fillStyle = color;
-    context.strokeStyle = 'rgba(4, 8, 5, 0.86)';
-    context.lineWidth = 2;
+    context.rotate(aimHeading);
+    context.globalAlpha = lineAlpha;
+    context.shadowBlur = isLocalTank ? 9 : 5;
+    context.shadowColor = color;
+    context.strokeStyle = color;
+    context.lineCap = 'round';
+    context.lineWidth = isLocalTank ? 2 : 1.4;
     context.beginPath();
-    context.moveTo(0, -radius - 3);
-    context.lineTo(radius + 3, radius + 3);
-    context.lineTo(0, radius);
-    context.lineTo(-radius - 3, radius + 3);
-    context.closePath();
-    context.fill();
+    context.moveTo(0, -radius * 0.35);
+    context.lineTo(0, -radius * 3.45);
     context.stroke();
     context.restore();
 
     context.save();
     context.translate(point.x, point.y);
-    context.rotate(aimHeading);
+    context.globalAlpha = isLocalTank ? 0.42 : 0.28;
     context.strokeStyle = color;
-    context.lineWidth = 2;
+    context.lineWidth = 1;
     context.beginPath();
-    context.moveTo(0, 0);
-    context.lineTo(0, -radius * 2.5);
+    context.arc(0, 0, contactRadius, 0, Math.PI * 2);
     context.stroke();
+
+    context.globalAlpha = 1;
+    context.rotate(heading);
+    context.shadowBlur = isLocalTank ? 11 : 6;
+    context.shadowColor = color;
+    context.fillStyle = isLocalTank ? 'rgba(13, 22, 8, 0.92)' : 'rgba(18, 9, 7, 0.88)';
+    context.strokeStyle = color;
+    context.lineJoin = 'round';
+    context.lineWidth = isLocalTank ? 2 : 1.5;
+    context.beginPath();
+    context.moveTo(0, -hullLength * 0.68);
+    context.lineTo(hullWidth * 0.58, -hullLength * 0.06);
+    context.lineTo(hullWidth * 0.42, hullLength * 0.55);
+    context.lineTo(0, hullLength * 0.34);
+    context.lineTo(-hullWidth * 0.42, hullLength * 0.55);
+    context.lineTo(-hullWidth * 0.58, -hullLength * 0.06);
+    context.closePath();
+    context.fill();
+    context.stroke();
+
+    context.shadowBlur = 0;
+    context.fillStyle = color;
+    context.beginPath();
+    context.arc(0, -hullLength * 0.08, Math.max(2, radius * 0.32), 0, Math.PI * 2);
+    context.fill();
     context.restore();
   }
 
