@@ -1,4 +1,5 @@
 .health,
+.weapon-status,
 .powerup {
   --panel-bg: rgba(12, 16, 13, 0.78);
   --panel-border: rgba(223, 226, 199, 0.24);
@@ -11,6 +12,143 @@
   border: 1px solid var(--panel-border);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
   color: var(--panel-text);
+}
+
+.weapon-status {
+  display: grid;
+  gap: 7px;
+  left: 16px;
+  min-height: 64px;
+  overflow: hidden;
+  padding: 13px 12px 10px;
+  position: absolute;
+  top: 92px;
+  width: min(360px, calc(100vw - 32px));
+  z-index: 5;
+}
+
+.weapon-status__cooldown {
+  background: rgba(245, 240, 220, 0.1);
+  height: 3px;
+  left: 0;
+  overflow: hidden;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
+.weapon-status__cooldown-fill {
+  background: linear-gradient(90deg, #d7e65c, #94ff74);
+  height: 100%;
+  left: 0;
+  position: absolute;
+  top: 0;
+  transform: scaleX(1);
+  transform-origin: left center;
+  transition: transform 90ms linear, background 180ms ease;
+  width: 100%;
+}
+
+.weapon-status[data-ready="false"] .weapon-status__cooldown-fill {
+  background: linear-gradient(90deg, #ff8a3d, #ffd45a);
+}
+
+.weapon-status__topline {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.weapon-status__state {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.weapon-status__label {
+  color: var(--panel-muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.weapon-status__ready {
+  align-items: center;
+  color: #d7e65c;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 950;
+  gap: 5px;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.weapon-status__ready::before {
+  background: currentColor;
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+  content: "";
+  height: 6px;
+  width: 6px;
+}
+
+.weapon-status[data-ready="false"] .weapon-status__ready {
+  color: #ffd45a;
+}
+
+.weapon-status__slots {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+}
+
+.weapon-status__slot {
+  align-items: center;
+  background: rgba(245, 240, 220, 0.08);
+  border: 1px solid rgba(245, 240, 220, 0.16);
+  color: rgba(244, 240, 220, 0.56);
+  display: flex;
+  font-size: 12px;
+  font-weight: 950;
+  height: 24px;
+  justify-content: center;
+  line-height: 1;
+  width: 24px;
+}
+
+.weapon-status__slot[data-available="false"] {
+  display: none;
+}
+
+.weapon-status__slot[data-active="true"] {
+  background: rgba(215, 230, 92, 0.18);
+  border-color: rgba(215, 230, 92, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(215, 230, 92, 0.2), 0 0 16px rgba(215, 230, 92, 0.18);
+  color: #d7e65c;
+}
+
+.weapon-status__name {
+  color: var(--panel-text);
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.weapon-status__meta {
+  color: var(--panel-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 850;
+  line-height: 1.2;
 }
 
 .health {
@@ -98,7 +236,7 @@
   left: 16px;
   max-width: min(360px, calc(100vw - 32px));
   position: absolute;
-  top: 92px;
+  top: 196px;
   width: min(360px, calc(100vw - 32px));
   z-index: 5;
 }
@@ -186,6 +324,7 @@
 
 @media (max-width: 720px) {
   .health,
+  .weapon-status,
   .powerups {
     left: 10px;
     width: min(320px, calc(100vw - 20px));
@@ -195,7 +334,11 @@
     top: 10px;
   }
 
-  .powerups {
+  .weapon-status {
     top: 84px;
+  }
+
+  .powerups {
+    top: 188px;
   }
 }

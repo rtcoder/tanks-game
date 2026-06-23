@@ -75,6 +75,25 @@
           </div>
           <div class="health__value" id="player1-health-value">100</div>
         </div>
+        <div class="weapon-status" id="player1-weapon">
+          <div class="weapon-status__cooldown">
+            <div class="weapon-status__cooldown-fill" id="player1-weapon-cooldown"></div>
+          </div>
+          <div class="weapon-status__topline">
+            <div class="weapon-status__state">
+              <span class="weapon-status__label">Weapon</span>
+              <span class="weapon-status__ready" id="player1-weapon-ready">Ready</span>
+            </div>
+            <div class="weapon-status__slots" id="player1-weapon-slots" aria-hidden="true">
+              <span class="weapon-status__slot" data-slot="0">1</span>
+              <span class="weapon-status__slot" data-slot="1">2</span>
+              <span class="weapon-status__slot" data-slot="2">3</span>
+              <span class="weapon-status__slot" data-slot="3">4</span>
+            </div>
+          </div>
+          <div class="weapon-status__name" id="player1-weapon-name">Loading</div>
+          <div class="weapon-status__meta" id="player1-weapon-meta">DMG 0 • Splash 0 • 0.0s</div>
+        </div>
         <div class="powerups" id="player1-powerups"></div>
         <div class="crosshair" id="player1-crosshair" aria-hidden="true">
           <div class="crosshair__reticle">
@@ -97,7 +116,7 @@
       </div>
     </div>
 
-    <div class="message message--replay" id="replayMessage">W/A/S/D or arrows to move - Q/E turret - R/F barrel - T reset aim - C camera - V chase hull/barrel - Space to fire</div>
+    <div class="message message--replay" id="replayMessage">W/A/S/D or arrows to move - Q/E turret - R/F barrel - T reset aim - 1-4 weapon - C camera - V chase hull/barrel - Space to fire</div>
     <div class="message message--instructions hidden" id="instructions"></div>
 
     <div class="tank-modal controls-modal hidden" id="controls-modal" aria-hidden="true">
@@ -132,6 +151,7 @@
           <section>
             <h3>Combat</h3>
             <dl>
+              <div><dt>1 - 4</dt><dd>Select weapon</dd></div>
               <div><dt>Space</dt><dd>Fire</dd></div>
             </dl>
           </section>

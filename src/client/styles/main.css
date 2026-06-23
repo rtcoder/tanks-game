@@ -72,6 +72,7 @@ body {
 }
 
 .header:not(.hidden) ~ #scene-container .health,
+.header:not(.hidden) ~ #scene-container .weapon-status,
 .header:not(.hidden) ~ #scene-container .powerups,
 .header:not(.hidden) ~ #scene-container .crosshair,
 .header:not(.hidden) ~ #scene-container .minimap {

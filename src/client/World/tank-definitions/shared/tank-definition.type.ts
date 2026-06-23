@@ -7,6 +7,32 @@ export type TankDefinitionParts = {
   rightTrack?: string[];
 };
 
+export type TankWeaponSlot = 'primary' | 'secondary' | 'special';
+
+export type TankWeaponCategory =
+  | 'cannon'
+  | 'autocannon'
+  | 'machine-gun'
+  | 'rocket-mortar'
+  | 'missile'
+  | 'mortar'
+  | 'coaxial-gun';
+
+export type TankWeaponDefinition = {
+  id: string;
+  name: string;
+  slot: TankWeaponSlot;
+  category: TankWeaponCategory;
+  caliberMm?: number;
+  damage: number;
+  projectileSpeed: number;
+  cooldownMs: number;
+  splashRadius: number;
+  splashMinDamageRatio: number;
+  armorPiercing: number;
+  notes?: string;
+};
+
 export type TankGameplayStats = {
   hasRotatingTurret: boolean;
   maxHealth: number;
@@ -21,6 +47,7 @@ export type TankGameplayStats = {
   mainWeapon: string;
   secondaryWeapon?: string;
   specialWeapon?: string;
+  weapons: TankWeaponDefinition[];
   traits: string[];
 };
 

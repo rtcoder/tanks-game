@@ -15,7 +15,7 @@ import type {
   WsMessage,
 } from '../../shared/types';
 import {BattleStatus, ClientMessageType, WsMessageType} from '../../shared/types';
-import {Bullet} from './object/impl/Bullet';
+import {Bullet, type BulletImpact} from './object/impl/Bullet';
 import {Ground, type TerrainData} from './object/impl/Ground';
 import {DirectionalLight} from './object/impl/Light/DirectionalLight';
 import {HemiSphereLight} from './object/impl/Light/HemiSphereLight';
@@ -41,6 +41,14 @@ import {type TankDefinition} from './tank-definitions/shared/tank-definition.typ
 const DEFAULT_ARENA_SIZE = 1500;
 const DEFAULT_MAP_ID = 'default';
 const MAP_BLOCK_HEIGHT = 50;
+const STRUCTURAL_GRAVITY = 620;
+const STRUCTURAL_MAX_FALL_SPEED = 900;
+const STRUCTURAL_DETACH_EPSILON = 2;
+const STRUCTURAL_SUPPORT_EPSILON = 3;
+const STRUCTURAL_MIN_SUPPORT_RATIO = 0.08;
+const STRUCTURAL_MIN_SUPPORT_AREA = 16;
+const STRUCTURAL_IMPACT_FREE_DISTANCE = 6;
+const STRUCTURAL_IMPACT_DAMAGE_PER_UNIT = 0.35;
 const WATER_GRID_SIZE = 80;
 const DEFAULT_WATER_GAMEPLAY: GroundfireWaterGameplay = {
   blocksMovement: false,
@@ -815,6 +823,92 @@ class World {
     });
   }
 
+  updateStructuralGravity(delta: number): void {
+    let destroyedByImpact = false;
+    let waterNeedsRebuild = false;
+    const structuralWalls = this.walls
+      .filter((wall) => wall.isStructuralActive())
+      .sort((a, b) => a.bottomZ() - b.bottomZ());
+
+    structuralWalls.forEach((wall) => {
+      const supportHeight = this.structuralSupportHeight(wall);
+      const unsupported = wall.bottomZ() > supportHeight + STRUCTURAL_DETACH_EPSILON;
+      if (!wall.falling && unsupported) {
+        wall.beginFall();
+      }
+
+      if (!wall.falling) {
+        return;
+      }
+
+      const impact = wall.updateFall(delta, supportHeight, STRUCTURAL_GRAVITY, STRUCTURAL_MAX_FALL_SPEED);
+      if (!impact) {
+        return;
+      }
+
+      waterNeedsRebuild = true;
+      const damage = this.structuralImpactDamage(impact.distance);
+      if (damage <= 0) {
+        return;
+      }
+
+      const destroyed = wall.damage(damage);
+      if (destroyed && this.recordDestroyedWall(wall)) {
+        destroyedByImpact = true;
+      }
+    });
+
+    if (waterNeedsRebuild) {
+      this.queueWaterRebuild();
+      this.updateMinimap();
+    }
+    if (destroyedByImpact) {
+      this.syncDestroyedWalls();
+    }
+  }
+
+  structuralSupportHeight(wall: Wall): number {
+    const wallBox = new THREE.Box3().setFromObject(wall.mesh);
+    const wallBottom = wall.bottomZ();
+    let supportHeight = this.ground.heightAt(wall.mesh.position.x, wall.mesh.position.y);
+
+    this.walls.forEach((candidate) => {
+      if (candidate === wall || !candidate.isStructuralActive() || candidate.falling) {
+        return;
+      }
+
+      const candidateTop = candidate.topZ();
+      if (candidateTop > wallBottom + STRUCTURAL_SUPPORT_EPSILON || candidateTop <= supportHeight + STRUCTURAL_SUPPORT_EPSILON) {
+        return;
+      }
+
+      const candidateBox = new THREE.Box3().setFromObject(candidate.mesh);
+      if (!this.structuralFootprintsOverlap(wallBox, candidateBox)) {
+        return;
+      }
+
+      supportHeight = candidateTop;
+    });
+
+    return supportHeight;
+  }
+
+  structuralFootprintsOverlap(upperBox: THREE.Box3, supportBox: THREE.Box3): boolean {
+    const overlapX = Math.max(0, Math.min(upperBox.max.x, supportBox.max.x) - Math.max(upperBox.min.x, supportBox.min.x));
+    const overlapY = Math.max(0, Math.min(upperBox.max.y, supportBox.max.y) - Math.max(upperBox.min.y, supportBox.min.y));
+    const overlapArea = overlapX * overlapY;
+    if (overlapArea < STRUCTURAL_MIN_SUPPORT_AREA) {
+      return false;
+    }
+
+    const upperArea = Math.max(1, (upperBox.max.x - upperBox.min.x) * (upperBox.max.y - upperBox.min.y));
+    return overlapArea / upperArea >= STRUCTURAL_MIN_SUPPORT_RATIO;
+  }
+
+  structuralImpactDamage(distance: number): number {
+    return Math.max(0, distance - STRUCTURAL_IMPACT_FREE_DISTANCE) * STRUCTURAL_IMPACT_DAMAGE_PER_UNIT;
+  }
+
   initializeWater(): void {
     this.rebuildWaterSimulation();
   }
@@ -1143,6 +1237,7 @@ class World {
     this.loop.updatableLists.push([this.localTank], this.powerups, this.bullets, this.walls);
     Tank.onTick = (tank: Tank, delta: number) => {
       if (tank !== this.localTank) return;
+      this.updateStructuralGravity(delta);
       this.updateWaterSimulation(delta);
       tank.update(
           this.keyboard,
@@ -1553,10 +1648,12 @@ class World {
 
   tankStatsSummary(definition: TankDefinition): string {
     const {stats} = definition;
+    const primaryWeapon = stats.weapons.find((weapon) => weapon.slot === 'primary') ?? stats.weapons[0];
     const armor = Math.round(stats.defense * 100);
     const reload = (stats.fireCooldownMs / 1000).toFixed(1);
     const turret = stats.hasRotatingTurret ? `${stats.turretTraverseDegPerSecond}°/s turret` : 'fixed gun';
-    return `HP ${stats.maxHealth} • Armor ${armor}% • Speed ${stats.moveSpeed} • DMG ${stats.bulletDamage} • ${reload}s reload • ${turret}`;
+    const splash = primaryWeapon ? ` • Splash ${primaryWeapon.splashRadius}` : '';
+    return `HP ${stats.maxHealth} • Armor ${armor}% • Speed ${stats.moveSpeed} • DMG ${stats.bulletDamage}${splash} • ${reload}s reload • ${turret}`;
   }
 
   updateSelectedTankSummary(): void {
@@ -1734,6 +1831,12 @@ class World {
 
   registerInputHandlers(): void {
     window.addEventListener('keydown', (event) => {
+      const weaponIndex = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Numpad1', 'Numpad2', 'Numpad3', 'Numpad4'].indexOf(event.code);
+      if (weaponIndex >= 0 && !event.repeat && this.status !== 'menu') {
+        this.localTank?.selectWeapon(weaponIndex % 4);
+        event.preventDefault();
+        return;
+      }
       if (event.code === 'Escape' && !this.controlsModal.classList.contains('hidden')) {
         this.closeControlsModal();
         return;
@@ -1753,7 +1856,7 @@ class World {
         }
         event.preventDefault();
       }
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyT', 'KeyC', 'KeyV'].includes(event.code)) {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyT', 'KeyC', 'KeyV', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Numpad1', 'Numpad2', 'Numpad3', 'Numpad4'].includes(event.code)) {
         event.preventDefault();
       }
       this.keyboard[event.code] = 1;
@@ -1912,8 +2015,67 @@ class World {
 
   attachDestructionHooks(): void {
     this.bullets.forEach((bullet) => {
-      bullet.onWallHit ??= (wall) => this.damageWall(wall, bullet.attack);
+      bullet.onImpact ??= (impact) => this.applyAreaDamage(impact, bullet);
     });
+  }
+
+  applyAreaDamage(impact: BulletImpact, bullet: Bullet): void {
+    const center = impact.position;
+    const radius = Math.max(0, bullet.weapon?.splashRadius ?? 0);
+    const minRatio = THREE.MathUtils.clamp(bullet.weapon?.splashMinDamageRatio ?? 0.2, 0, 1);
+    let destroyedAnyWall = false;
+
+    this.walls.forEach((wall) => {
+      if (this.destroyedWallIds.has(wall.id) || wall.destroyed || wall.removed) {
+        return;
+      }
+
+      const distance = wall === impact.wall ? 0 : this.distanceFromPointToObject(center, wall.mesh);
+      const damage = this.areaDamageAtDistance(bullet.attack, distance, radius, minRatio);
+      if (damage <= 0) {
+        return;
+      }
+
+      const destroyed = wall.damage(damage);
+      if (destroyed && this.recordDestroyedWall(wall)) {
+        destroyedAnyWall = true;
+      }
+    });
+
+    this.tanks.forEach((tank) => {
+      const distance = tank === impact.tank ? 0 : this.distanceFromPointToObject(center, tank.mesh);
+      const damage = this.areaDamageAtDistance(bullet.attack, distance, radius, minRatio);
+      if (damage <= 0) {
+        return;
+      }
+
+      tank.GetAttacked(damage);
+    });
+
+    if (destroyedAnyWall) {
+      this.syncDestroyedWalls();
+    }
+  }
+
+  areaDamageAtDistance(baseDamage: number, distance: number, radius: number, minRatio: number): number {
+    if (distance <= 0) {
+      return baseDamage;
+    }
+    if (radius <= 0 || distance > radius) {
+      return 0;
+    }
+
+    const ratio = THREE.MathUtils.lerp(1, minRatio, distance / radius);
+    return baseDamage * ratio;
+  }
+
+  distanceFromPointToObject(point: THREE.Vector3, object: THREE.Object3D): number {
+    const box = new THREE.Box3().setFromObject(object);
+    if (box.isEmpty()) {
+      return point.distanceTo(object.position);
+    }
+
+    return point.clone().clamp(box.min, box.max).distanceTo(point);
   }
 
   damageWall(wall: Wall, attack: number): void {
@@ -1926,9 +2088,18 @@ class World {
       return;
     }
 
+    this.recordDestroyedWall(wall);
+    this.syncDestroyedWalls();
+  }
+
+  recordDestroyedWall(wall: Wall): boolean {
+    if (this.destroyedWallIds.has(wall.id)) {
+      return false;
+    }
+
     this.destroyedWallIds.add(wall.id);
     this.queueWaterRebuild();
-    this.syncDestroyedWalls();
+    return true;
   }
 
   applyDestroyedWalls(wallIds: string[]): void {

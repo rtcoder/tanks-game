@@ -18,6 +18,9 @@ export class Wall extends BaseObject {
   destroyAnimationFrameDuration = 0.05;
   removed = false;
   occlusionFadeActive = false;
+  falling = false;
+  fallVelocity = 0;
+  fallStartBottom = 0;
 
   static onTick = (_wall: Wall, _delta: number) => {};
 
@@ -193,6 +196,54 @@ export class Wall extends BaseObject {
 
   tick(delta: number): void {
     Wall.onTick(this, delta);
+  }
+
+  isStructuralActive(): boolean {
+    return !this.destroyed && !this.removed && Boolean(this.mesh.parent) && !this.destroyAnimationActive;
+  }
+
+  bottomZ(): number {
+    return this.mesh.position.z - this.size.z / 2;
+  }
+
+  topZ(): number {
+    return this.mesh.position.z + this.size.z / 2;
+  }
+
+  beginFall(): void {
+    if (this.falling || !this.isStructuralActive()) {
+      return;
+    }
+
+    this.falling = true;
+    this.fallVelocity = 0;
+    this.fallStartBottom = this.bottomZ();
+  }
+
+  updateFall(
+      delta: number,
+      supportHeight: number,
+      gravity: number,
+      maxFallSpeed: number,
+  ): { distance: number } | null {
+    if (!this.falling || !this.isStructuralActive()) {
+      return null;
+    }
+
+    this.fallVelocity = Math.min(maxFallSpeed, this.fallVelocity + gravity * delta);
+    const currentBottom = this.bottomZ();
+    const nextBottom = currentBottom - this.fallVelocity * delta;
+    if (nextBottom > supportHeight) {
+      this.mesh.position.z = nextBottom + this.size.z / 2;
+      return null;
+    }
+
+    this.mesh.position.z = supportHeight + this.size.z / 2;
+    const distance = Math.max(0, this.fallStartBottom - supportHeight);
+    this.falling = false;
+    this.fallVelocity = 0;
+    this.fallStartBottom = 0;
+    return {distance};
   }
 
   update(delta: number): void {

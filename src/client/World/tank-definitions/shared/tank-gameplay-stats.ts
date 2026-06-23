@@ -1,8 +1,237 @@
-import type {TankDefinition, TankGameplayStats} from './tank-definition.type';
+import type {
+  TankDefinition,
+  TankGameplayStats,
+  TankWeaponCategory,
+  TankWeaponDefinition,
+} from './tank-definition.type';
 
 type TankDefinitionWithoutStats = Omit<TankDefinition, 'stats'> & Partial<Pick<TankDefinition, 'stats'>>;
+type TankGameplayStatsInput = Omit<TankGameplayStats, 'weapons'> & { weapons?: TankWeaponDefinition[] };
 
-const DEFAULT_TANK_GAMEPLAY_STATS: TankGameplayStats = {
+const weapon = (
+    id: string,
+    name: string,
+    category: TankWeaponCategory,
+    damage: number,
+    projectileSpeed: number,
+    cooldownMs: number,
+    splashRadius: number,
+    splashMinDamageRatio: number,
+    armorPiercing: number,
+    options: Partial<Pick<TankWeaponDefinition, 'slot' | 'caliberMm' | 'notes'>> = {},
+): TankWeaponDefinition => ({
+  id,
+  name,
+  slot: options.slot ?? 'primary',
+  category,
+  caliberMm: options.caliberMm,
+  damage,
+  projectileSpeed,
+  cooldownMs,
+  splashRadius,
+  splashMinDamageRatio,
+  armorPiercing,
+  notes: options.notes,
+});
+
+const cannon = (
+    id: string,
+    name: string,
+    caliberMm: number,
+    damage: number,
+    projectileSpeed: number,
+    cooldownMs: number,
+    splashRadius: number,
+    notes?: string,
+    armorPiercing = 0.68,
+) => weapon(id, name, 'cannon', damage, projectileSpeed, cooldownMs, splashRadius, 0.22, armorPiercing, {
+  caliberMm,
+  notes,
+});
+
+const autocannon = (
+    id: string,
+    name: string,
+    caliberMm: number,
+    damage: number,
+    projectileSpeed: number,
+    cooldownMs: number,
+    splashRadius: number,
+    notes?: string,
+) => weapon(id, name, 'autocannon', damage, projectileSpeed, cooldownMs, splashRadius, 0.18, 0.38, {
+  caliberMm,
+  notes,
+});
+
+const machineGun = (
+    id: string,
+    name: string,
+    caliberMm: number,
+    notes?: string,
+) => weapon(id, name, 'machine-gun', 1.2, 900, 75, 0, 0, 0.08, {
+  slot: 'secondary',
+  caliberMm,
+  notes,
+});
+
+const coaxialGun = (
+    id: string,
+    name: string,
+    caliberMm: number,
+    damage: number,
+    cooldownMs: number,
+    notes?: string,
+) => weapon(id, name, 'coaxial-gun', damage, 650, cooldownMs, Math.max(4, caliberMm * 0.18), 0.15, 0.28, {
+  slot: 'secondary',
+  caliberMm,
+  notes,
+});
+
+const missile = (
+    id: string,
+    name: string,
+    caliberMm: number,
+    damage: number,
+    projectileSpeed: number,
+    cooldownMs: number,
+    splashRadius: number,
+    notes?: string,
+) => weapon(id, name, 'missile', damage, projectileSpeed, cooldownMs, splashRadius, 0.28, 0.85, {
+  slot: 'special',
+  caliberMm,
+  notes,
+});
+
+const mortar = (
+    id: string,
+    name: string,
+    caliberMm: number,
+    damage: number,
+    cooldownMs: number,
+    splashRadius: number,
+    notes?: string,
+) => weapon(id, name, 'mortar', damage, 310, cooldownMs, splashRadius, 0.35, 0.25, {
+  slot: 'special',
+  caliberMm,
+  notes,
+});
+
+const rocketMortar = (
+    id: string,
+    name: string,
+    caliberMm: number,
+    damage: number,
+    projectileSpeed: number,
+    cooldownMs: number,
+    splashRadius: number,
+    notes?: string,
+) => weapon(id, name, 'rocket-mortar', damage, projectileSpeed, cooldownMs, splashRadius, 0.38, 0.55, {
+  caliberMm,
+  notes,
+});
+
+export const TANK_WEAPON_LOADOUTS: Record<string, TankWeaponDefinition[]> = {
+  t55am1: [
+    cannon('t55am1-d10t2s', '100 mm D-10T2S rifled gun', 100, 11, 690, 460, 20, 'Main AP/HE gun used by T-55 modernization packages.', 0.58),
+    missile('t55am1-bastion', '9M117 Bastion gun-launched ATGM', 100, 20, 520, 1100, 30, 'Special round for later T-55AM fits; slower, harder-hitting missile profile.'),
+    machineGun('t55am1-pkt', '7.62 mm PKT coaxial machine gun', 7.62),
+    machineGun('t55am1-dshk', '12.7 mm DShK/NSVT anti-aircraft machine gun', 12.7),
+  ],
+  t72b: [
+    cannon('t72b-2a46m', '125 mm 2A46M smoothbore gun', 125, 15, 730, 520, 28, 'Autoloaded smoothbore with APFSDS/HE style gameplay profile.', 0.76),
+    missile('t72b-svir', '9M119 Svir gun-launched missile', 125, 23, 560, 1250, 34, 'Longer reload special shot with heavier splash and penetration.'),
+    machineGun('t72b-pkt', '7.62 mm PKT coaxial machine gun', 7.62),
+    machineGun('t72b-nsvt', '12.7 mm NSVT anti-aircraft machine gun', 12.7),
+  ],
+  'm1-abrams': [
+    cannon('m1-m256', '120 mm M256 smoothbore gun', 120, 16, 790, 470, 26, 'Fast modern tank gun; strong direct damage with moderate blast.', 0.82),
+    machineGun('m1-m240-coax', '7.62 mm M240 coaxial machine gun', 7.62),
+    machineGun('m1-m2hb', '12.7 mm M2HB commander machine gun', 12.7),
+  ],
+  'leopard-2a6': [
+    cannon('leo2a6-l55', '120 mm Rheinmetall L/55 smoothbore gun', 120, 17, 820, 460, 25, 'High velocity long-barrel profile.', 0.84),
+    machineGun('leo2a6-mg3-coax', '7.62 mm MG3 coaxial machine gun', 7.62),
+    machineGun('leo2a6-mg3-aa', '7.62 mm MG3 anti-aircraft machine gun', 7.62),
+  ],
+  'merkava-mk4': [
+    cannon('merkava-mg253', '120 mm MG253 smoothbore gun', 120, 16, 760, 500, 28, 'Heavy protected MBT gun with strong close-range wall pressure.', 0.78),
+    mortar('merkava-60mm', '60 mm internal mortar', 60, 10, 780, 34, 'Arc-capable support weapon candidate for later fire modes.'),
+    missile('merkava-lahat', 'LAHAT gun-launched missile fit', 120, 22, 560, 1250, 32, 'Optional missile capability modeled as future special weapon.'),
+    machineGun('merkava-mag-coax', '7.62 mm MAG coaxial machine gun', 7.62),
+    machineGun('merkava-50cal', '12.7 mm heavy machine gun mount', 12.7),
+  ],
+  'challenger-2': [
+    cannon('challenger-l30a1', '120 mm L30A1 rifled gun', 120, 16, 740, 530, 29, 'Rifled gun profile: slower reload, steady wall-breaking hit.', 0.8),
+    machineGun('challenger-l94a1', '7.62 mm L94A1 coaxial chain gun', 7.62),
+    machineGun('challenger-l37a2', '7.62 mm L37A2 machine gun', 7.62),
+  ],
+  leclerc: [
+    cannon('leclerc-cn120-26', '120 mm CN120-26 smoothbore gun', 120, 15, 790, 360, 24, 'Autoloader profile with fast sustained fire.', 0.78),
+    machineGun('leclerc-12-7-coax', '12.7 mm coaxial machine gun', 12.7),
+    machineGun('leclerc-7-62-roof', '7.62 mm roof machine gun', 7.62),
+  ],
+  'k2-black-panther': [
+    cannon('k2-cn08', '120 mm CN08/L55 smoothbore gun', 120, 16, 800, 440, 25, 'Modern high-velocity gun; balanced direct and splash pressure.', 0.82),
+    missile('k2-kstam', 'KSTAM top-attack munition', 120, 21, 610, 1180, 36, 'Future top-attack special shot candidate.'),
+    machineGun('k2-k6', '12.7 mm K6 heavy machine gun', 12.7),
+    machineGun('k2-coax', '7.62 mm coaxial machine gun', 7.62),
+  ],
+  'type-10': [
+    cannon('type10-jsw', '120 mm Japan Steel Works smoothbore gun', 120, 14, 780, 400, 23, 'Light MBT profile: quick handling, smaller damage window.', 0.76),
+    machineGun('type10-m2', '12.7 mm M2HB machine gun', 12.7),
+    machineGun('type10-type74', '7.62 mm Type 74 machine gun', 7.62),
+  ],
+  'm60-patton': [
+    cannon('m60-m68', '105 mm M68 rifled gun', 105, 12, 700, 480, 22, 'Older MBT gun, reliable but lower punch than modern 120/125 mm guns.', 0.62),
+    machineGun('m60-m85', '12.7 mm M85 commander machine gun', 12.7),
+    machineGun('m60-coax', '7.62 mm coaxial machine gun', 7.62),
+  ],
+  '7tp': [
+    cannon('7tp-bofors', '37 mm Bofors wz.37 gun', 37, 7, 590, 320, 10, 'Small interwar cannon; fast reload, tiny blast.', 0.34),
+    machineGun('7tp-ckm', '7.92 mm Ckm wz.30 machine gun', 7.92),
+  ],
+  '10tp': [
+    cannon('10tp-bofors', '37 mm Bofors wz.37 gun', 37, 7, 600, 300, 10, 'Fast prototype tank with light gun profile.', 0.34),
+    machineGun('10tp-ckm', '7.92 mm Ckm wz.30 machine gun', 7.92),
+  ],
+  'pt91-twardy': [
+    cannon('pt91-2a46ms', '125 mm 2A46MS/2A46 smoothbore gun', 125, 15, 735, 500, 28, 'Polish T-72 development with strong ERA-backed survivability.', 0.76),
+    machineGun('pt91-pkt', '7.62 mm PKT coaxial machine gun', 7.62),
+    machineGun('pt91-nsvt', '12.7 mm NSVT anti-aircraft machine gun', 12.7),
+  ],
+  'leopard-2pl': [
+    cannon('leo2pl-l44', '120 mm Rh-120 L/44 smoothbore gun', 120, 16, 790, 470, 25, 'Polish Leopard 2 modernization with standard L/44 gun profile.', 0.8),
+    machineGun('leo2pl-mg3-coax', '7.62 mm MG3 coaxial machine gun', 7.62),
+    machineGun('leo2pl-mg3-aa', '7.62 mm MG3 anti-aircraft machine gun', 7.62),
+  ],
+  'pl-01': [
+    cannon('pl01-concept-gun', '105/120 mm unmanned turret concept gun', 120, 13, 760, 390, 23, 'Concept vehicle profile: mobile, low signature, lighter hit.', 0.72),
+    machineGun('pl01-rws', '7.62/12.7 mm remote weapon station concept', 12.7),
+  ],
+  'm18-hellcat': [
+    cannon('m18-m1', '76 mm M1 tank gun', 76, 14, 760, 420, 18, 'Tank destroyer glass-cannon profile.', 0.62),
+    machineGun('m18-m2hb', '12.7 mm M2HB machine gun', 12.7),
+  ],
+  maus: [
+    cannon('maus-kwk44', '128 mm KwK 44 L/55 gun', 128, 26, 540, 1050, 38, 'Super-heavy bunker breaker: huge hit, slow reload and traverse.', 0.88),
+    coaxialGun('maus-kwk44-75', '75 mm KwK 44 coaxial gun', 75, 11, 720, 'Secondary coaxial cannon candidate.'),
+    machineGun('maus-mg34', '7.92 mm MG34 machine gun', 7.92),
+  ],
+  sturmtiger: [
+    rocketMortar('sturmtiger-rw61', '380 mm RW 61 rocket mortar', 380, 38, 360, 1800, 72, 'Massive demolition rocket with the strongest area damage.'),
+    machineGun('sturmtiger-mg34', '7.92 mm MG34 machine gun', 7.92),
+  ],
+  'strv-103': [
+    cannon('strv103-l74', '105 mm Bofors L/62 L74 gun', 105, 18, 850, 520, 20, 'Fixed hull-aimed sniper gun; high velocity, no turret traverse.', 0.76),
+    machineGun('strv103-ksp58', '7.62 mm Ksp 58 machine guns', 7.62),
+  ],
+  'tks-20mm': [
+    autocannon('tks-nkm', '20 mm wz.38 FK-A autocannon', 20, 4, 720, 110, 6, 'Rapid small-caliber harassment weapon.'),
+    machineGun('tks-ckm', '7.92 mm Ckm wz.25 machine gun', 7.92),
+  ],
+};
+
+const DEFAULT_TANK_GAMEPLAY_STATS_INPUT: TankGameplayStatsInput = {
   hasRotatingTurret: true,
   maxHealth: 100,
   defense: 0.12,
@@ -17,7 +246,7 @@ const DEFAULT_TANK_GAMEPLAY_STATS: TankGameplayStats = {
   traits: ['balanced'],
 };
 
-export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
+const RAW_TANK_GAMEPLAY_STATS: Record<string, TankGameplayStatsInput> = {
   t55am1: {
     hasRotatingTurret: true,
     maxHealth: 105,
@@ -29,8 +258,9 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 11,
     bulletSpeed: 690,
     fireCooldownMs: 460,
-    mainWeapon: '100 mm D-10T gun',
-    secondaryWeapon: 'Coaxial machine gun',
+    mainWeapon: '100 mm D-10T2S rifled gun',
+    secondaryWeapon: '7.62 mm PKT coaxial machine gun',
+    specialWeapon: '9M117 Bastion ATGM',
     traits: ['reliable', 'medium armor'],
   },
   t72b: {
@@ -44,8 +274,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 15,
     bulletSpeed: 730,
     fireCooldownMs: 520,
-    mainWeapon: '125 mm 2A46M gun',
-    specialWeapon: 'Gun-launched missile fit',
+    mainWeapon: '125 mm 2A46M smoothbore gun',
+    specialWeapon: '9M119 Svir gun-launched missile',
     traits: ['low profile', 'reactive armor'],
   },
   'm1-abrams': {
@@ -59,8 +289,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 16,
     bulletSpeed: 790,
     fireCooldownMs: 470,
-    mainWeapon: '120 mm M256 smoothbore',
-    secondaryWeapon: 'Commander machine gun',
+    mainWeapon: '120 mm M256 smoothbore gun',
+    secondaryWeapon: '7.62 mm M240 / 12.7 mm M2 machine guns',
     traits: ['heavy armor', 'fast turret'],
   },
   'leopard-2a6': {
@@ -74,7 +304,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 17,
     bulletSpeed: 820,
     fireCooldownMs: 460,
-    mainWeapon: '120 mm L/55 smoothbore',
+    mainWeapon: '120 mm Rheinmetall L/55 smoothbore gun',
+    secondaryWeapon: '7.62 mm MG3 machine guns',
     traits: ['long gun', 'accurate'],
   },
   'merkava-mk4': {
@@ -88,8 +319,9 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 16,
     bulletSpeed: 760,
     fireCooldownMs: 500,
-    mainWeapon: '120 mm MG253 smoothbore',
-    secondaryWeapon: 'Remote weapon station',
+    mainWeapon: '120 mm MG253 smoothbore gun',
+    secondaryWeapon: 'Machine guns and 60 mm internal mortar',
+    specialWeapon: 'LAHAT missile fit',
     traits: ['crew protection', 'survivor'],
   },
   'challenger-2': {
@@ -104,6 +336,7 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletSpeed: 740,
     fireCooldownMs: 530,
     mainWeapon: '120 mm L30A1 rifled gun',
+    secondaryWeapon: '7.62 mm L94A1/L37A2 machine guns',
     traits: ['heavy armor', 'rifled gun'],
   },
   leclerc: {
@@ -117,7 +350,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 15,
     bulletSpeed: 790,
     fireCooldownMs: 360,
-    mainWeapon: '120 mm CN120-26 smoothbore',
+    mainWeapon: '120 mm CN120-26 smoothbore gun',
+    secondaryWeapon: '12.7 mm coaxial and 7.62 mm roof machine guns',
     specialWeapon: 'Autoloader',
     traits: ['autoloader', 'mobile'],
   },
@@ -132,8 +366,9 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 16,
     bulletSpeed: 800,
     fireCooldownMs: 440,
-    mainWeapon: '120 mm L/55 smoothbore',
-    specialWeapon: 'Active suspension',
+    mainWeapon: '120 mm CN08/L55 smoothbore gun',
+    secondaryWeapon: '12.7 mm K6 and 7.62 mm machine guns',
+    specialWeapon: 'KSTAM top-attack munition',
     traits: ['agile MBT', 'high tech'],
   },
   'type-10': {
@@ -147,7 +382,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 14,
     bulletSpeed: 780,
     fireCooldownMs: 400,
-    mainWeapon: '120 mm smoothbore',
+    mainWeapon: '120 mm Japan Steel Works smoothbore gun',
+    secondaryWeapon: '12.7 mm M2 and 7.62 mm Type 74 machine guns',
     traits: ['light MBT', 'rapid response'],
   },
   'm60-patton': {
@@ -161,7 +397,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 12,
     bulletSpeed: 700,
     fireCooldownMs: 480,
-    mainWeapon: '105 mm M68 gun',
+    mainWeapon: '105 mm M68 rifled gun',
+    secondaryWeapon: '12.7 mm M85 and 7.62 mm coaxial machine guns',
     traits: ['old MBT', 'steady gun'],
   },
   '7tp': {
@@ -175,8 +412,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 7,
     bulletSpeed: 590,
     fireCooldownMs: 320,
-    mainWeapon: '37 mm Bofors gun',
-    secondaryWeapon: '7.92 mm machine gun',
+    mainWeapon: '37 mm Bofors wz.37 gun',
+    secondaryWeapon: '7.92 mm Ckm wz.30 machine gun',
     traits: ['small', 'interwar'],
   },
   '10tp': {
@@ -190,7 +427,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 7,
     bulletSpeed: 600,
     fireCooldownMs: 300,
-    mainWeapon: '37 mm Bofors gun',
+    mainWeapon: '37 mm Bofors wz.37 gun',
+    secondaryWeapon: '7.92 mm Ckm wz.30 machine gun',
     traits: ['fast prototype', 'light armor'],
   },
   'pt91-twardy': {
@@ -204,7 +442,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 15,
     bulletSpeed: 735,
     fireCooldownMs: 500,
-    mainWeapon: '125 mm 2A46 gun',
+    mainWeapon: '125 mm 2A46MS/2A46 smoothbore gun',
+    secondaryWeapon: '7.62 mm PKT and 12.7 mm NSVT machine guns',
     specialWeapon: 'ERAWA reactive armor',
     traits: ['reactive armor', 'polish MBT'],
   },
@@ -219,7 +458,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 16,
     bulletSpeed: 790,
     fireCooldownMs: 470,
-    mainWeapon: '120 mm Rh-120 L/44 gun',
+    mainWeapon: '120 mm Rh-120 L/44 smoothbore gun',
+    secondaryWeapon: '7.62 mm MG3 machine guns',
     traits: ['modernized armor', 'polish upgrade'],
   },
   'pl-01': {
@@ -233,7 +473,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 13,
     bulletSpeed: 760,
     fireCooldownMs: 390,
-    mainWeapon: '105/120 mm concept gun',
+    mainWeapon: '105/120 mm unmanned turret concept gun',
+    secondaryWeapon: 'Remote weapon station concept',
     specialWeapon: 'Low-signature concept package',
     traits: ['stealth concept', 'low profile'],
   },
@@ -248,7 +489,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 14,
     bulletSpeed: 760,
     fireCooldownMs: 420,
-    mainWeapon: '76 mm M1 gun',
+    mainWeapon: '76 mm M1 tank gun',
+    secondaryWeapon: '12.7 mm M2HB machine gun',
     traits: ['glass cannon', 'superszybki'],
   },
   maus: {
@@ -263,7 +505,7 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletSpeed: 540,
     fireCooldownMs: 1050,
     mainWeapon: '128 mm KwK 44 L/55 gun',
-    secondaryWeapon: '75 mm coaxial gun',
+    secondaryWeapon: '75 mm coaxial gun and MG34',
     traits: ['super heavy', 'fortress'],
   },
   sturmtiger: {
@@ -278,6 +520,7 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletSpeed: 360,
     fireCooldownMs: 1800,
     mainWeapon: '380 mm RW 61 rocket mortar',
+    secondaryWeapon: '7.92 mm MG34 machine gun',
     specialWeapon: 'Massive wall-breaking rocket',
     traits: ['siege weapon', 'no turret'],
   },
@@ -292,7 +535,8 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletDamage: 18,
     bulletSpeed: 850,
     fireCooldownMs: 520,
-    mainWeapon: '105 mm Bofors L/62 gun',
+    mainWeapon: '105 mm Bofors L/62 L74 gun',
+    secondaryWeapon: '7.62 mm Ksp 58 machine guns',
     specialWeapon: 'Hull-aimed fixed gun',
     traits: ['turretless', 'sniper'],
   },
@@ -308,11 +552,36 @@ export const TANK_GAMEPLAY_STATS: Record<string, TankGameplayStats> = {
     bulletSpeed: 720,
     fireCooldownMs: 110,
     mainWeapon: '20 mm wz.38 FK-A autocannon',
-    secondaryWeapon: '7.92 mm machine gun',
+    secondaryWeapon: '7.92 mm Ckm wz.25 machine gun',
     specialWeapon: 'Rapid 20 mm harassment fire',
     traits: ['tiny hitbox', 'autocannon'],
   },
 };
+
+const fallbackWeaponForStats = (tankId: string, stats: TankGameplayStatsInput): TankWeaponDefinition => (
+  cannon(
+      `${tankId}-primary`,
+      stats.mainWeapon,
+      90,
+      stats.bulletDamage,
+      stats.bulletSpeed,
+      stats.fireCooldownMs,
+      18,
+      'Generated fallback weapon from legacy gameplay stats.',
+  )
+);
+
+const normalizeTankGameplayStats = (tankId: string, stats: TankGameplayStatsInput): TankGameplayStats => ({
+  ...stats,
+  weapons: stats.weapons ?? TANK_WEAPON_LOADOUTS[tankId] ?? [fallbackWeaponForStats(tankId, stats)],
+});
+
+const DEFAULT_TANK_GAMEPLAY_STATS = normalizeTankGameplayStats('default', DEFAULT_TANK_GAMEPLAY_STATS_INPUT);
+
+export const TANK_GAMEPLAY_STATS = Object.fromEntries(
+    Object.entries(RAW_TANK_GAMEPLAY_STATS)
+        .map(([tankId, stats]) => [tankId, normalizeTankGameplayStats(tankId, stats)]),
+) as Record<string, TankGameplayStats>;
 
 export const tankStatsFor = (tankId: string): TankGameplayStats => (
   TANK_GAMEPLAY_STATS[tankId] ?? DEFAULT_TANK_GAMEPLAY_STATS

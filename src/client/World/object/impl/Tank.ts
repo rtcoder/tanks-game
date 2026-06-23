@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {Scene} from '../../system/Scene';
-import type {TankDefinition} from '../../tank-definitions/shared/tank-definition.type';
+import type {TankDefinition, TankWeaponDefinition} from '../../tank-definitions/shared/tank-definition.type';
 import {checkCollisionTankWithTank, checkCollisionTankWithWall} from '../../utils/collision';
 import {PBar} from '../../utils/PBar';
 import {MovableObject} from '../MovableObject';
@@ -30,6 +30,9 @@ export class Tank extends MovableObject {
   bulletLocalDir: THREE.Vector3 = new THREE.Vector3(0, 1, 0);
   bulletSpeed: number = 680;
   fireCooldownMs: number = 420;
+  currentWeapon: TankWeaponDefinition | null = null;
+  activeWeaponIndex: number = 0;
+  weaponLastFireTimes: Record<string, number> = {};
 
   // key bindings
   proceedUpKey: string = 'KeyW';
@@ -42,6 +45,7 @@ export class Tank extends MovableObject {
   barrelUpKey: string = 'KeyR';
   barrelDownKey: string = 'KeyF';
   resetAimKey: string = 'KeyT';
+  weaponSelectKeys: string[] = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
 
   // keyboard control variables
   proceed: number = 0;
@@ -55,6 +59,7 @@ export class Tank extends MovableObject {
   aimPitchSpeed: number = THREE.MathUtils.degToRad(42);
   aimResetting: boolean = false;
   aimResetKeyPressed: boolean = false;
+  weaponSelectKeyPressed = new Set<string>();
   hasRotatingTurret: boolean = true;
   lastFireTime: number = 0;
   firingKeyPressed: boolean = false;
@@ -74,6 +79,12 @@ export class Tank extends MovableObject {
   powerupsContainerElement!: HTMLElement;
   aimPitchElement!: HTMLElement;
   crosshairElement!: HTMLElement;
+  weaponElement!: HTMLElement;
+  weaponNameElement!: HTMLElement;
+  weaponMetaElement!: HTMLElement;
+  weaponReadyElement!: HTMLElement;
+  weaponCooldownElement!: HTMLElement;
+  weaponSlotElements: HTMLElement[] = [];
 
   // poweup is responsible for creating powerup pbar elements and hooks
   // tank tick is responsible for checking if the powerup is expired and remove it
@@ -151,15 +162,15 @@ export class Tank extends MovableObject {
     const {stats} = definition;
     this.maxHealth = stats.maxHealth;
     this.health = preserveHealth ? Math.min(this.health, this.maxHealth) : this.maxHealth;
-    this.attack = stats.bulletDamage;
     this.defense = stats.defense;
     this.proceedSpeed = stats.moveSpeed;
     this.rotateSpeed = stats.turnSpeed;
-    this.bulletSpeed = stats.bulletSpeed;
-    this.fireCooldownMs = stats.fireCooldownMs;
     this.hasRotatingTurret = stats.hasRotatingTurret;
     this.aimYawSpeed = THREE.MathUtils.degToRad(stats.turretTraverseDegPerSecond);
     this.aimPitchSpeed = THREE.MathUtils.degToRad(stats.aimPitchDegPerSecond);
+    this.activeWeaponIndex = 0;
+    this.weaponLastFireTimes = {};
+    this.selectWeapon(0, 1);
     if (!this.hasRotatingTurret) {
       this.setAimYaw(0);
     }
@@ -174,6 +185,107 @@ export class Tank extends MovableObject {
     this.powerupsContainerElement = container_sub.getElementsByClassName('powerups')[0] as HTMLElement;
     this.aimPitchElement = container_sub.getElementsByClassName('crosshair__pitch')[0] as HTMLElement;
     this.crosshairElement = container_sub.getElementsByClassName('crosshair')[0] as HTMLElement;
+    this.weaponElement = container_sub.getElementsByClassName('weapon-status')[0] as HTMLElement;
+    this.weaponNameElement = container_sub.getElementsByClassName('weapon-status__name')[0] as HTMLElement;
+    this.weaponMetaElement = container_sub.getElementsByClassName('weapon-status__meta')[0] as HTMLElement;
+    this.weaponReadyElement = container_sub.getElementsByClassName('weapon-status__ready')[0] as HTMLElement;
+    this.weaponCooldownElement = container_sub.getElementsByClassName('weapon-status__cooldown-fill')[0] as HTMLElement;
+    this.weaponSlotElements = Array.from(container_sub.getElementsByClassName('weapon-status__slot')) as HTMLElement[];
+    this.updateWeaponHud();
+  }
+
+  availableWeapons(): TankWeaponDefinition[] {
+    return this.tankDefinition?.stats.weapons ?? [];
+  }
+
+  selectWeapon(index: number, damageMultiplier?: number): boolean {
+    const weapons = this.availableWeapons();
+    const nextWeapon = weapons[index];
+    if (!nextWeapon) {
+      return false;
+    }
+
+    const currentDamage = this.currentWeapon?.damage ?? this.tankDefinition?.stats.bulletDamage ?? 1;
+    const preservedMultiplier = damageMultiplier ?? (currentDamage > 0 ? this.attack / currentDamage : 1);
+    this.activeWeaponIndex = index;
+    this.currentWeapon = nextWeapon;
+    this.attack = nextWeapon.damage * preservedMultiplier;
+    this.bulletSpeed = nextWeapon.projectileSpeed;
+    this.fireCooldownMs = nextWeapon.cooldownMs;
+    this.firingKeyPressed = false;
+    this.updateWeaponHud();
+    return true;
+  }
+
+  _updateWeaponSelection(keyboard: { [key: string]: number }): void {
+    this.weaponSelectKeys.forEach((key, index) => {
+      const pressed = Boolean(keyboard[key]);
+      if (!pressed) {
+        this.weaponSelectKeyPressed.delete(key);
+        return;
+      }
+      if (this.weaponSelectKeyPressed.has(key)) {
+        return;
+      }
+
+      this.weaponSelectKeyPressed.add(key);
+      this.selectWeapon(index);
+    });
+  }
+
+  updateWeaponHud(): void {
+    if (!this.weaponElement || !this.weaponNameElement || !this.weaponMetaElement || !this.weaponReadyElement || !this.weaponCooldownElement) {
+      return;
+    }
+
+    const weapon = this.currentWeapon;
+    if (!weapon) {
+      this.weaponNameElement.innerText = 'No weapon';
+      this.weaponMetaElement.innerText = 'Loadout unavailable';
+      this.weaponReadyElement.innerText = 'Offline';
+      this.weaponElement.dataset.ready = 'false';
+      this.weaponCooldownElement.style.transform = 'scaleX(0)';
+      this.updateWeaponSlots();
+      return;
+    }
+
+    const cooldownProgress = this.fireCooldownMs > 0
+        ? THREE.MathUtils.clamp((Date.now() - this.lastFireTimeForWeapon(weapon)) / this.fireCooldownMs, 0, 1)
+        : 1;
+    const ready = cooldownProgress >= 1;
+    const reload = (weapon.cooldownMs / 1000).toFixed(1);
+    const damage = this.attack.toFixed(this.attack % 1 === 0 ? 0 : 1);
+    this.weaponNameElement.innerText = weapon.name;
+    this.weaponMetaElement.innerText = `DMG ${damage} • Splash ${weapon.splashRadius} • ${reload}s`;
+    this.weaponElement.dataset.category = weapon.category;
+    this.weaponElement.dataset.ready = ready ? 'true' : 'false';
+    this.weaponReadyElement.innerText = ready ? 'Ready' : 'Reload';
+    this.weaponCooldownElement.style.transform = `scaleX(${cooldownProgress})`;
+    this.updateWeaponSlots();
+  }
+
+  lastFireTimeForWeapon(weapon: TankWeaponDefinition | null = this.currentWeapon): number {
+    if (!weapon) {
+      return this.lastFireTime;
+    }
+
+    return this.weaponLastFireTimes[weapon.id] ?? 0;
+  }
+
+  markWeaponFired(weapon: TankWeaponDefinition | null, now: number): void {
+    this.lastFireTime = now;
+    if (weapon) {
+      this.weaponLastFireTimes[weapon.id] = now;
+    }
+  }
+
+  updateWeaponSlots(): void {
+    const weapons = this.availableWeapons();
+    this.weaponSlotElements.forEach((slotElement, index) => {
+      slotElement.dataset.active = index === this.activeWeaponIndex ? 'true' : 'false';
+      slotElement.dataset.available = weapons[index] ? 'true' : 'false';
+      slotElement.title = weapons[index]?.name ?? `Slot ${index + 1}`;
+    });
   }
 
   _updateSpeed(keyboard: { [key: string]: number }, delta: number) {
@@ -351,12 +463,15 @@ export class Tank extends MovableObject {
     // check keyboard, if space is pressed, create a bullet and add it to the scene
     if (keyboard[this.firingKey]) {
       const now = Date.now();
-      if (!this.firingKeyPressed && now - this.lastFireTime > this.fireCooldownMs) {
+      const automaticFire = this.isAutomaticWeapon(this.currentWeapon);
+      const weaponLastFireTime = this.lastFireTimeForWeapon(this.currentWeapon);
+      if ((automaticFire || !this.firingKeyPressed) && now - weaponLastFireTime > this.fireCooldownMs) {
         const {pos, vel} = this._getBulletInitState();
         this.proceed = (keyboard[this.proceedUpKey] || 0) - (keyboard[this.proceedDownKey] || 0);
         const tankVel = new THREE.Vector3(0, 1, 0).applyEuler(this.mesh.rotation).multiplyScalar(this.proceed * this.proceedSpeed);
+        const shotWeapon = this.createShotWeapon();
         if (!this.bulletUpgraded) {
-          const bullet = new Bullet('main', pos, vel.add(tankVel), this.attack, this.bullet_mesh, this.getBulletRotation(), this.listeners, this.audio);
+          const bullet = new Bullet('main', pos, vel.add(tankVel), this.attack, this.bullet_mesh, this.getBulletRotation(), this.listeners, this.audio, undefined, shotWeapon);
           bullets.push(bullet);
           scene.add(bullet);
         } else {
@@ -364,13 +479,13 @@ export class Tank extends MovableObject {
           let vel2 = this.getBulletVelocity(-Math.PI / 6);
           let vel3 = this.getBulletVelocity(Math.PI / 6);
           const bullet1 = new Bullet('main', pos, vel.add(tankVel), this.attack, this.bullet_mesh,
-              this.getBulletRotation(), this.listeners, this.audio);
+              this.getBulletRotation(), this.listeners, this.audio, undefined, shotWeapon);
           const bullet2 = new Bullet('main', pos, vel2.add(tankVel), this.attack, this.bullet_mesh,
               this.getBulletRotation(Math.PI / 6),
-              this.listeners, this.audio);
+              this.listeners, this.audio, undefined, shotWeapon);
           const bullet3 = new Bullet('main', pos, vel3.add(tankVel), this.attack, this.bullet_mesh,
               this.getBulletRotation(-Math.PI / 6),
-              this.listeners, this.audio);
+              this.listeners, this.audio, undefined, shotWeapon);
           bullets.push(bullet1, bullet2, bullet3);
           scene.add(bullet1);
           scene.add(bullet2);
@@ -378,7 +493,7 @@ export class Tank extends MovableObject {
         }
 
         this.firingKeyPressed = true;
-        this.lastFireTime = now;
+        this.markWeaponFired(this.currentWeapon, now);
       }
     } else {
       this.firingKeyPressed = false;
@@ -387,6 +502,25 @@ export class Tank extends MovableObject {
 
   getBulletRotation(yawOffset = 0): THREE.Euler {
     return new THREE.Euler(this.aimPitch, this.mesh.rotation.y, this.mesh.rotation.z + this.aimYaw + yawOffset);
+  }
+
+  isAutomaticWeapon(weapon: TankWeaponDefinition | null): boolean {
+    return weapon?.category === 'machine-gun'
+        || weapon?.category === 'autocannon'
+        || weapon?.category === 'coaxial-gun';
+  }
+
+  createShotWeapon(): TankWeaponDefinition | null {
+    if (!this.currentWeapon) {
+      return null;
+    }
+
+    return {
+      ...this.currentWeapon,
+      damage: this.attack,
+      projectileSpeed: this.bulletSpeed,
+      cooldownMs: this.fireCooldownMs,
+    };
   }
 
   update(
@@ -404,6 +538,7 @@ export class Tank extends MovableObject {
     this._updateAim(keyboard, delta);
     this._updateAimPitch(keyboard, delta);
     this._updateAimReset(delta);
+    this._updateWeaponSelection(keyboard);
     this._updatePosition(ground, walls, tanks, surrounding_walls, environment);
     this._createBullets(keyboard, bullets, scene);
     this.tankModel?.update({
@@ -482,6 +617,7 @@ export class Tank extends MovableObject {
       const aimDegrees = THREE.MathUtils.radToDeg(this.aimPitch);
       this.aimPitchElement.innerText = `${aimDegrees.toFixed(0)}°`;
     }
+    this.updateWeaponHud();
 
     for (const key in this.powerups) {
       let timeout = this.powerups[key].timeout - delta * 1000;
