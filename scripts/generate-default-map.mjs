@@ -1,13 +1,11 @@
 import {readFile, writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {dirname, resolve} from 'node:path';
+import {vector} from './common/utils.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, '..');
 const mapPath = resolve(projectRoot, 'src/assets/maps/default.json');
-
-const round = (value) => Number(value.toFixed(6));
-const vector = (values) => values.map(round);
 
 const randomFactory = (seed) => {
   let value = seed;

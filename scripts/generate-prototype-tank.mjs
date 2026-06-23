@@ -2,25 +2,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import * as THREE from 'three';
 import {GLTFExporter} from 'three/examples/jsm/exporters/GLTFExporter.js';
+import FileReader from './common/simple-file-reader.mjs';
+import {box, cylinder, material, mesh} from './common/utils.mjs';
 
-globalThis.FileReader ??= class FileReader {
-  result = null;
-  onloadend = null;
-  async readAsDataURL(blob) {
-    const buffer = Buffer.from(await blob.arrayBuffer());
-    this.result = `data:${blob.type || 'application/octet-stream'};base64,${buffer.toString('base64')}`;
-    this.onloadend?.();
-  }
-};
+globalThis.FileReader ??= FileReader;
 
 const outputDir = path.resolve('public/battletanks/tanks/prototype-mk1');
 const outputPath = path.join(outputDir, 'scene.gltf');
-
-const material = (name, color, roughness = 0.78, metalness = 0.12) => {
-  const mat = new THREE.MeshStandardMaterial({color, roughness, metalness});
-  mat.name = name;
-  return mat;
-};
 
 const armor = material('olive_drab_armor', 0x596b3f);
 const darkArmor = material('dark_side_armor', 0x2f3828);
@@ -28,21 +16,6 @@ const trackRubber = material('track_rubber', 0x191d19, 0.92, 0.04);
 const trackMetal = material('track_metal', 0x59605a, 0.7, 0.35);
 const barrelMat = material('gunmetal_barrel', 0x303632, 0.62, 0.42);
 const opticMat = material('cold_blue_optics', 0x68d9ff, 0.25, 0.1);
-
-const mesh = (name, geometry, mat, position = [0, 0, 0], rotation = [0, 0, 0]) => {
-  const item = new THREE.Mesh(geometry, mat);
-  item.name = name;
-  item.position.set(...position);
-  item.rotation.set(...rotation);
-  item.castShadow = true;
-  item.receiveShadow = true;
-  return item;
-};
-
-const box = (w, l, h) => new THREE.BoxGeometry(w, l, h);
-const cylinder = (radiusTop, radiusBottom, depth, radialSegments = 24) => (
-  new THREE.CylinderGeometry(radiusTop, radiusBottom, depth, radialSegments)
-);
 
 const root = new THREE.Group();
 root.name = 'prototype_mk1_root';

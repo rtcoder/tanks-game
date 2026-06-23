@@ -2,38 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import * as THREE from 'three';
 import {GLTFExporter} from 'three/examples/jsm/exporters/GLTFExporter.js';
+import FileReader from './common/simple-file-reader.mjs';
+import {box, cylinder, material, mesh} from './common/utils.mjs';
 
-globalThis.FileReader ??= class FileReader {
-  result = null;
-  onloadend = null;
-  async readAsDataURL(blob) {
-    const buffer = Buffer.from(await blob.arrayBuffer());
-    this.result = `data:${blob.type || 'application/octet-stream'};base64,${buffer.toString('base64')}`;
-    this.onloadend?.();
-  }
-};
+globalThis.FileReader ??= FileReader;
 
 const tanksRoot = path.resolve('public/battletanks/tanks');
-
-const makeMaterial = (name, color, roughness = 0.76, metalness = 0.1) => {
-  const material = new THREE.MeshStandardMaterial({color, roughness, metalness});
-  material.name = name;
-  return material;
-};
-
-const box = (width, length, height) => new THREE.BoxGeometry(width, length, height);
-const cyl = (top, bottom, depth, segments = 24) => new THREE.CylinderGeometry(top, bottom, depth, segments);
-
-const mesh = (name, geometry, material, position = [0, 0, 0], rotation = [0, 0, 0], scale = [1, 1, 1]) => {
-  const item = new THREE.Mesh(geometry, material);
-  item.name = name;
-  item.position.set(...position);
-  item.rotation.set(...rotation);
-  item.scale.set(...scale);
-  item.castShadow = true;
-  item.receiveShadow = true;
-  return item;
-};
 
 const addTrack = (parent, side, x, length, height, mats, wheels = 6) => {
   const track = new THREE.Group();
@@ -49,7 +23,7 @@ const addTrack = (parent, side, x, length, height, mats, wheels = 6) => {
   for (let index = 0; index < wheels; index += 1) {
     track.add(mesh(
         `${side}_roadwheel_${index}`,
-        cyl(2.8, 2.8, 1.3, 20),
+        cylinder(2.8, 2.8, 1.3, 20),
         mats.trackMetal,
         [0, start + index * step, -height * 0.2],
         [0, 0, Math.PI / 2],
@@ -66,11 +40,11 @@ const addBarrel = (turret, spec, mats) => {
   turret.add(barrel);
 
   barrel.add(mesh('mantlet', box(spec.mantlet[0], spec.mantlet[1], spec.mantlet[2]), mats.dark, [0, -1, 0]));
-  barrel.add(mesh('barrel_tube', cyl(spec.radius * 0.78, spec.radius, spec.length, 28), mats.barrel, [0, spec.length * 0.5, 0]));
+  barrel.add(mesh('barrel_tube', cylinder(spec.radius * 0.78, spec.radius, spec.length, 28), mats.barrel, [0, spec.length * 0.5, 0]));
   if (spec.muzzle) {
     barrel.add(mesh('muzzle_brake', box(spec.muzzle[0], spec.muzzle[1], spec.muzzle[2]), mats.barrel, [0, spec.length + spec.muzzle[1] * 0.45, 0]));
   } else {
-    barrel.add(mesh('muzzle_collar', cyl(spec.radius * 1.35, spec.radius * 1.35, 2.8, 28), mats.barrel, [0, spec.length + 1.4, 0]));
+    barrel.add(mesh('muzzle_collar', cylinder(spec.radius * 1.35, spec.radius * 1.35, 2.8, 28), mats.barrel, [0, spec.length + 1.4, 0]));
   }
 
   return barrel;
@@ -93,8 +67,8 @@ const addT55 = (root, mats) => {
   hull.add(mesh('rear_engine_grille', box(25, 12, 3), mats.dark, [0, -25, 15]));
   hull.add(mesh('left_side_box', box(3.5, 42, 5), mats.armor2, [-18, 0, 14]));
   hull.add(mesh('right_side_box', box(3.5, 42, 5), mats.armor2, [18, 0, 14]));
-  hull.add(mesh('left_rear_fuel_drum', cyl(3.2, 3.2, 12, 20), mats.dark, [-11, -34, 13], [Math.PI / 2, 0, 0]));
-  hull.add(mesh('right_rear_fuel_drum', cyl(3.2, 3.2, 12, 20), mats.dark, [11, -34, 13], [Math.PI / 2, 0, 0]));
+  hull.add(mesh('left_rear_fuel_drum', cylinder(3.2, 3.2, 12, 20), mats.dark, [-11, -34, 13], [Math.PI / 2, 0, 0]));
+  hull.add(mesh('right_rear_fuel_drum', cylinder(3.2, 3.2, 12, 20), mats.dark, [11, -34, 13], [Math.PI / 2, 0, 0]));
 
   addTrack(hull, 'left', -21, 59, 9, mats, 5);
   addTrack(hull, 'right', 21, 59, 9, mats, 5);
@@ -103,11 +77,11 @@ const addT55 = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 5, 20);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(10.5, 11.5, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(10.5, 11.5, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('rounded_cast_turret', new THREE.SphereGeometry(12, 32, 16), mats.armor, [0, 0, 4], [0, 0, 0], [1.05, 0.92, 0.52]));
   turret.add(mesh('turret_front_cast_cheek', box(18, 7, 7), mats.armor, [0, 9, 4]));
-  turret.add(mesh('commander_cupola', cyl(3.5, 4, 2.4, 24), mats.dark, [-4, -3, 10], [Math.PI / 2, 0, 0]));
-  turret.add(mesh('ir_searchlight', cyl(2.2, 2.2, 3.2, 18), mats.optic, [6, 8, 8], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('commander_cupola', cylinder(3.5, 4, 2.4, 24), mats.dark, [-4, -3, 10], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('ir_searchlight', cylinder(2.2, 2.2, 3.2, 18), mats.optic, [6, 8, 8], [Math.PI / 2, 0, 0]));
 
   addBarrel(turret, {origin: [0, 11, 4.3], length: 33, radius: 1.25, mantlet: [8, 4, 5], muzzle: [5, 3, 2.2]}, mats);
 };
@@ -132,12 +106,12 @@ const addT72 = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 4, 20.5);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(11.2, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(11.2, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('low_domed_turret', new THREE.SphereGeometry(13, 32, 16), mats.armor, [0, 0, 4], [0, 0, 0], [1.1, 0.95, 0.45]));
   turret.add(mesh('turret_front_wedge', box(20, 8, 6), mats.armor, [0, 10, 4], [0, 0, 0]));
   addEraBlocks(turret, 'turret_left', 3, -9, 9.5, 8, 4.5, [3.2, 2, 2], mats.era);
   addEraBlocks(turret, 'turret_right', 3, 1, 9.5, 8, 4.5, [3.2, 2, 2], mats.era);
-  turret.add(mesh('commander_cupola', cyl(3.2, 3.8, 2.1, 24), mats.dark, [-5, -3, 9], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('commander_cupola', cylinder(3.2, 3.8, 2.1, 24), mats.dark, [-5, -3, 9], [Math.PI / 2, 0, 0]));
 
   addBarrel(turret, {origin: [0, 11, 4.2], length: 38, radius: 1.18, mantlet: [9, 4, 5]}, mats);
 };
@@ -161,13 +135,13 @@ const addAbrams = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 5, 22);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(11.5, 12.5, 3.2, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(11.5, 12.5, 3.2, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('angular_turret_block', box(28, 24, 10), mats.armor, [0, 0, 4]));
   turret.add(mesh('turret_front_cheek_left', box(11, 9, 9), mats.armor, [-8, 11, 4], [0, 0, -0.18]));
   turret.add(mesh('turret_front_cheek_right', box(11, 9, 9), mats.armor, [8, 11, 4], [0, 0, 0.18]));
   turret.add(mesh('turret_rear_bustle', box(30, 13, 8), mats.dark, [0, -17, 5]));
   turret.add(mesh('thermal_sight_box', box(4, 4, 4), mats.optic, [8, 9, 9]));
-  turret.add(mesh('commander_cupola', cyl(4, 4.6, 2.6, 24), mats.dark, [-7, -2, 12], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('commander_cupola', cylinder(4, 4.6, 2.6, 24), mats.dark, [-7, -2, 12], [Math.PI / 2, 0, 0]));
 
   addBarrel(turret, {origin: [0, 13, 5], length: 44, radius: 1.25, mantlet: [10, 4, 7]}, mats);
 };
@@ -191,13 +165,13 @@ const addLeopard = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 7, 22);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(11, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(11, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('boxy_turret_core', box(25, 26, 10), mats.armor, [0, 0, 4]));
   turret.add(mesh('wedge_front_armor', box(27, 12, 9), mats.armor, [0, 13, 4], [0, 0, 0]));
   turret.add(mesh('left_side_turret_slope', box(5, 23, 9), mats.armor2, [-15, 2, 4], [0, 0, -0.22]));
   turret.add(mesh('right_side_turret_slope', box(5, 23, 9), mats.armor2, [15, 2, 4], [0, 0, 0.22]));
   turret.add(mesh('commander_sight_box', box(5, 5, 4), mats.optic, [-7, 4, 11]));
-  turret.add(mesh('panoramic_sight', cyl(2.3, 2.5, 2.4, 18), mats.optic, [7, 1, 12], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('panoramic_sight', cylinder(2.3, 2.5, 2.4, 18), mats.optic, [7, 1, 12], [Math.PI / 2, 0, 0]));
 
   addBarrel(turret, {origin: [0, 15, 5], length: 52, radius: 1.1, mantlet: [10, 4, 7]}, mats);
 };
@@ -221,13 +195,13 @@ const addMerkava = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, -8, 23);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(11, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(11, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('low_rear_turret_core', box(27, 24, 9), mats.armor, [0, 0, 4]));
   turret.add(mesh('sloped_front_turret', box(25, 12, 8), mats.armor, [0, 12, 4], [0.1, 0, 0]));
   turret.add(mesh('rear_basket', box(29, 12, 6), mats.dark, [0, -18, 5]));
   turret.add(mesh('left_turret_cheek', box(5, 20, 8), mats.armor2, [-15, 2, 4], [0, 0, -0.28]));
   turret.add(mesh('right_turret_cheek', box(5, 20, 8), mats.armor2, [15, 2, 4], [0, 0, 0.28]));
-  turret.add(mesh('commander_station', cyl(3.5, 4, 2.5, 24), mats.dark, [-6, -2, 11], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('commander_station', cylinder(3.5, 4, 2.5, 24), mats.dark, [-6, -2, 11], [Math.PI / 2, 0, 0]));
   turret.add(mesh('remote_weapon_station', box(4, 5, 3), mats.barrel, [6, -2, 12]));
 
   addBarrel(turret, {origin: [0, 13, 5], length: 42, radius: 1.2, mantlet: [10, 4, 7]}, mats);
@@ -252,12 +226,12 @@ const addChallenger = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 3, 23);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(12, 13, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(12, 13, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('massive_turret_core', box(30, 27, 11), mats.armor, [0, 0, 4.5]));
   turret.add(mesh('flat_front_armor_face', box(28, 10, 10), mats.armor2, [0, 13, 4.5]));
   turret.add(mesh('left_turret_slab', box(5, 24, 9), mats.armor2, [-17, 1, 4], [0, 0, -0.18]));
   turret.add(mesh('right_turret_slab', box(5, 24, 9), mats.armor2, [17, 1, 4], [0, 0, 0.18]));
-  turret.add(mesh('commander_sight', cyl(3.8, 4.2, 2.4, 24), mats.optic, [-7, -2, 12], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('commander_sight', cylinder(3.8, 4.2, 2.4, 24), mats.optic, [-7, -2, 12], [Math.PI / 2, 0, 0]));
   turret.add(mesh('turret_rear_bin', box(31, 12, 6), mats.dark, [0, -19, 6]));
 
   addBarrel(turret, {origin: [0, 14, 5], length: 45, radius: 1.2, mantlet: [11, 4, 7]}, mats);
@@ -282,12 +256,12 @@ const addLeclerc = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 6, 21.5);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(10.5, 11.5, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(10.5, 11.5, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('low_autoloader_turret', box(24, 22, 9), mats.armor, [0, 0, 4]));
   turret.add(mesh('pointed_front_wedge', box(24, 11, 8), mats.armor2, [0, 12, 4], [0, 0, 0]));
   turret.add(mesh('left_turret_angle', box(4, 20, 8), mats.armor2, [-14, 1, 4], [0, 0, -0.28]));
   turret.add(mesh('right_turret_angle', box(4, 20, 8), mats.armor2, [14, 1, 4], [0, 0, 0.28]));
-  turret.add(mesh('panoramic_sight', cyl(2.4, 2.7, 2.4, 20), mats.optic, [6, 1, 11], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('panoramic_sight', cylinder(2.4, 2.7, 2.4, 20), mats.optic, [6, 1, 11], [Math.PI / 2, 0, 0]));
   turret.add(mesh('rear_autoloader_bustle', box(24, 11, 6), mats.dark, [0, -16, 5]));
 
   addBarrel(turret, {origin: [0, 13, 4.8], length: 43, radius: 1.05, mantlet: [9, 4, 6]}, mats);
@@ -314,7 +288,7 @@ const addK2 = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 6, 22);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(11, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(11, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('angular_tech_turret', box(26, 24, 10), mats.armor, [0, 0, 4]));
   turret.add(mesh('arrowhead_front_armor', box(26, 12, 9), mats.armor2, [0, 13, 4], [0, 0, 0]));
   turret.add(mesh('left_cheek_module', box(6, 19, 8), mats.era, [-15, 4, 4], [0, 0, -0.28]));
@@ -344,12 +318,12 @@ const addType10 = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 5, 20);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(10, 11, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(10, 11, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('compact_faceted_turret', box(23, 21, 8), mats.armor, [0, 0, 3.8]));
   turret.add(mesh('sharp_front_turret', box(22, 10, 7.5), mats.armor2, [0, 11.5, 3.8]));
   turret.add(mesh('left_light_cheek', box(4, 17, 7), mats.armor2, [-13, 2, 4], [0, 0, -0.3]));
   turret.add(mesh('right_light_cheek', box(4, 17, 7), mats.armor2, [13, 2, 4], [0, 0, 0.3]));
-  turret.add(mesh('small_panoramic_sight', cyl(2, 2.3, 2.2, 18), mats.optic, [6, 0, 10], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('small_panoramic_sight', cylinder(2, 2.3, 2.2, 18), mats.optic, [6, 0, 10], [Math.PI / 2, 0, 0]));
 
   addBarrel(turret, {origin: [0, 12.5, 4.5], length: 39, radius: 1, mantlet: [8, 4, 6]}, mats);
 };
@@ -373,10 +347,10 @@ const addM60 = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 4, 23);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(11, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(11, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('tall_cast_turret', new THREE.SphereGeometry(13, 32, 16), mats.armor, [0, 0, 5], [0, 0, 0], [1.02, 1, 0.62]));
   turret.add(mesh('turret_front_nose', box(18, 8, 8), mats.armor, [0, 10, 5]));
-  turret.add(mesh('large_commander_cupola', cyl(4.3, 4.7, 3.2, 24), mats.dark, [-5, -3, 13], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('large_commander_cupola', cylinder(4.3, 4.7, 3.2, 24), mats.dark, [-5, -3, 13], [Math.PI / 2, 0, 0]));
   turret.add(mesh('rangefinder_left', box(3, 5, 3), mats.optic, [-12, 3, 8]));
   turret.add(mesh('rangefinder_right', box(3, 5, 3), mats.optic, [12, 3, 8]));
 
@@ -402,10 +376,10 @@ const add7TP = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 4, 17.5);
   root.add(turret);
-  turret.add(mesh('small_turret_ring', cyl(6.8, 7.4, 2.2, 24), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('small_turret_ring', cylinder(6.8, 7.4, 2.2, 24), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('riveted_turret_box', box(13, 12, 8), mats.armor, [0, 0, 3.5]));
   turret.add(mesh('turret_front_plate', box(12, 5, 7), mats.armor2, [0, 6.5, 3.5]));
-  turret.add(mesh('commander_hatch', cyl(2.4, 2.7, 1.5, 18), mats.dark, [-3, -2, 8], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('commander_hatch', cylinder(2.4, 2.7, 1.5, 18), mats.dark, [-3, -2, 8], [Math.PI / 2, 0, 0]));
 
   addBarrel(turret, {origin: [0, 7, 3.8], length: 21, radius: 0.72, mantlet: [5, 2.6, 4], muzzle: [3.2, 1.8, 1.6]}, mats);
 };
@@ -429,10 +403,10 @@ const add10TP = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 4, 18);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(7.6, 8.4, 2.4, 28), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(7.6, 8.4, 2.4, 28), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('prototype_turret_core', box(15, 14, 8), mats.armor, [0, 0, 3.8]));
   turret.add(mesh('rounded_turret_front', box(14, 6, 7), mats.armor2, [0, 7.5, 3.8]));
-  turret.add(mesh('cupola', cyl(2.6, 3, 1.8, 18), mats.dark, [-3.8, -2, 8.5], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('cupola', cylinder(2.6, 3, 1.8, 18), mats.dark, [-3.8, -2, 8.5], [Math.PI / 2, 0, 0]));
 
   addBarrel(turret, {origin: [0, 8, 4], length: 24, radius: 0.8, mantlet: [5.5, 2.8, 4.2]}, mats);
 };
@@ -457,13 +431,13 @@ const addPT91 = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 4, 20.5);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(11.2, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(11.2, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('twardy_low_turret', new THREE.SphereGeometry(13, 32, 16), mats.armor, [0, 0, 4], [0, 0, 0], [1.1, 0.95, 0.45]));
   turret.add(mesh('front_erawa_plate', box(20, 8, 6), mats.era, [0, 10, 4]));
   addEraBlocks(turret, 'turret_erawa_left', 3, -9, 9.8, 8, 4.5, [3.3, 2.2, 2.2], mats.era);
   addEraBlocks(turret, 'turret_erawa_right', 3, 1, 9.8, 8, 4.5, [3.3, 2.2, 2.2], mats.era);
   turret.add(mesh('drawa_sight_box', box(4, 4, 3), mats.optic, [6.5, 5, 9]));
-  turret.add(mesh('commander_cupola', cyl(3.2, 3.8, 2.1, 24), mats.dark, [-5, -3, 9], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('commander_cupola', cylinder(3.2, 3.8, 2.1, 24), mats.dark, [-5, -3, 9], [Math.PI / 2, 0, 0]));
 
   addBarrel(turret, {origin: [0, 11, 4.2], length: 38, radius: 1.18, mantlet: [9, 4, 5]}, mats);
 };
@@ -487,7 +461,7 @@ const addLeopard2PL = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 7, 22);
   root.add(turret);
-  turret.add(mesh('turret_ring', cyl(11, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('turret_ring', cylinder(11, 12, 3, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('turret_core', box(25, 26, 10), mats.armor, [0, 0, 4]));
   turret.add(mesh('polish_modular_front_armor', box(28, 13, 10), mats.era, [0, 13.5, 4]));
   turret.add(mesh('left_side_module', box(5.5, 23, 9), mats.era, [-15.5, 2, 4], [0, 0, -0.2]));
@@ -517,7 +491,7 @@ const addPL01 = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 5, 21.5);
   root.add(turret);
-  turret.add(mesh('low_turret_ring', cyl(10.5, 11.5, 2.6, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('low_turret_ring', cylinder(10.5, 11.5, 2.6, 36), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('unmanned_stealth_turret', box(24, 22, 8), mats.armor, [0, 0, 3.7]));
   turret.add(mesh('faceted_front_mask', box(25, 10, 8), mats.armor2, [0, 12, 3.8]));
   turret.add(mesh('left_faceted_cheek', box(4.5, 18, 7.5), mats.armor2, [-14, 2, 3.8], [0, 0, -0.35]));
@@ -546,11 +520,11 @@ const addM18Hellcat = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 4, 18.5);
   root.add(turret);
-  turret.add(mesh('small_turret_ring', cyl(8.5, 9.2, 2.4, 28), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('small_turret_ring', cylinder(8.5, 9.2, 2.4, 28), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('open_top_turret_box', box(18, 16, 8), mats.armor, [0, 0, 3.5]));
   turret.add(mesh('thin_front_shield', box(17, 6, 7), mats.armor2, [0, 8.5, 3.5]));
   turret.add(mesh('open_turret_rear_counterweight', box(17, 8, 5), mats.dark, [0, -10, 4]));
-  turret.add(mesh('commander_ring', cyl(2.5, 2.8, 1.4, 18), mats.dark, [-4, -2, 8], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('commander_ring', cylinder(2.5, 2.8, 1.4, 18), mats.dark, [-4, -2, 8], [Math.PI / 2, 0, 0]));
 
   addBarrel(turret, {origin: [0, 9.5, 4], length: 31, radius: 0.9, mantlet: [6.5, 3, 4.5], muzzle: [4, 2.2, 1.6]}, mats);
 };
@@ -574,12 +548,12 @@ const addMaus = (root, mats) => {
   turret.name = 'turret';
   turret.position.set(0, 4, 34);
   root.add(turret);
-  turret.add(mesh('huge_turret_ring', cyl(16, 17, 4, 40), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('huge_turret_ring', cylinder(16, 17, 4, 40), mats.dark, [0, 0, -1], [Math.PI / 2, 0, 0]));
   turret.add(mesh('maus_turret_slab', box(36, 31, 14), mats.armor, [0, 0, 6]));
   turret.add(mesh('rounded_turret_front', box(34, 10, 13), mats.armor2, [0, 16, 6]));
   turret.add(mesh('turret_rear_ammo_box', box(35, 12, 11), mats.dark, [0, -20, 7]));
-  turret.add(mesh('large_cupola', cyl(4.5, 5, 3, 24), mats.dark, [-9, -4, 15], [Math.PI / 2, 0, 0]));
-  turret.add(mesh('coaxial_75mm_stub', cyl(0.75, 0.85, 30, 20), mats.barrel, [5, 27, 6], [0, 0, 0]));
+  turret.add(mesh('large_cupola', cylinder(4.5, 5, 3, 24), mats.dark, [-9, -4, 15], [Math.PI / 2, 0, 0]));
+  turret.add(mesh('coaxial_75mm_stub', cylinder(0.75, 0.85, 30, 20), mats.barrel, [5, 27, 6], [0, 0, 0]));
 
   addBarrel(turret, {origin: [-2, 17, 6], length: 48, radius: 1.5, mantlet: [12, 5, 8]}, mats);
 };
@@ -605,8 +579,8 @@ const addSturmtiger = (root, mats) => {
   barrel.position.set(0, 24, 32);
   root.add(barrel);
   barrel.add(mesh('rw61_mantlet_block', box(17, 8, 14), mats.dark, [0, -2, 0]));
-  barrel.add(mesh('rw61_rocket_mortar_tube', cyl(4.4, 5.4, 18, 32), mats.barrel, [0, 9, 0]));
-  barrel.add(mesh('wide_mortar_muzzle', cyl(6.4, 6.4, 3, 32), mats.barrel, [0, 19, 0]));
+  barrel.add(mesh('rw61_rocket_mortar_tube', cylinder(4.4, 5.4, 18, 32), mats.barrel, [0, 9, 0]));
+  barrel.add(mesh('wide_mortar_muzzle', cylinder(6.4, 6.4, 3, 32), mats.barrel, [0, 19, 0]));
 };
 
 const addStrv103 = (root, mats) => {
@@ -629,8 +603,8 @@ const addStrv103 = (root, mats) => {
   barrel.position.set(0, 17, 15.5);
   root.add(barrel);
   barrel.add(mesh('fixed_gun_mantlet', box(8, 5, 5), mats.dark, [0, -1, 0]));
-  barrel.add(mesh('fixed_105mm_barrel_tube', cyl(0.95, 1.1, 45, 28), mats.barrel, [0, 22, 0]));
-  barrel.add(mesh('low_commander_hatch', cyl(3, 3.4, 1.7, 20), mats.dark, [-6, -12, 9], [Math.PI / 2, 0, 0]));
+  barrel.add(mesh('fixed_105mm_barrel_tube', cylinder(0.95, 1.1, 45, 28), mats.barrel, [0, 22, 0]));
+  barrel.add(mesh('low_commander_hatch', cylinder(3, 3.4, 1.7, 20), mats.dark, [-6, -12, 9], [Math.PI / 2, 0, 0]));
 };
 
 const addTKS20 = (root, mats) => {
@@ -653,7 +627,7 @@ const addTKS20 = (root, mats) => {
   barrel.position.set(0, 14, 13);
   root.add(barrel);
   barrel.add(mesh('autocannon_mantlet', box(4.5, 2.8, 3.2), mats.dark, [0, -1, 0]));
-  barrel.add(mesh('fk_a_20mm_tube', cyl(0.34, 0.42, 15, 18), mats.barrel, [0, 7.5, 0]));
+  barrel.add(mesh('fk_a_20mm_tube', cylinder(0.34, 0.42, 15, 18), mats.barrel, [0, 7.5, 0]));
 };
 
 const definitions = [
@@ -780,14 +754,14 @@ const definitions = [
 ];
 
 const makePalette = ([armorColor, darkColor, armor2Color]) => ({
-  armor: makeMaterial('main_armor', armorColor),
-  dark: makeMaterial('shadow_armor', darkColor),
-  armor2: makeMaterial('secondary_armor', armor2Color),
-  era: makeMaterial('bolt_on_reactive_armor', 0x77745e, 0.82, 0.08),
-  track: makeMaterial('track_rubber', 0x161915, 0.92, 0.04),
-  trackMetal: makeMaterial('worn_track_metal', 0x66685e, 0.7, 0.35),
-  barrel: makeMaterial('gunmetal', 0x343935, 0.62, 0.42),
-  optic: makeMaterial('blue_black_optics', 0x245261, 0.25, 0.08),
+  armor: material('main_armor', armorColor, 0.76, .1),
+  dark: material('shadow_armor', darkColor, 0.76, .1),
+  armor2: material('secondary_armor', armor2Color, 0.76, .1),
+  era: material('bolt_on_reactive_armor', 0x77745e, 0.82, 0.08),
+  track: material('track_rubber', 0x161915, 0.92, 0.04),
+  trackMetal: material('worn_track_metal', 0x66685e, 0.7, 0.35),
+  barrel: material('gunmetal', 0x343935, 0.62, 0.42),
+  optic: material('blue_black_optics', 0x245261, 0.25, 0.08),
 });
 
 const exporter = new GLTFExporter();
