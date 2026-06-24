@@ -283,7 +283,8 @@ class World {
     this.initializePowerups(this.powerups);
     this.powerups.forEach((powerup) => this.scene.add(powerup));
     this.camera = new ThirdPersonViewCamera(this.localTank, window.innerWidth / window.innerHeight);
-    this.renderer = new Renderer();
+    this.renderer = await Renderer.create(this.shouldUseWebGpuRenderer());
+    console.info(`Groundfire renderer backend: ${this.renderer.backend}`);
     this.renderer.renderer.setSize(window.innerWidth, window.innerHeight);
     this.sceneContainer.appendChild(this.renderer.renderer.domElement);
     const listener = new THREE.AudioListener();
@@ -309,6 +310,11 @@ class World {
     }
     const config = await response.json() as GameConfig;
     this.webSocketPath = config.webSocketPath;
+  }
+
+  shouldUseWebGpuRenderer(): boolean {
+    return this.accelerationProfile.webgpu
+      && localStorage.getItem('groundfire:renderer') === 'webgpu';
   }
 
   async loadMaps(): Promise<void> {
@@ -819,6 +825,13 @@ class World {
     }));
 
     this.destructibleModels = loadedModels.filter((model): model is DestructibleModel => Boolean(model));
+    if (this.destructibleModels.length > 0) {
+      console.info('Groundfire destructible model stats', this.destructibleModels.map((model) => ({
+        id: model.data.id,
+        asset: model.data.asset,
+        ...model.stats(),
+      })));
+    }
     this.destroyedModelChunkIds.forEach((chunkId) => this.applyDestroyedModelChunk(chunkId));
   }
 
@@ -1195,6 +1208,15 @@ class World {
     return this.destructibleModels.some((model) => model.intersectsBox(tankBox));
   }
 
+  updateDestructibleModelVisibility(delta: number): void {
+    if (!this.localTank || !this.camera) {
+      return;
+    }
+
+    const focus = this.localTank.mesh.position;
+    this.destructibleModels.forEach((model) => model.updateVisibility(this.camera.camera, focus, delta));
+  }
+
   updateWaterSimulation(delta: number): void {
     this.waterFlowAccumulator += delta;
     if (this.waterFlowAccumulator < 1 && !this.waterRebuildPending) {
@@ -1286,6 +1308,7 @@ class World {
       );
       this.snapTankToTerrain(tank);
       this.camera.updateView(false, this.ground);
+      this.updateDestructibleModelVisibility(delta);
       this.updateCrosshairPosition();
       this.updateHeadingCompass();
       this.updateLocalOcclusionFade();

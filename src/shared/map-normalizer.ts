@@ -252,9 +252,43 @@ function readDestructibleModels(source: unknown): GroundfireDestructibleModel[] 
     return [];
   }
 
+  const seenAssets = new Set<string>();
+  const seenPlacements = new Set<string>();
   return source
     .map((model, index) => readDestructibleModel(model, `model-${index + 1}`))
-    .filter((model): model is GroundfireDestructibleModel => Boolean(model));
+    .filter((model): model is GroundfireDestructibleModel => Boolean(model))
+    .filter((model) => uniqueDestructibleModel(model, seenAssets, seenPlacements));
+}
+
+function uniqueDestructibleModel(
+    model: GroundfireDestructibleModel,
+    seenAssets: Set<string>,
+    seenPlacements: Set<string>,
+): boolean {
+  const assetKey = [
+    model.asset,
+    model.position.join(','),
+    model.rotation.join(','),
+    model.scale.join(','),
+  ].join('|');
+  const firstChunk = model.chunks[0];
+  const lastChunk = model.chunks[model.chunks.length - 1];
+  const placementKey = [
+    model.name,
+    model.position.join(','),
+    model.rotation.join(','),
+    model.scale.join(','),
+    model.chunks.length,
+    firstChunk?.nodeName ?? '',
+    lastChunk?.nodeName ?? '',
+  ].join('|');
+  if (seenAssets.has(assetKey) || seenPlacements.has(placementKey)) {
+    return false;
+  }
+
+  seenAssets.add(assetKey);
+  seenPlacements.add(placementKey);
+  return true;
 }
 
 function readDestructibleModel(source: unknown, fallbackId: string): GroundfireDestructibleModel | null {

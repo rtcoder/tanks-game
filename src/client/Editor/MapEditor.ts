@@ -1971,6 +1971,15 @@ export class MapEditor {
       this.setStatus('No model chunks selected');
       return false;
     }
+    const duplicateModel = this.destructibleModels.find((model) => (
+      model.data.name === this.importedModelSourceName
+      && model.sourceBytes.byteLength === this.importedModelSourceBytes?.byteLength
+    ));
+    if (duplicateModel) {
+      this.clearImportedModel();
+      this.setStatus(`Model already registered: ${duplicateModel.data.name}`);
+      return true;
+    }
 
     const sourceId = this.safeIdFromFileName(this.baseName(this.importedModelSourceName)).slice(0, 32);
     const modelId = `model-${sourceId}-${crypto.randomUUID().slice(0, 8)}`;

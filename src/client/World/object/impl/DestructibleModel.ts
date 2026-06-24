@@ -9,12 +9,32 @@ import {ChunkSpatialIndex} from '../../performance/ChunkSpatialIndex';
 type RuntimeChunk = {
   id: string;
   name: string;
-  mesh: THREE.Mesh;
+  mesh: THREE.Mesh | null;
+  batch: THREE.BatchedMesh | null;
+  batchInstanceId: number | null;
   health: number;
   maxHealth: number;
   active: boolean;
+  visible: boolean;
   box: THREE.Box3;
+  center: THREE.Vector3;
+  radius: number;
 };
+
+type BatchGroup = {
+  parent: THREE.Object3D;
+  material: THREE.Material;
+  chunks: RuntimeChunk[];
+  meshes: THREE.Mesh[];
+  maxVertices: number;
+  maxIndices: number;
+};
+
+const DESTRUCTIBLE_BATCH_MIN_MESHES = 24;
+const DESTRUCTIBLE_VISIBLE_CHUNK_BUDGET = 2600;
+const DESTRUCTIBLE_ALWAYS_VISIBLE_RADIUS = 420;
+const DESTRUCTIBLE_MAX_VISIBLE_DISTANCE = 2600;
+const DESTRUCTIBLE_VISIBILITY_INTERVAL = 0.12;
 
 export type DestructibleModelHit = {
   model: DestructibleModel;
@@ -23,12 +43,23 @@ export type DestructibleModelHit = {
   position: THREE.Vector3;
 };
 
+export type DestructibleModelStats = {
+  chunks: number;
+  batchedMeshes: number;
+  batchedChunks: number;
+  visibleBudget: number;
+};
+
 export class DestructibleModel {
   readonly data: GroundfireDestructibleModelData;
   readonly root: THREE.Group;
   readonly chunkIndex: ChunkSpatialIndex;
   readonly chunks = new Map<string, RuntimeChunk>();
+  readonly batchedMeshes: THREE.BatchedMesh[] = [];
   private readonly chunkOrder: RuntimeChunk[] = [];
+  private visibilityElapsed = DESTRUCTIBLE_VISIBILITY_INTERVAL;
+  private readonly visibilityFrustum = new THREE.Frustum();
+  private readonly visibilityMatrix = new THREE.Matrix4();
 
   private constructor(data: GroundfireDestructibleModelData, root: THREE.Group) {
     this.data = data;
@@ -43,6 +74,7 @@ export class DestructibleModel {
     const model = new DestructibleModel(data, gltf);
     model.configureRoot();
     model.collectChunks();
+    model.batchStaticChunks();
     return model;
   }
 
@@ -150,15 +182,85 @@ export class DestructibleModel {
 
   destruct(): void {
     this.root.parent?.remove(this.root);
+    const disposedMaterials = new Set<THREE.Material>();
+    const disposedGeometries = new Set<THREE.BufferGeometry>();
     this.root.traverse((object) => {
       if (object instanceof THREE.Mesh) {
-        object.geometry.dispose();
-        this.disposeMaterial(object.material);
+        if (!disposedGeometries.has(object.geometry)) {
+          object.geometry.dispose();
+          disposedGeometries.add(object.geometry);
+        }
+        this.disposeMaterialOnce(object.material, disposedMaterials);
       }
     });
     this.chunks.clear();
     this.chunkOrder.length = 0;
+    this.batchedMeshes.length = 0;
     this.chunkIndex.clear();
+  }
+
+  updateVisibility(camera: THREE.Camera, focus: THREE.Vector3, delta: number): void {
+    if (this.chunkOrder.length <= DESTRUCTIBLE_VISIBLE_CHUNK_BUDGET) {
+      return;
+    }
+
+    this.visibilityElapsed += delta;
+    if (this.visibilityElapsed < DESTRUCTIBLE_VISIBILITY_INTERVAL) {
+      return;
+    }
+    this.visibilityElapsed = 0;
+
+    camera.updateMatrixWorld(true);
+    this.visibilityMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.visibilityFrustum.setFromProjectionMatrix(this.visibilityMatrix);
+    const maxDistanceSq = DESTRUCTIBLE_MAX_VISIBLE_DISTANCE * DESTRUCTIBLE_MAX_VISIBLE_DISTANCE;
+    const alwaysVisibleSq = DESTRUCTIBLE_ALWAYS_VISIBLE_RADIUS * DESTRUCTIBLE_ALWAYS_VISIBLE_RADIUS;
+    const candidates: Array<{ chunk: RuntimeChunk; distanceSq: number }> = [];
+
+    this.chunkOrder.forEach((chunk) => {
+      if (!chunk.active) {
+        this.setChunkRenderVisible(chunk, false);
+        return;
+      }
+
+      const distanceSq = chunk.center.distanceToSquared(focus);
+      if (distanceSq <= alwaysVisibleSq) {
+        candidates.push({chunk, distanceSq});
+        return;
+      }
+      if (distanceSq > maxDistanceSq) {
+        this.setChunkRenderVisible(chunk, false);
+        return;
+      }
+
+      const sphere = new THREE.Sphere(chunk.center, chunk.radius);
+      if (this.visibilityFrustum.intersectsSphere(sphere)) {
+        candidates.push({chunk, distanceSq});
+      } else {
+        this.setChunkRenderVisible(chunk, false);
+      }
+    });
+
+    candidates.sort((left, right) => left.distanceSq - right.distanceSq);
+    candidates.forEach(({chunk}, index) => {
+      this.setChunkRenderVisible(chunk, index < DESTRUCTIBLE_VISIBLE_CHUNK_BUDGET);
+    });
+  }
+
+  stats(): DestructibleModelStats {
+    let batchedChunks = 0;
+    this.chunkOrder.forEach((chunk) => {
+      if (chunk.batch) {
+        batchedChunks += 1;
+      }
+    });
+
+    return {
+      chunks: this.chunkOrder.length,
+      batchedMeshes: this.batchedMeshes.length,
+      batchedChunks,
+      visibleBudget: DESTRUCTIBLE_VISIBLE_CHUNK_BUDGET,
+    };
   }
 
   private configureRoot(): void {
@@ -197,24 +299,134 @@ export class DestructibleModel {
         return;
       }
 
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.material = this.cloneMaterial(mesh.material);
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      mesh.frustumCulled = true;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(mesh);
+      const center = box.getCenter(new THREE.Vector3());
       const chunk: RuntimeChunk = {
         id: chunkConfig.id,
         name: chunkConfig.name,
         mesh,
+        batch: null,
+        batchInstanceId: null,
         health: chunkConfig.health,
         maxHealth: chunkConfig.health,
         active: true,
+        visible: true,
         box,
+        center,
+        radius: center.distanceTo(box.max),
       };
       mesh.userData.groundfireChunkId = chunk.id;
       this.chunks.set(chunk.id, chunk);
       this.chunkOrder.push(chunk);
       this.chunkIndex.insert(chunk.id, box);
     });
+  }
+
+  private batchStaticChunks(): void {
+    if (this.chunkOrder.length < DESTRUCTIBLE_BATCH_MIN_MESHES) {
+      return;
+    }
+
+    const groups = this.batchGroups();
+    groups.forEach((group) => {
+      if (group.meshes.length < DESTRUCTIBLE_BATCH_MIN_MESHES) {
+        return;
+      }
+
+      try {
+        const material = group.material.clone();
+        if (material instanceof THREE.MeshStandardMaterial) {
+          material.color.set(0xffffff);
+        }
+        const batchedMesh = new THREE.BatchedMesh(
+            group.meshes.length,
+            group.maxVertices,
+            group.maxIndices,
+            material,
+        );
+        batchedMesh.name = `${this.data.id}:batch:${this.batchedMeshes.length}`;
+        batchedMesh.castShadow = false;
+        batchedMesh.receiveShadow = false;
+        batchedMesh.frustumCulled = true;
+        batchedMesh.perObjectFrustumCulled = true;
+        batchedMesh.sortObjects = false;
+
+        const geometryIds = new Map<THREE.BufferGeometry, number>();
+        const inverseParentMatrix = new THREE.Matrix4().copy(group.parent.matrixWorld).invert();
+
+        group.meshes.forEach((mesh, index) => {
+          const chunk = group.chunks[index];
+          let geometryId = geometryIds.get(mesh.geometry);
+          if (geometryId === undefined) {
+            geometryId = batchedMesh.addGeometry(mesh.geometry);
+            geometryIds.set(mesh.geometry, geometryId);
+          }
+
+          const instanceId = batchedMesh.addInstance(geometryId);
+          const localMatrix = new THREE.Matrix4().copy(mesh.matrixWorld).premultiply(inverseParentMatrix);
+          batchedMesh.setMatrixAt(instanceId, localMatrix);
+          if (mesh.material instanceof THREE.MeshStandardMaterial) {
+            batchedMesh.setColorAt(instanceId, mesh.material.color);
+          }
+          chunk.batch = batchedMesh;
+          chunk.batchInstanceId = instanceId;
+          chunk.mesh = null;
+        });
+
+        group.parent.add(batchedMesh);
+        this.batchedMeshes.push(batchedMesh);
+        group.meshes.forEach((mesh) => {
+          mesh.parent?.remove(mesh);
+          mesh.geometry.dispose();
+        });
+        batchedMesh.computeBoundingBox();
+        batchedMesh.computeBoundingSphere();
+      } catch (error) {
+        console.warn(`Could not batch destructible model group "${this.data.id}"`, error);
+      }
+    });
+  }
+
+  private batchGroups(): BatchGroup[] {
+    const groups = new Map<string, BatchGroup>();
+    this.chunkOrder.forEach((chunk) => {
+      const mesh = chunk.mesh;
+      if (!mesh || Array.isArray(mesh.material) || !mesh.parent || !mesh.geometry.attributes.position) {
+        return;
+      }
+      const indexCount = mesh.geometry.index?.count ?? 0;
+      const key = `${mesh.parent.uuid}:${mesh.material.uuid}:${this.geometryAttributeSignature(mesh.geometry)}`;
+      const group = groups.get(key) ?? {
+        parent: mesh.parent,
+        material: mesh.material,
+        chunks: [],
+        meshes: [],
+        maxVertices: 0,
+        maxIndices: 0,
+      };
+      group.chunks.push(chunk);
+      group.meshes.push(mesh);
+      group.maxVertices += mesh.geometry.attributes.position.count;
+      group.maxIndices += indexCount;
+      groups.set(key, group);
+    });
+
+    return Array.from(groups.values());
+  }
+
+  private geometryAttributeSignature(geometry: THREE.BufferGeometry): string {
+    return Object.keys(geometry.attributes)
+        .sort()
+        .map((name) => {
+          const attribute = geometry.attributes[name];
+          return `${name}:${attribute.itemSize}:${attribute.normalized ? 1 : 0}`;
+        })
+        .join('|') + `|indexed:${geometry.index ? 1 : 0}`;
   }
 
   private chunkConfigForMesh(
@@ -265,12 +477,25 @@ export class DestructibleModel {
 
   private destroyChunk(chunk: RuntimeChunk): void {
     chunk.active = false;
-    chunk.mesh.visible = false;
+    this.setChunkRenderVisible(chunk, false);
     this.chunkIndex.remove(chunk.id);
   }
 
   private updateDamageTint(chunk: RuntimeChunk): void {
     const damageRatio = 1 - chunk.health / chunk.maxHealth;
+    if (chunk.batch && chunk.batchInstanceId !== null) {
+      chunk.batch.setColorAt(
+          chunk.batchInstanceId,
+          new THREE.Color(0xffffff).lerp(new THREE.Color(0x8b5f4f), damageRatio * 0.28),
+      );
+      return;
+    }
+
+    if (!chunk.mesh) {
+      return;
+    }
+
+    chunk.mesh.material = this.cloneMaterial(chunk.mesh.material);
     const materials = Array.isArray(chunk.mesh.material) ? chunk.mesh.material : [chunk.mesh.material];
     materials.forEach((material) => {
       if (material instanceof THREE.MeshStandardMaterial) {
@@ -303,12 +528,28 @@ export class DestructibleModel {
       : material.clone();
   }
 
-  private disposeMaterial(material: THREE.Material | THREE.Material[]): void {
-    if (Array.isArray(material)) {
-      material.forEach((item) => item.dispose());
+  private disposeMaterialOnce(material: THREE.Material | THREE.Material[], disposed: Set<THREE.Material>): void {
+    const materials = Array.isArray(material) ? material : [material];
+    materials.forEach((item) => {
+      if (disposed.has(item)) {
+        return;
+      }
+      disposed.add(item);
+      item.dispose();
+    });
+  }
+
+  private setChunkRenderVisible(chunk: RuntimeChunk, visible: boolean): void {
+    if (chunk.visible === visible) {
       return;
     }
-
-    material.dispose();
+    chunk.visible = visible;
+    if (chunk.batch && chunk.batchInstanceId !== null) {
+      chunk.batch.setVisibleAt(chunk.batchInstanceId, visible && chunk.active);
+      return;
+    }
+    if (chunk.mesh) {
+      chunk.mesh.visible = visible && chunk.active;
+    }
   }
 }
