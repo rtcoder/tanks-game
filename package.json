@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "physx-js-webidl": "^2.7.3",
     "three": "^0.184.0",
     "ws": "^8.21.0"
   },

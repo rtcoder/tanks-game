@@ -39,6 +39,7 @@ import {Scene} from './system/Scene';
 import {DEFAULT_TANK_ID, getTankDefinition, TANK_DEFINITIONS} from './tank-definitions/tank-definitions';
 import {type TankDefinition} from './tank-definitions/shared/tank-definition.type';
 import {detectRuntimeAcceleration, type RuntimeAccelerationProfile} from './performance/acceleration';
+import {PhysXWorld} from './physics/PhysXWorld';
 
 const DEFAULT_ARENA_SIZE = 1500;
 const DEFAULT_MAP_ID = 'default';
@@ -213,6 +214,7 @@ class World {
   tankPreviewModel: TankModel | null = null;
   tankPreviewRoot: THREE.Group | null = null;
   accelerationProfile: RuntimeAccelerationProfile = detectRuntimeAcceleration();
+  physXWorld: PhysXWorld | null = null;
   lastSentAt = 0;
   lastSentSnapshot = '';
 
@@ -272,6 +274,7 @@ class World {
     this.directLight = new DirectionalLight('main');
     this.scene.add(this.hemiLight);
     this.scene.add(this.directLight);
+    await this.initializePhysXWorld();
     this.initializeWalls(this.walls, this.surrounding_walls);
     this.walls.forEach((wall) => this.scene.add(wall));
     await this.initializeDestructibleModels();
@@ -815,7 +818,7 @@ class World {
 
     const loadedModels = await Promise.all(models.map(async (modelData) => {
       try {
-        const model = await DestructibleModel.load(modelData, this.mapAssetUrl(modelData.asset));
+        const model = await DestructibleModel.load(modelData, this.mapAssetUrl(modelData.asset), this.physXWorld);
         this.scene.scene.add(model.root);
         return model;
       } catch (error) {
@@ -833,6 +836,12 @@ class World {
       })));
     }
     this.destroyedModelChunkIds.forEach((chunkId) => this.applyDestroyedModelChunk(chunkId));
+  }
+
+  async initializePhysXWorld(): Promise<void> {
+    this.physXWorld?.dispose();
+    this.physXWorld = await PhysXWorld.create();
+    console.info(`Groundfire PhysX WASM: ${this.physXWorld ? 'enabled' : 'fallback'}`);
   }
 
   mapAssetUrl(asset: string): string {
@@ -1214,6 +1223,7 @@ class World {
     }
 
     const focus = this.localTank.mesh.position;
+    this.physXWorld?.step(delta);
     this.destructibleModels.forEach((model) => {
       model.updateVisibility(this.camera.camera, focus, delta);
       model.update(delta, (x, y) => this.ground.heightAt(x, y));
@@ -2346,6 +2356,22 @@ class World {
           impact.destructibleModelHit?.model === model ? impact.destructibleModelHit.chunkId : undefined,
       );
       destroyedChunkIds.forEach((chunkId) => {
+        if (this.destroyedModelChunkIds.has(chunkId)) {
+          return;
+        }
+        this.destroyedModelChunkIds.add(chunkId);
+        destroyedAnyModelChunk = true;
+      });
+      if (destroyedChunkIds.length === 0) {
+        return;
+      }
+
+      const collapsedChunkIds = model.collapseUnsupportedChunks(
+          (x, y) => this.ground.heightAt(x, y),
+          destroyedChunkIds,
+          center,
+      );
+      collapsedChunkIds.forEach((chunkId) => {
         if (this.destroyedModelChunkIds.has(chunkId)) {
           return;
         }

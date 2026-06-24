@@ -203,6 +203,15 @@ export type GroundfireDestructibleModelChunk = {
   groupId?: string;
 };
 
+export type GroundfireDestructibleModelChunking = {
+  mode: 'source-nodes' | 'solid-blocks';
+  fill: 'bounding-box';
+  blockSize: GroundfireVector3;
+  minBlockSize: GroundfireVector3;
+  maxBlocksPerSourceChunk: number;
+  density: number;
+};
+
 export type GroundfireDestructibleModel = {
   id: string;
   name: string;
@@ -216,9 +225,10 @@ export type GroundfireDestructibleModel = {
     spatialIndex: 'grid' | 'none';
   };
   render: {
-    mode: 'source-model';
+    mode: 'source-model' | 'generated-blocks';
     preserveMaterials: boolean;
   };
+  chunking: GroundfireDestructibleModelChunking;
   chunks: GroundfireDestructibleModelChunk[];
 };
 

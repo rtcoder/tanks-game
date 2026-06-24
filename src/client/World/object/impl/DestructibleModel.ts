@@ -5,16 +5,19 @@ import type {
   GroundfireDestructibleModelChunk,
 } from '../../../../shared/types';
 import {ChunkSpatialIndex} from '../../performance/ChunkSpatialIndex';
+import type {PhysXDynamicBoxHandle, PhysXWorld} from '../../physics/PhysXWorld';
 
 type RuntimeChunk = {
   id: string;
   name: string;
+  sourceNodeName: string;
   mesh: THREE.Mesh | null;
   batch: THREE.BatchedMesh | null;
   batchInstanceId: number | null;
   material: THREE.Material | THREE.Material[] | null;
   health: number;
   maxHealth: number;
+  mass: number;
   active: boolean;
   visible: boolean;
   box: THREE.Box3;
@@ -33,6 +36,7 @@ type BatchGroup = {
 
 type FallingDebris = {
   mesh: THREE.Mesh;
+  physicsId: string | null;
   velocity: THREE.Vector3;
   angularVelocity: THREE.Vector3;
   centerGroundOffset: number;
@@ -54,6 +58,12 @@ const DESTRUCTIBLE_DEBRIS_SETTLE_LIFETIME = 9;
 const DESTRUCTIBLE_DEBRIS_FADE_DURATION = 1.6;
 const DESTRUCTIBLE_DEBRIS_MIN_DIMENSION = 1.5;
 const DESTRUCTIBLE_DEBRIS_MIN_VISIBLE_THICKNESS = 3;
+const STRUCTURAL_GROUND_SUPPORT_EPSILON = 5;
+const STRUCTURAL_VERTICAL_SUPPORT_EPSILON = 12;
+const STRUCTURAL_MIN_SUPPORT_AREA = 18;
+const STRUCTURAL_MIN_SUPPORT_RATIO = 0.06;
+const STRUCTURAL_MAX_COLLAPSE_PASSES = 80;
+const STRUCTURAL_COLLAPSE_MAX_HORIZONTAL_RADIUS = 360;
 
 export type DestructibleModelHit = {
   model: DestructibleModel;
@@ -66,6 +76,7 @@ export type DestructibleModelStats = {
   chunks: number;
   batchedMeshes: number;
   batchedChunks: number;
+  solidBlocks: number;
   visibleBudget: number;
 };
 
@@ -76,6 +87,7 @@ export class DestructibleModel {
   readonly chunks = new Map<string, RuntimeChunk>();
   readonly batchedMeshes: THREE.BatchedMesh[] = [];
   readonly fallingDebris: FallingDebris[] = [];
+  physicsWorld: PhysXWorld | null = null;
   private readonly chunkOrder: RuntimeChunk[] = [];
   private visibilityElapsed = DESTRUCTIBLE_VISIBILITY_INTERVAL;
   private readonly visibilityFrustum = new THREE.Frustum();
@@ -87,11 +99,16 @@ export class DestructibleModel {
     this.chunkIndex = new ChunkSpatialIndex(Math.max(80, data.destructible.health * 0.5));
   }
 
-  static async load(data: GroundfireDestructibleModelData, assetUrl: string): Promise<DestructibleModel> {
+  static async load(
+      data: GroundfireDestructibleModelData,
+      assetUrl: string,
+      physicsWorld: PhysXWorld | null = null,
+  ): Promise<DestructibleModel> {
     const gltf = await new Promise<THREE.Group>((resolve, reject) => {
       new GLTFLoader().load(assetUrl, (loaded) => resolve(loaded.scene), undefined, reject);
     });
     const model = new DestructibleModel(data, gltf);
+    model.physicsWorld = physicsWorld;
     model.configureRoot();
     model.collectChunks();
     model.batchStaticChunks();
@@ -200,6 +217,34 @@ export class DestructibleModel {
     return destroyedIds;
   }
 
+  collapseUnsupportedChunks(
+      groundHeightAt: (x: number, y: number) => number,
+      seedChunkIds: string[],
+      impactCenter?: THREE.Vector3,
+  ): string[] {
+    const collapsedIds: string[] = [];
+    const affectedBoxes = seedChunkIds
+      .map((chunkId) => this.chunks.get(chunkId)?.box.clone())
+      .filter((box): box is THREE.Box3 => Boolean(box));
+    if (affectedBoxes.length === 0) {
+      return collapsedIds;
+    }
+
+    const collapseCenter = impactCenter ?? this.centerOfBoxes(affectedBoxes);
+    const candidateIds = this.collapseCandidateIds(affectedBoxes, collapseCenter);
+    const stableIds = this.stableStructuralChunkIds(candidateIds, groundHeightAt);
+    Array.from(candidateIds)
+      .map((chunkId) => this.chunks.get(chunkId))
+      .filter((chunk): chunk is RuntimeChunk => Boolean(chunk?.active && !stableIds.has(chunk.id)))
+      .sort((left, right) => left.box.min.z - right.box.min.z)
+      .forEach((chunk) => {
+        this.destroyChunk(chunk, impactCenter);
+        collapsedIds.push(chunk.id);
+      });
+
+    return collapsedIds;
+  }
+
   destruct(): void {
     this.root.parent?.remove(this.root);
     const disposedMaterials = new Set<THREE.Material>();
@@ -285,6 +330,7 @@ export class DestructibleModel {
       chunks: this.chunkOrder.length,
       batchedMeshes: this.batchedMeshes.length,
       batchedChunks,
+      solidBlocks: this.data.chunking.mode === 'solid-blocks' ? this.chunkOrder.length : 0,
       visibleBudget: DESTRUCTIBLE_VISIBLE_CHUNK_BUDGET,
     };
   }
@@ -316,6 +362,11 @@ export class DestructibleModel {
       }
     });
 
+    if (this.data.chunking.mode === 'solid-blocks') {
+      this.collectSolidBlockChunks(meshes);
+      return;
+    }
+
     const chunkByNodeName = new Map(this.data.chunks.map((chunk) => [chunk.nodeName, chunk]));
     const usedChunkIds = new Set<string>();
     meshes.forEach((mesh, index) => {
@@ -335,12 +386,14 @@ export class DestructibleModel {
       const chunk: RuntimeChunk = {
         id: chunkConfig.id,
         name: chunkConfig.name,
+        sourceNodeName: chunkConfig.nodeName,
         mesh,
         batch: null,
         batchInstanceId: null,
         material: mesh.material,
         health: chunkConfig.health,
         maxHealth: chunkConfig.health,
+        mass: this.massForBox(box),
         active: true,
         visible: true,
         box,
@@ -352,6 +405,166 @@ export class DestructibleModel {
       this.chunkOrder.push(chunk);
       this.chunkIndex.insert(chunk.id, box);
     });
+  }
+
+  private collectSolidBlockChunks(meshes: THREE.Mesh[]): void {
+    const chunkByNodeName = new Map(this.data.chunks.map((chunk) => [chunk.nodeName, chunk]));
+    const usedChunkIds = new Set<string>();
+    const rootInverse = new THREE.Matrix4().copy(this.root.matrixWorld).invert();
+    const geometryCache = new Map<string, THREE.BoxGeometry>();
+
+    meshes.forEach((mesh, index) => {
+      const sourceConfig = this.chunkConfigForMesh(mesh, index, chunkByNodeName, usedChunkIds);
+      mesh.visible = false;
+      if (!sourceConfig) {
+        return;
+      }
+
+      mesh.updateMatrixWorld(true);
+      const sourceBox = new THREE.Box3().setFromObject(mesh);
+      if (sourceBox.isEmpty()) {
+        return;
+      }
+
+      const solidBox = this.expandedSolidBox(sourceBox);
+      const blockBoxes = this.subdivideSolidBox(solidBox);
+      const blockHealth = Math.max(1, sourceConfig.health / Math.max(1, Math.sqrt(blockBoxes.length)));
+      const material = this.cloneMaterial(mesh.material);
+
+      blockBoxes.forEach((box, blockIndex) => {
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const geometry = this.boxGeometryForSize(size, geometryCache);
+        const blockMesh = new THREE.Mesh(geometry, material);
+        const blockId = `${sourceConfig.id}:block-${blockIndex.toString().padStart(4, '0')}`;
+        const mass = this.massForBox(box);
+        blockMesh.name = `${sourceConfig.name}:solid-block-${blockIndex + 1}`;
+        blockMesh.castShadow = false;
+        blockMesh.receiveShadow = true;
+        blockMesh.frustumCulled = true;
+        blockMesh.matrixAutoUpdate = false;
+        blockMesh.matrix.copy(new THREE.Matrix4().makeTranslation(center.x, center.y, center.z).premultiply(rootInverse));
+        blockMesh.userData.groundfireChunkId = blockId;
+        blockMesh.userData.groundfirePhysics = {
+          shape: 'box',
+          mass,
+          size: [size.x, size.y, size.z],
+          sourceNodeName: sourceConfig.nodeName,
+        };
+        this.root.add(blockMesh);
+        blockMesh.updateMatrixWorld(true);
+
+        const worldBox = new THREE.Box3().setFromObject(blockMesh);
+        const worldCenter = worldBox.getCenter(new THREE.Vector3());
+        const chunk: RuntimeChunk = {
+          id: blockId,
+          name: blockMesh.name,
+          sourceNodeName: sourceConfig.nodeName,
+          mesh: blockMesh,
+          batch: null,
+          batchInstanceId: null,
+          material,
+          health: blockHealth,
+          maxHealth: blockHealth,
+          mass,
+          active: true,
+          visible: true,
+          box: worldBox,
+          center: worldCenter,
+          radius: worldCenter.distanceTo(worldBox.max),
+        };
+        this.chunks.set(chunk.id, chunk);
+        this.chunkOrder.push(chunk);
+        this.chunkIndex.insert(chunk.id, worldBox);
+      });
+    });
+  }
+
+  private expandedSolidBox(sourceBox: THREE.Box3): THREE.Box3 {
+    const center = sourceBox.getCenter(new THREE.Vector3());
+    const size = sourceBox.getSize(new THREE.Vector3());
+    const minSize = this.vectorFromTuple(this.data.chunking.minBlockSize);
+    const solidSize = new THREE.Vector3(
+        Math.max(size.x, minSize.x),
+        Math.max(size.y, minSize.y),
+        Math.max(size.z, minSize.z),
+    );
+    const half = solidSize.multiplyScalar(0.5);
+
+    return new THREE.Box3(center.clone().sub(half), center.clone().add(half));
+  }
+
+  private subdivideSolidBox(box: THREE.Box3): THREE.Box3[] {
+    const size = box.getSize(new THREE.Vector3());
+    const counts = this.solidBlockCounts(size);
+    const step = new THREE.Vector3(size.x / counts.x, size.y / counts.y, size.z / counts.z);
+    const boxes: THREE.Box3[] = [];
+
+    for (let z = 0; z < counts.z; z += 1) {
+      for (let y = 0; y < counts.y; y += 1) {
+        for (let x = 0; x < counts.x; x += 1) {
+          boxes.push(new THREE.Box3(
+              new THREE.Vector3(
+                  box.min.x + step.x * x,
+                  box.min.y + step.y * y,
+                  box.min.z + step.z * z,
+              ),
+              new THREE.Vector3(
+                  box.min.x + step.x * (x + 1),
+                  box.min.y + step.y * (y + 1),
+                  box.min.z + step.z * (z + 1),
+              ),
+          ));
+        }
+      }
+    }
+
+    return boxes;
+  }
+
+  private solidBlockCounts(size: THREE.Vector3): THREE.Vector3 {
+    const blockSize = this.vectorFromTuple(this.data.chunking.blockSize);
+    const maxBlocks = this.data.chunking.maxBlocksPerSourceChunk;
+    let counts = new THREE.Vector3(
+        Math.max(1, Math.ceil(size.x / blockSize.x)),
+        Math.max(1, Math.ceil(size.y / blockSize.y)),
+        Math.max(1, Math.ceil(size.z / blockSize.z)),
+    );
+
+    while (counts.x * counts.y * counts.z > maxBlocks) {
+      if (counts.x >= counts.y && counts.x >= counts.z && counts.x > 1) {
+        counts.x -= 1;
+      } else if (counts.y >= counts.z && counts.y > 1) {
+        counts.y -= 1;
+      } else if (counts.z > 1) {
+        counts.z -= 1;
+      } else {
+        break;
+      }
+    }
+
+    counts = new THREE.Vector3(Math.floor(counts.x), Math.floor(counts.y), Math.floor(counts.z));
+    return counts;
+  }
+
+  private boxGeometryForSize(size: THREE.Vector3, cache: Map<string, THREE.BoxGeometry>): THREE.BoxGeometry {
+    const key = `${size.x.toFixed(3)}:${size.y.toFixed(3)}:${size.z.toFixed(3)}`;
+    let geometry = cache.get(key);
+    if (!geometry) {
+      geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
+      cache.set(key, geometry);
+    }
+
+    return geometry;
+  }
+
+  private massForBox(box: THREE.Box3): number {
+    const size = box.getSize(new THREE.Vector3());
+    return Math.max(0.1, size.x * size.y * size.z * this.data.chunking.density);
+  }
+
+  private vectorFromTuple(tuple: [number, number, number]): THREE.Vector3 {
+    return new THREE.Vector3(tuple[0], tuple[1], tuple[2]);
   }
 
   private batchStaticChunks(): void {
@@ -539,6 +752,154 @@ export class DestructibleModel {
     return point.clone().clamp(chunk.box.min, chunk.box.max).distanceTo(point);
   }
 
+  private groundSupportHeightForChunk(
+      chunk: RuntimeChunk,
+      groundHeightAt: (x: number, y: number) => number,
+  ): number {
+    const x0 = chunk.box.min.x;
+    const x1 = chunk.box.max.x;
+    const y0 = chunk.box.min.y;
+    const y1 = chunk.box.max.y;
+    const cx = chunk.center.x;
+    const cy = chunk.center.y;
+    return Math.max(
+        groundHeightAt(cx, cy),
+        groundHeightAt(x0, y0),
+        groundHeightAt(x1, y0),
+        groundHeightAt(x0, y1),
+        groundHeightAt(x1, y1),
+    );
+  }
+
+  private footprintArea(box: THREE.Box3): number {
+    return Math.max(1, (box.max.x - box.min.x) * (box.max.y - box.min.y));
+  }
+
+  private footprintOverlapArea(first: THREE.Box3, second: THREE.Box3): number {
+    const overlapX = Math.max(0, Math.min(first.max.x, second.max.x) - Math.max(first.min.x, second.min.x));
+    const overlapY = Math.max(0, Math.min(first.max.y, second.max.y) - Math.max(first.min.y, second.min.y));
+    return overlapX * overlapY;
+  }
+
+  private collapseCandidateIds(affectedBoxes: THREE.Box3[], collapseCenter: THREE.Vector3): Set<string> {
+    const minAffectedZ = Math.min(...affectedBoxes.map((box) => box.min.z));
+    const radiusSq = STRUCTURAL_COLLAPSE_MAX_HORIZONTAL_RADIUS ** 2;
+    const candidateIds = new Set<string>();
+
+    this.chunkOrder.forEach((chunk) => {
+      if (!chunk.active) {
+        return;
+      }
+      if (chunk.box.min.z < minAffectedZ - STRUCTURAL_VERTICAL_SUPPORT_EPSILON) {
+        return;
+      }
+      if (this.horizontalDistanceSq(chunk.center, collapseCenter) > radiusSq) {
+        return;
+      }
+
+      candidateIds.add(chunk.id);
+    });
+
+    return candidateIds;
+  }
+
+  private stableStructuralChunkIds(
+      candidateIds: Set<string>,
+      groundHeightAt: (x: number, y: number) => number,
+  ): Set<string> {
+    const stableIds = new Set<string>();
+    candidateIds.forEach((chunkId) => {
+      const chunk = this.chunks.get(chunkId);
+      if (!chunk?.active) {
+        return;
+      }
+      if (chunk.box.min.z <= this.groundSupportHeightForChunk(chunk, groundHeightAt) + STRUCTURAL_GROUND_SUPPORT_EPSILON) {
+        stableIds.add(chunk.id);
+      }
+    });
+
+    let changed = true;
+    let pass = 0;
+    while (changed && pass < STRUCTURAL_MAX_COLLAPSE_PASSES) {
+      changed = false;
+      pass += 1;
+
+      candidateIds.forEach((chunkId) => {
+        if (stableIds.has(chunkId)) {
+          return;
+        }
+        const chunk = this.chunks.get(chunkId);
+        if (!chunk?.active) {
+          return;
+        }
+        if (this.hasStableSupport(chunk, candidateIds, stableIds)) {
+          stableIds.add(chunk.id);
+          changed = true;
+        }
+      });
+    }
+
+    return stableIds;
+  }
+
+  private hasStableSupport(chunk: RuntimeChunk, candidateIds: Set<string>, stableIds: Set<string>): boolean {
+    const supportBox = new THREE.Box3(
+        new THREE.Vector3(
+            chunk.box.min.x,
+            chunk.box.min.y,
+            chunk.box.min.z - STRUCTURAL_VERTICAL_SUPPORT_EPSILON,
+        ),
+        new THREE.Vector3(
+            chunk.box.max.x,
+            chunk.box.max.y,
+            chunk.box.min.z + STRUCTURAL_VERTICAL_SUPPORT_EPSILON,
+        ),
+    );
+    const supportIds = this.data.collision.spatialIndex === 'grid'
+      ? this.chunkIndex.queryBox(supportBox)
+      : Array.from(candidateIds);
+    const chunkFootprintArea = this.footprintArea(chunk.box);
+    let supportedArea = 0;
+
+    for (const supportId of supportIds) {
+      if (!candidateIds.has(supportId) || !stableIds.has(supportId) || supportId === chunk.id) {
+        continue;
+      }
+      const support = this.chunks.get(supportId);
+      if (!support?.active) {
+        continue;
+      }
+      if (support.box.max.z > chunk.box.min.z + STRUCTURAL_VERTICAL_SUPPORT_EPSILON) {
+        continue;
+      }
+      if (support.box.max.z < chunk.box.min.z - STRUCTURAL_VERTICAL_SUPPORT_EPSILON) {
+        continue;
+      }
+
+      supportedArea += this.footprintOverlapArea(chunk.box, support.box);
+      if (
+        supportedArea >= STRUCTURAL_MIN_SUPPORT_AREA
+        && supportedArea / chunkFootprintArea >= STRUCTURAL_MIN_SUPPORT_RATIO
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private horizontalDistanceSq(first: THREE.Vector3, second: THREE.Vector3): number {
+    const dx = first.x - second.x;
+    const dy = first.y - second.y;
+    return dx * dx + dy * dy;
+  }
+
+  private centerOfBoxes(boxes: THREE.Box3[]): THREE.Vector3 {
+    const union = boxes[0].clone();
+    boxes.slice(1).forEach((box) => union.union(box));
+    return union.getCenter(new THREE.Vector3());
+  }
+
   private areaDamageAtDistance(baseDamage: number, distance: number, radius: number, minRatio: number): number {
     if (distance <= 0) {
       return baseDamage;
@@ -570,6 +931,9 @@ export class DestructibleModel {
   private spawnDebris(chunk: RuntimeChunk, impactCenter?: THREE.Vector3): void {
     const parent = this.root.parent;
     if (!parent) {
+      return;
+    }
+    if (!this.reserveDebrisSlot()) {
       return;
     }
 
@@ -607,6 +971,7 @@ export class DestructibleModel {
     const lateralSpeed = 18 + this.hash01(chunk.id, 2) * 46;
     const debris: FallingDebris = {
       mesh,
+      physicsId: null,
       velocity: new THREE.Vector3(
           outward.x * lateralSpeed,
           outward.y * lateralSpeed,
@@ -625,8 +990,35 @@ export class DestructibleModel {
     };
 
     parent.add(mesh);
+    const physicsHandle = this.createPhysXDebris(chunk, debris, visualSize);
+    if (physicsHandle) {
+      debris.physicsId = physicsHandle.id;
+      debris.velocity.set(0, 0, 0);
+      debris.angularVelocity.set(0, 0, 0);
+    }
     this.fallingDebris.push(debris);
-    this.pruneFallingDebris();
+  }
+
+  private createPhysXDebris(
+      chunk: RuntimeChunk,
+      debris: FallingDebris,
+      visualSize: THREE.Vector3,
+  ): PhysXDynamicBoxHandle | null {
+    if (!this.physicsWorld) {
+      return null;
+    }
+
+    return this.physicsWorld.createDynamicBox({
+      id: `${chunk.id}:physx-debris`,
+      mesh: debris.mesh,
+      size: visualSize,
+      position: debris.mesh.position,
+      quaternion: debris.mesh.quaternion,
+      mass: chunk.mass,
+      linearVelocity: debris.velocity,
+      angularVelocity: debris.angularVelocity,
+      maxAge: DESTRUCTIBLE_DEBRIS_SETTLE_LIFETIME,
+    });
   }
 
   private updateFallingDebris(delta: number, groundHeightAt: (x: number, y: number) => number): void {
@@ -638,6 +1030,23 @@ export class DestructibleModel {
     for (let index = this.fallingDebris.length - 1; index >= 0; index -= 1) {
       const debris = this.fallingDebris[index];
       debris.age += step;
+
+      if (debris.physicsId) {
+        debris.settledAge = Math.max(0, debris.age - DESTRUCTIBLE_DEBRIS_SETTLE_LIFETIME);
+        if (debris.settledAge > 0) {
+          const fade = THREE.MathUtils.clamp(
+              1 - debris.settledAge / DESTRUCTIBLE_DEBRIS_FADE_DURATION,
+              0,
+              1,
+          );
+          this.setDebrisOpacity(debris.mesh, fade);
+          if (fade <= 0) {
+            this.fallingDebris.splice(index, 1);
+            this.disposeDebris(debris);
+          }
+        }
+        continue;
+      }
 
       if (!debris.settled) {
         debris.velocity.z = Math.max(
@@ -713,6 +1122,10 @@ export class DestructibleModel {
   }
 
   private disposeDebris(debris: FallingDebris): void {
+    if (debris.physicsId) {
+      this.physicsWorld?.releaseDynamicBox(debris.physicsId);
+      debris.physicsId = null;
+    }
     debris.mesh.parent?.remove(debris.mesh);
     debris.mesh.geometry.dispose();
     if (Array.isArray(debris.mesh.material)) {
@@ -722,17 +1135,19 @@ export class DestructibleModel {
     }
   }
 
-  private pruneFallingDebris(): void {
-    while (this.fallingDebris.length > DESTRUCTIBLE_DEBRIS_MAX_ACTIVE) {
+  private reserveDebrisSlot(): boolean {
+    while (this.fallingDebris.length >= DESTRUCTIBLE_DEBRIS_MAX_ACTIVE) {
       let removeIndex = this.fallingDebris.findIndex((debris) => debris.settled);
       if (removeIndex < 0) {
-        removeIndex = 0;
+        return false;
       }
       const [removed] = this.fallingDebris.splice(removeIndex, 1);
       if (removed) {
         this.disposeDebris(removed);
       }
     }
+
+    return true;
   }
 
   private hash01(input: string, salt: number): number {

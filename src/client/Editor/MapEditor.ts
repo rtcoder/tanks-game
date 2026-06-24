@@ -2002,8 +2002,16 @@ export class MapEditor {
         spatialIndex: 'grid',
       },
       render: {
-        mode: 'source-model',
+        mode: 'generated-blocks',
         preserveMaterials: true,
+      },
+      chunking: {
+        mode: 'solid-blocks',
+        fill: 'bounding-box',
+        blockSize: [42, 42, 34],
+        minBlockSize: [18, 18, 18],
+        maxBlocksPerSourceChunk: 180,
+        density: 0.0018,
       },
       chunks: parts.map((part) => ({
         id: `${modelId}:chunk-${part.sourceIndex.toString().padStart(4, '0')}`,

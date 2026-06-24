@@ -2,6 +2,7 @@ import type {
   GroundfireMap,
   GroundfireDestructibleModel,
   GroundfireDestructibleModelChunk,
+  GroundfireDestructibleModelChunking,
   GroundfireMapElement,
   GroundfireSpawn,
   GroundfireTerrain,
@@ -318,10 +319,36 @@ function readDestructibleModel(source: unknown, fallbackId: string): GroundfireD
       spatialIndex: model.collision?.spatialIndex === 'none' ? 'none' : 'grid',
     },
     render: {
-      mode: 'source-model',
+      mode: model.render?.mode === 'generated-blocks' ? 'generated-blocks' : 'source-model',
       preserveMaterials: model.render?.preserveMaterials !== false,
     },
+    chunking: readDestructibleChunking(model.chunking),
     chunks: readDestructibleChunks(model.chunks, fallbackHealth),
+  };
+}
+
+function readDestructibleChunking(source: unknown): GroundfireDestructibleModelChunking {
+  const data = source && typeof source === 'object'
+    ? source as Partial<GroundfireDestructibleModelChunking>
+    : {};
+  const blockSize = readVector3(data.blockSize, [42, 42, 34]);
+  const minBlockSize = readVector3(data.minBlockSize, [18, 18, 18]);
+
+  return {
+    mode: data.mode === 'solid-blocks' ? 'solid-blocks' : 'source-nodes',
+    fill: 'bounding-box',
+    blockSize: [
+      Math.max(8, blockSize[0]),
+      Math.max(8, blockSize[1]),
+      Math.max(8, blockSize[2]),
+    ],
+    minBlockSize: [
+      Math.max(4, minBlockSize[0]),
+      Math.max(4, minBlockSize[1]),
+      Math.max(4, minBlockSize[2]),
+    ],
+    maxBlocksPerSourceChunk: Math.max(1, Math.min(Math.floor(readNumber(data.maxBlocksPerSourceChunk, 180)), 900)),
+    density: Math.max(0.001, readNumber(data.density, 0.0018)),
   };
 }
 
