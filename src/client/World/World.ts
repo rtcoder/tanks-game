@@ -1214,7 +1214,10 @@ class World {
     }
 
     const focus = this.localTank.mesh.position;
-    this.destructibleModels.forEach((model) => model.updateVisibility(this.camera.camera, focus, delta));
+    this.destructibleModels.forEach((model) => {
+      model.updateVisibility(this.camera.camera, focus, delta);
+      model.update(delta, (x, y) => this.ground.heightAt(x, y));
+    });
   }
 
   updateWaterSimulation(delta: number): void {

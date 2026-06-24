@@ -12,6 +12,7 @@ type RuntimeChunk = {
   mesh: THREE.Mesh | null;
   batch: THREE.BatchedMesh | null;
   batchInstanceId: number | null;
+  material: THREE.Material | THREE.Material[] | null;
   health: number;
   maxHealth: number;
   active: boolean;
@@ -30,11 +31,29 @@ type BatchGroup = {
   maxIndices: number;
 };
 
+type FallingDebris = {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  angularVelocity: THREE.Vector3;
+  centerGroundOffset: number;
+  age: number;
+  settledAge: number;
+  settled: boolean;
+  bounces: number;
+};
+
 const DESTRUCTIBLE_BATCH_MIN_MESHES = 24;
 const DESTRUCTIBLE_VISIBLE_CHUNK_BUDGET = 2600;
 const DESTRUCTIBLE_ALWAYS_VISIBLE_RADIUS = 420;
 const DESTRUCTIBLE_MAX_VISIBLE_DISTANCE = 2600;
 const DESTRUCTIBLE_VISIBILITY_INTERVAL = 0.12;
+const DESTRUCTIBLE_DEBRIS_MAX_ACTIVE = 180;
+const DESTRUCTIBLE_DEBRIS_GRAVITY = 520;
+const DESTRUCTIBLE_DEBRIS_MAX_FALL_SPEED = 760;
+const DESTRUCTIBLE_DEBRIS_SETTLE_LIFETIME = 9;
+const DESTRUCTIBLE_DEBRIS_FADE_DURATION = 1.6;
+const DESTRUCTIBLE_DEBRIS_MIN_DIMENSION = 1.5;
+const DESTRUCTIBLE_DEBRIS_MIN_VISIBLE_THICKNESS = 3;
 
 export type DestructibleModelHit = {
   model: DestructibleModel;
@@ -56,6 +75,7 @@ export class DestructibleModel {
   readonly chunkIndex: ChunkSpatialIndex;
   readonly chunks = new Map<string, RuntimeChunk>();
   readonly batchedMeshes: THREE.BatchedMesh[] = [];
+  readonly fallingDebris: FallingDebris[] = [];
   private readonly chunkOrder: RuntimeChunk[] = [];
   private visibilityElapsed = DESTRUCTIBLE_VISIBILITY_INTERVAL;
   private readonly visibilityFrustum = new THREE.Frustum();
@@ -172,7 +192,7 @@ export class DestructibleModel {
         return;
       }
 
-      if (this.damageChunk(chunk, damage)) {
+      if (this.damageChunk(chunk, damage, center)) {
         destroyedIds.push(chunk.id);
       }
     });
@@ -196,7 +216,13 @@ export class DestructibleModel {
     this.chunks.clear();
     this.chunkOrder.length = 0;
     this.batchedMeshes.length = 0;
+    this.fallingDebris.forEach((debris) => this.disposeDebris(debris));
+    this.fallingDebris.length = 0;
     this.chunkIndex.clear();
+  }
+
+  update(delta: number, groundHeightAt: (x: number, y: number) => number): void {
+    this.updateFallingDebris(delta, groundHeightAt);
   }
 
   updateVisibility(camera: THREE.Camera, focus: THREE.Vector3, delta: number): void {
@@ -312,6 +338,7 @@ export class DestructibleModel {
         mesh,
         batch: null,
         batchInstanceId: null,
+        material: mesh.material,
         health: chunkConfig.health,
         maxHealth: chunkConfig.health,
         active: true,
@@ -460,14 +487,14 @@ export class DestructibleModel {
     };
   }
 
-  private damageChunk(chunk: RuntimeChunk, amount: number): boolean {
+  private damageChunk(chunk: RuntimeChunk, amount: number, impactCenter?: THREE.Vector3): boolean {
     if (!this.data.destructible.enabled || !chunk.active) {
       return false;
     }
 
     chunk.health = Math.max(0, chunk.health - amount);
     if (chunk.health <= 0) {
-      this.destroyChunk(chunk);
+      this.destroyChunk(chunk, impactCenter);
       return true;
     }
 
@@ -475,8 +502,9 @@ export class DestructibleModel {
     return false;
   }
 
-  private destroyChunk(chunk: RuntimeChunk): void {
+  private destroyChunk(chunk: RuntimeChunk, impactCenter?: THREE.Vector3): void {
     chunk.active = false;
+    this.spawnDebris(chunk, impactCenter);
     this.setChunkRenderVisible(chunk, false);
     this.chunkIndex.remove(chunk.id);
   }
@@ -537,6 +565,184 @@ export class DestructibleModel {
       disposed.add(item);
       item.dispose();
     });
+  }
+
+  private spawnDebris(chunk: RuntimeChunk, impactCenter?: THREE.Vector3): void {
+    const parent = this.root.parent;
+    if (!parent) {
+      return;
+    }
+
+    const size = chunk.box.getSize(new THREE.Vector3());
+    const longestSide = Math.max(size.x, size.y, size.z);
+    if (longestSide < DESTRUCTIBLE_DEBRIS_MIN_DIMENSION) {
+      return;
+    }
+
+    const visualSize = new THREE.Vector3(
+        Math.max(size.x, DESTRUCTIBLE_DEBRIS_MIN_VISIBLE_THICKNESS),
+        Math.max(size.y, DESTRUCTIBLE_DEBRIS_MIN_VISIBLE_THICKNESS),
+        Math.max(size.z, DESTRUCTIBLE_DEBRIS_MIN_VISIBLE_THICKNESS),
+    );
+    const geometry = new THREE.BoxGeometry(visualSize.x, visualSize.y, visualSize.z);
+    const material = this.createDebrisMaterial(chunk);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `${chunk.id}:falling-debris`;
+    mesh.position.copy(chunk.center);
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    mesh.frustumCulled = true;
+
+    const seed = this.hash01(chunk.id, 1);
+    const angle = seed * Math.PI * 2;
+    const outward = impactCenter
+      ? chunk.center.clone().sub(impactCenter)
+      : new THREE.Vector3(Math.cos(angle), Math.sin(angle), 0);
+    if (outward.lengthSq() < 0.001) {
+      outward.set(Math.cos(angle), Math.sin(angle), 0);
+    }
+    outward.z = 0;
+    outward.normalize();
+
+    const lateralSpeed = 18 + this.hash01(chunk.id, 2) * 46;
+    const debris: FallingDebris = {
+      mesh,
+      velocity: new THREE.Vector3(
+          outward.x * lateralSpeed,
+          outward.y * lateralSpeed,
+          18 + this.hash01(chunk.id, 3) * 36,
+      ),
+      angularVelocity: new THREE.Vector3(
+          (this.hash01(chunk.id, 4) - 0.5) * 2.2,
+          (this.hash01(chunk.id, 5) - 0.5) * 2.2,
+          (this.hash01(chunk.id, 6) - 0.5) * 3.2,
+      ),
+      centerGroundOffset: visualSize.z / 2,
+      age: 0,
+      settledAge: 0,
+      settled: false,
+      bounces: 0,
+    };
+
+    parent.add(mesh);
+    this.fallingDebris.push(debris);
+    this.pruneFallingDebris();
+  }
+
+  private updateFallingDebris(delta: number, groundHeightAt: (x: number, y: number) => number): void {
+    if (this.fallingDebris.length === 0) {
+      return;
+    }
+
+    const step = Math.min(delta, 0.05);
+    for (let index = this.fallingDebris.length - 1; index >= 0; index -= 1) {
+      const debris = this.fallingDebris[index];
+      debris.age += step;
+
+      if (!debris.settled) {
+        debris.velocity.z = Math.max(
+            -DESTRUCTIBLE_DEBRIS_MAX_FALL_SPEED,
+            debris.velocity.z - DESTRUCTIBLE_DEBRIS_GRAVITY * step,
+        );
+        debris.mesh.position.addScaledVector(debris.velocity, step);
+        debris.mesh.rotation.x += debris.angularVelocity.x * step;
+        debris.mesh.rotation.y += debris.angularVelocity.y * step;
+        debris.mesh.rotation.z += debris.angularVelocity.z * step;
+
+        const groundCenterZ = groundHeightAt(debris.mesh.position.x, debris.mesh.position.y) + debris.centerGroundOffset;
+        if (debris.mesh.position.z <= groundCenterZ) {
+          debris.mesh.position.z = groundCenterZ;
+          if (debris.bounces === 0 && Math.abs(debris.velocity.z) > 150) {
+            debris.velocity.z = Math.abs(debris.velocity.z) * 0.16;
+            debris.velocity.x *= 0.35;
+            debris.velocity.y *= 0.35;
+            debris.angularVelocity.multiplyScalar(0.45);
+            debris.bounces += 1;
+          } else {
+            debris.velocity.set(0, 0, 0);
+            debris.angularVelocity.multiplyScalar(0.12);
+            debris.settled = true;
+          }
+        }
+
+        continue;
+      }
+
+      debris.settledAge += step;
+      if (debris.settledAge > DESTRUCTIBLE_DEBRIS_SETTLE_LIFETIME) {
+        const fade = THREE.MathUtils.clamp(
+            1 - (debris.settledAge - DESTRUCTIBLE_DEBRIS_SETTLE_LIFETIME) / DESTRUCTIBLE_DEBRIS_FADE_DURATION,
+            0,
+            1,
+        );
+        this.setDebrisOpacity(debris.mesh, fade);
+        if (fade <= 0) {
+          this.fallingDebris.splice(index, 1);
+          this.disposeDebris(debris);
+        }
+      }
+    }
+  }
+
+  private createDebrisMaterial(chunk: RuntimeChunk): THREE.Material {
+    const source = Array.isArray(chunk.material)
+      ? chunk.material[0]
+      : (chunk.material ?? (Array.isArray(chunk.batch?.material) ? chunk.batch.material[0] : chunk.batch?.material));
+    const material = source ? source.clone() : new THREE.MeshStandardMaterial({color: 0x8a755d, roughness: 0.92});
+
+    if (material instanceof THREE.MeshStandardMaterial) {
+      material.color.lerp(new THREE.Color(0x5b4a3a), 0.16);
+      material.roughness = Math.max(material.roughness, 0.84);
+      material.metalness = Math.min(material.metalness, 0.05);
+      material.transparent = true;
+      material.opacity = 0.96;
+      material.depthWrite = true;
+      material.needsUpdate = true;
+    }
+
+    return material;
+  }
+
+  private setDebrisOpacity(mesh: THREE.Mesh, opacity: number): void {
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    materials.forEach((material) => {
+      material.transparent = true;
+      material.opacity = opacity;
+      material.needsUpdate = true;
+    });
+  }
+
+  private disposeDebris(debris: FallingDebris): void {
+    debris.mesh.parent?.remove(debris.mesh);
+    debris.mesh.geometry.dispose();
+    if (Array.isArray(debris.mesh.material)) {
+      debris.mesh.material.forEach((material) => material.dispose());
+    } else {
+      debris.mesh.material.dispose();
+    }
+  }
+
+  private pruneFallingDebris(): void {
+    while (this.fallingDebris.length > DESTRUCTIBLE_DEBRIS_MAX_ACTIVE) {
+      let removeIndex = this.fallingDebris.findIndex((debris) => debris.settled);
+      if (removeIndex < 0) {
+        removeIndex = 0;
+      }
+      const [removed] = this.fallingDebris.splice(removeIndex, 1);
+      if (removed) {
+        this.disposeDebris(removed);
+      }
+    }
+  }
+
+  private hash01(input: string, salt: number): number {
+    let hash = 2166136261 ^ salt;
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+
+    return (hash >>> 0) / 4294967295;
   }
 
   private setChunkRenderVisible(chunk: RuntimeChunk, visible: boolean): void {
