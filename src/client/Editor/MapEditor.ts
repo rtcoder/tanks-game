@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {OBJLoader} from 'three/examples/jsm/loaders/OBJLoader.js';
 import {MAP_ASSET_MANIFEST, type GroundfireElementPreset} from '../../shared/map-assets';
 import {normalizeGroundfireMap} from '../../shared/map-normalizer';
 import {createStoredZip, readStoredZipEntries} from '../../shared/zip';
@@ -30,11 +32,41 @@ type PlacementSample = {
 
 type PaintShape = 'brush' | 'tile';
 
+type ImportedModelPart = {
+  id: string;
+  name: string;
+  mesh: THREE.Mesh;
+};
+
+type ImportedModelSource = {
+  name: string;
+  root: THREE.Group;
+};
+
+type AutoModelBlockPlan = {
+  width: number;
+  depth: number;
+  height: number;
+  xCount: number;
+  zCount: number;
+  levelCount: number;
+};
+
 const HEIGHTMAP_RESOLUTION = 128;
 const TERRAIN_SEGMENTS = HEIGHTMAP_RESOLUTION - 1;
 const EDITOR_GRID_SIZE = 10;
 const EDITOR_VIEW_NUDGE_PIXELS = 180;
 const EDITOR_VIEW_ROTATE_STEP = Math.PI / 8;
+const MODEL_IMPORT_TARGET_BLOCKS = 1400;
+const MODEL_IMPORT_MIN_HORIZONTAL_BLOCK_SIZE = 20;
+const MODEL_IMPORT_MAX_HORIZONTAL_BLOCK_SIZE = 110;
+const MODEL_IMPORT_MAX_AXIS_SEGMENTS = 36;
+const MODEL_IMPORT_MAX_BLOCK_HEIGHT = 50;
+const MODEL_IMPORT_MIN_BUILDING_HEIGHT = 35;
+const MODEL_IMPORT_GROUND_EPSILON = 12;
+const MODEL_IMPORT_FLATNESS_RATIO = 0.12;
+const MODEL_IMPORT_LARGE_FOOTPRINT_RATIO = 0.05;
+const MODEL_IMPORT_RAYCAST_PADDING = 24;
 
 export class MapEditor {
   root: HTMLElement;
@@ -51,6 +83,9 @@ export class MapEditor {
   ghostMesh!: THREE.Mesh;
   surfacePatchPreviewMesh!: THREE.Mesh;
   waterMeshes: THREE.Mesh[] = [];
+  importedModelRoot: THREE.Group | null = null;
+  importedModelParts = new Map<string, ImportedModelPart>();
+  selectedImportedPartIds = new Set<string>();
   elements = new Map<string, EditorElement>();
   groups: GroundfireMapGroup[] = [];
   surfacePatches: GroundfireTerrainSurfacePatch[] = [];
@@ -84,6 +119,8 @@ export class MapEditor {
   waterProjectileImpactInput!: HTMLSelectElement;
   waterExplosionMultiplierInput!: HTMLInputElement;
   importPackageInput!: HTMLInputElement;
+  importModelInput!: HTMLInputElement;
+  modelPartListElement!: HTMLElement;
   heatmapInput!: HTMLInputElement;
   waterListElement!: HTMLElement;
   statusElement!: HTMLElement;
@@ -153,6 +190,19 @@ export class MapEditor {
               <button id="editor-import-package" type="button">Load package</button>
             </div>
             <label class="editor__check"><input id="editor-heatmap" type="checkbox"> Heatmap view</label>
+          </section>
+          <section class="editor__section">
+            <div class="editor__section-title">Model map source</div>
+            <input class="editor__file-input" id="editor-import-model-input" type="file" accept=".zip,.glb,.gltf,.obj,application/zip,application/x-zip-compressed,model/gltf-binary,model/gltf+json">
+            <div class="editor__row">
+              <button id="editor-import-model" type="button">Load model</button>
+              <button id="editor-clear-model" type="button">Clear model</button>
+            </div>
+            <div class="editor__row">
+              <button id="editor-model-generate" type="button">Generate blocks</button>
+              <button id="editor-model-select-all" type="button">Select all parts</button>
+            </div>
+            <div class="editor__model-list" id="editor-model-part-list"></div>
           </section>
           <label>Tool
             <select id="editor-tool">
@@ -304,6 +354,8 @@ export class MapEditor {
     this.waterProjectileImpactInput = document.getElementById('editor-water-projectile') as HTMLSelectElement;
     this.waterExplosionMultiplierInput = document.getElementById('editor-water-explosion') as HTMLInputElement;
     this.importPackageInput = document.getElementById('editor-import-package-input') as HTMLInputElement;
+    this.importModelInput = document.getElementById('editor-import-model-input') as HTMLInputElement;
+    this.modelPartListElement = document.getElementById('editor-model-part-list') as HTMLElement;
     this.heatmapInput = document.getElementById('editor-heatmap') as HTMLInputElement;
     this.waterListElement = document.getElementById('editor-water-list') as HTMLElement;
     this.statusElement = document.getElementById('editor-status') as HTMLElement;
@@ -454,6 +506,10 @@ export class MapEditor {
     document.getElementById('editor-delete')?.addEventListener('click', () => this.deleteSelection());
     document.getElementById('editor-export-package')?.addEventListener('click', () => void this.exportPackage());
     document.getElementById('editor-import-package')?.addEventListener('click', () => this.importPackageInput.click());
+    document.getElementById('editor-import-model')?.addEventListener('click', () => this.importModelInput.click());
+    document.getElementById('editor-clear-model')?.addEventListener('click', () => this.clearImportedModel());
+    document.getElementById('editor-model-generate')?.addEventListener('click', () => this.generateBlocksFromImportedModel());
+    document.getElementById('editor-model-select-all')?.addEventListener('click', () => this.selectAllImportedModelParts());
     this.importPackageInput.addEventListener('change', () => {
       const file = this.importPackageInput.files?.[0];
       this.importPackageInput.value = '';
@@ -461,11 +517,19 @@ export class MapEditor {
         void this.importMapPackage(file);
       }
     });
+    this.importModelInput.addEventListener('change', () => {
+      const file = this.importModelInput.files?.[0];
+      this.importModelInput.value = '';
+      if (file) {
+        void this.importModelSource(file);
+      }
+    });
     this.heatmapInput.addEventListener('change', () => {
       this.heatmapEnabled = this.heatmapInput.checked;
       this.updateTerrainHeatmap();
     });
     this.waterListElement.addEventListener('click', (event) => this.handleWaterListClick(event));
+    this.modelPartListElement.addEventListener('click', (event) => this.handleModelPartListClick(event));
 
     this.renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
     this.renderer.domElement.addEventListener('pointerdown', (event) => this.onPointerDown(event));
@@ -974,6 +1038,15 @@ export class MapEditor {
     const hit = this.intersectObjects();
     const id = typeof hit?.object.userData.elementId === 'string' ? hit.object.userData.elementId : null;
     if (!id) {
+      const modelPartHit = this.intersectImportedModelParts();
+      const modelPartId = typeof modelPartHit?.object.userData.importedModelPartId === 'string'
+        ? modelPartHit.object.userData.importedModelPartId
+        : null;
+      if (modelPartId) {
+        this.toggleImportedModelPart(modelPartId, append);
+        return;
+      }
+
       const waterHit = this.intersectWater();
       const waterId = typeof waterHit?.object.userData.waterSourceId === 'string'
         ? waterHit.object.userData.waterSourceId
@@ -1000,6 +1073,9 @@ export class MapEditor {
     }
 
     this.selectedWaterId = null;
+    this.selectedImportedPartIds.clear();
+    this.syncImportedModelSelectionMaterials();
+    this.renderImportedModelParts();
     this.syncSelectionMaterials();
     this.syncWaterSelectionMaterials();
     this.renderWaterList();
@@ -1386,6 +1462,22 @@ export class MapEditor {
     this.selectWater(waterId);
   }
 
+  handleModelPartListClick(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const row = target.closest<HTMLElement>('[data-model-part-id]');
+    const partId = row?.dataset.modelPartId;
+    if (!partId) {
+      return;
+    }
+
+    const append = event instanceof MouseEvent && (event.shiftKey || event.metaKey || event.ctrlKey);
+    this.toggleImportedModelPart(partId, append);
+  }
+
   renderWaterList(): void {
     if (this.waterSources.length === 0) {
       this.waterListElement.innerHTML = '<p class="editor__empty">No water sources</p>';
@@ -1414,6 +1506,7 @@ export class MapEditor {
 
     this.selectedWaterId = waterId;
     this.clearElementSelection();
+    this.clearImportedModelSelection();
     this.syncWaterControls();
     this.syncWaterSelectionMaterials();
     this.renderWaterList();
@@ -1494,6 +1587,646 @@ export class MapEditor {
     this.refreshWaterPreview();
     this.renderWaterList();
     this.setStatus('Water removed');
+  }
+
+  async importModelSource(file: File): Promise<void> {
+    const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+    try {
+      const source = extension === 'zip'
+        ? await this.importModelSourceFromZip(file)
+        : await this.importModelSourceFromFile(file, extension);
+
+      this.clearImportedModel();
+      this.prepareImportedModel(source.root, source.name);
+      this.scene.add(source.root);
+      this.importedModelRoot = source.root;
+      this.renderImportedModelParts();
+      this.setStatus(`Loaded model ${source.name} - ${this.importedModelParts.size} parts`);
+    } catch (error) {
+      console.error('Could not import model source', error);
+      this.setStatus('Could not load model source');
+    }
+  }
+
+  async importModelSourceFromFile(file: File, extension: string): Promise<ImportedModelSource> {
+    const url = URL.createObjectURL(file);
+    try {
+      return {
+        name: file.name,
+        root: await this.loadModelFromUrl(url, extension),
+      };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async importModelSourceFromZip(file: File): Promise<ImportedModelSource> {
+    const entries = readStoredZipEntries(new Uint8Array(await file.arrayBuffer()));
+    const modelEntryName = this.modelEntryNameFromZip(entries);
+    if (!modelEntryName) {
+      throw new Error('Model ZIP does not contain .glb, .gltf, or .obj');
+    }
+
+    const bytes = entries.get(modelEntryName);
+    if (!bytes) {
+      throw new Error(`Model entry is missing from ZIP: ${modelEntryName}`);
+    }
+
+    const extension = this.fileExtension(modelEntryName);
+    if (extension === 'gltf') {
+      return {
+        name: `${file.name}/${modelEntryName}`,
+        root: await this.loadGltfFromZip(entries, modelEntryName, bytes),
+      };
+    }
+
+    const url = URL.createObjectURL(new Blob([this.arrayBufferFromBytes(bytes)], {type: this.mimeTypeForModelExtension(extension)}));
+    try {
+      return {
+        name: `${file.name}/${modelEntryName}`,
+        root: await this.loadModelFromUrl(url, extension),
+      };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async loadModelFromUrl(url: string, extension: string): Promise<THREE.Group> {
+    if (extension === 'glb' || extension === 'gltf') {
+      return new Promise<THREE.Group>((resolve, reject) => {
+        new GLTFLoader().load(url, (gltf) => resolve(gltf.scene), undefined, reject);
+      });
+    }
+    if (extension === 'obj') {
+      return new Promise<THREE.Group>((resolve, reject) => {
+        new OBJLoader().load(url, resolve, undefined, reject);
+      });
+    }
+
+    throw new Error(`Unsupported model extension: ${extension}`);
+  }
+
+  async loadGltfFromZip(
+      entries: Map<string, Uint8Array>,
+      modelEntryName: string,
+      modelBytes: Uint8Array,
+  ): Promise<THREE.Group> {
+    const objectUrls: string[] = [];
+    const modelDirectory = this.directoryName(modelEntryName);
+    const manager = new THREE.LoadingManager();
+    manager.setURLModifier((url) => {
+      const entryName = this.zipEntryNameForAssetUrl(entries, url, modelDirectory);
+      const bytes = entryName ? entries.get(entryName) : undefined;
+      if (!entryName || !bytes) {
+        return url;
+      }
+
+      const objectUrl = URL.createObjectURL(new Blob([this.arrayBufferFromBytes(bytes)], {type: this.mimeTypeForZipEntry(entryName)}));
+      objectUrls.push(objectUrl);
+      return objectUrl;
+    });
+
+    try {
+      const source = new TextDecoder().decode(modelBytes);
+      return await new Promise<THREE.Group>((resolve, reject) => {
+        new GLTFLoader(manager).parse(source, `${modelDirectory}/`, (gltf) => resolve(gltf.scene), reject);
+      });
+    } finally {
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    }
+  }
+
+  modelEntryNameFromZip(entries: Map<string, Uint8Array>): string | null {
+    const modelEntries = Array.from(entries.keys())
+        .filter((name) => !name.startsWith('__MACOSX/'))
+        .filter((name) => ['glb', 'gltf', 'obj'].includes(this.fileExtension(name)));
+    const preference = ['glb', 'gltf', 'obj'];
+    modelEntries.sort((left, right) => {
+      const leftScore = preference.indexOf(this.fileExtension(left));
+      const rightScore = preference.indexOf(this.fileExtension(right));
+      if (leftScore !== rightScore) {
+        return leftScore - rightScore;
+      }
+      const leftSourceScore = left.startsWith('source/') ? -1 : 0;
+      const rightSourceScore = right.startsWith('source/') ? -1 : 0;
+      return leftSourceScore - rightSourceScore || left.localeCompare(right);
+    });
+
+    return modelEntries[0] ?? null;
+  }
+
+  zipEntryNameForAssetUrl(entries: Map<string, Uint8Array>, url: string, modelDirectory: string): string | null {
+    if (/^(data|blob|https?):/i.test(url)) {
+      return null;
+    }
+
+    const normalizedUrl = this.normalizeAssetUrl(url);
+    const candidates = [
+      normalizedUrl,
+      `${modelDirectory}/${normalizedUrl}`,
+      this.baseName(normalizedUrl),
+    ].map((candidate) => candidate.replace(/^\/+/, '').replace(/\/+/g, '/'));
+
+    for (const candidate of candidates) {
+      if (entries.has(candidate)) {
+        return candidate;
+      }
+    }
+
+    const basename = this.baseName(normalizedUrl).toLowerCase();
+    return Array.from(entries.keys()).find((name) => this.baseName(name).toLowerCase() === basename) ?? null;
+  }
+
+  normalizeAssetUrl(url: string): string {
+    const clean = url.split('#')[0].split('?')[0];
+    try {
+      return decodeURIComponent(new URL(clean, window.location.href).pathname).replace(/^\/+/, '');
+    } catch {
+      return decodeURIComponent(clean).replace(/^\/+/, '');
+    }
+  }
+
+  fileExtension(name: string): string {
+    return name.split('.').pop()?.toLowerCase() ?? '';
+  }
+
+  directoryName(name: string): string {
+    const index = name.lastIndexOf('/');
+    return index >= 0 ? name.slice(0, index) : '';
+  }
+
+  baseName(name: string): string {
+    return name.split('/').pop() ?? name;
+  }
+
+  mimeTypeForModelExtension(extension: string): string {
+    if (extension === 'glb') {
+      return 'model/gltf-binary';
+    }
+    if (extension === 'gltf') {
+      return 'model/gltf+json';
+    }
+    if (extension === 'obj') {
+      return 'text/plain';
+    }
+    return 'application/octet-stream';
+  }
+
+  mimeTypeForZipEntry(name: string): string {
+    const extension = this.fileExtension(name);
+    if (extension === 'png') {
+      return 'image/png';
+    }
+    if (extension === 'jpg' || extension === 'jpeg') {
+      return 'image/jpeg';
+    }
+    if (extension === 'webp') {
+      return 'image/webp';
+    }
+    return this.mimeTypeForModelExtension(extension);
+  }
+
+  arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  }
+
+  prepareImportedModel(root: THREE.Group, fileName: string): void {
+    root.name = `model-source:${fileName}`;
+    root.updateMatrixWorld(true);
+    const sourceBox = new THREE.Box3().setFromObject(root);
+    if (sourceBox.isEmpty()) {
+      return;
+    }
+
+    const size = sourceBox.getSize(new THREE.Vector3());
+    const maxDimension = Math.max(size.x, size.y, size.z, 1);
+    const targetSize = this.terrainSize * 0.72;
+    const scale = THREE.MathUtils.clamp(targetSize / maxDimension, 0.02, 40);
+    const center = sourceBox.getCenter(new THREE.Vector3());
+    root.scale.multiplyScalar(scale);
+    root.position.set(-center.x * scale, -sourceBox.min.y * scale, -center.z * scale);
+    root.updateMatrixWorld(true);
+
+    const referenceMaterial = new THREE.MeshStandardMaterial({
+      color: 0x7deeff,
+      emissive: 0x0d2a32,
+      emissiveIntensity: 0.24,
+      transparent: true,
+      opacity: 0.28,
+      roughness: 0.88,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+
+    let index = 0;
+    root.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) {
+        return;
+      }
+
+      const partId = `model-part-${index.toString().padStart(3, '0')}-${crypto.randomUUID().slice(0, 6)}`;
+      index += 1;
+      object.userData.importedModelPartId = partId;
+      object.castShadow = false;
+      object.receiveShadow = true;
+      object.material = referenceMaterial.clone();
+      this.importedModelParts.set(partId, {
+        id: partId,
+        name: object.name || `Part ${index}`,
+        mesh: object,
+      });
+    });
+  }
+
+  clearImportedModel(): void {
+    if (this.importedModelRoot) {
+      this.scene.remove(this.importedModelRoot);
+      this.importedModelRoot.traverse((object) => {
+        if (object instanceof THREE.Mesh) {
+          object.geometry.dispose();
+          this.disposeMaterial(object.material);
+        }
+      });
+    }
+    this.importedModelRoot = null;
+    this.importedModelParts.clear();
+    this.selectedImportedPartIds.clear();
+    this.renderImportedModelParts();
+    this.setStatus('Model source cleared');
+  }
+
+  selectAllImportedModelParts(): void {
+    this.selectedImportedPartIds = new Set(this.importedModelParts.keys());
+    this.syncImportedModelSelectionMaterials();
+    this.renderImportedModelParts();
+    this.setStatus(`Selected ${this.selectedImportedPartIds.size} model parts`);
+  }
+
+  renderImportedModelParts(): void {
+    if (!this.modelPartListElement) {
+      return;
+    }
+
+    if (this.importedModelParts.size === 0) {
+      this.modelPartListElement.innerHTML = '<p class="editor__empty">No model loaded</p>';
+      return;
+    }
+
+    const selectedCount = this.selectedImportedPartIds.size;
+    const parts = Array.from(this.importedModelParts.values()).slice(0, 12);
+    this.modelPartListElement.innerHTML = `
+      <p class="editor__empty">${this.importedModelParts.size} parts loaded - ${selectedCount || 'all'} used for generation</p>
+      ${parts.map((part) => {
+        const selectedClass = this.selectedImportedPartIds.has(part.id) ? ' editor__model-item--selected' : '';
+        return `<button class="editor__model-item${selectedClass}" type="button" data-model-part-id="${part.id}">${part.name}</button>`;
+      }).join('')}
+    `;
+  }
+
+  toggleImportedModelPart(partId: string, append: boolean): void {
+    if (!this.importedModelParts.has(partId)) {
+      return;
+    }
+
+    if (!append) {
+      this.selectedImportedPartIds.clear();
+    }
+    if (append && this.selectedImportedPartIds.has(partId)) {
+      this.selectedImportedPartIds.delete(partId);
+    } else {
+      this.selectedImportedPartIds.add(partId);
+    }
+
+    this.clearElementSelection();
+    this.selectedWaterId = null;
+    this.syncImportedModelSelectionMaterials();
+    this.renderImportedModelParts();
+    this.setStatus(`Selected ${this.selectedImportedPartIds.size} model part${this.selectedImportedPartIds.size === 1 ? '' : 's'}`);
+  }
+
+  syncImportedModelSelectionMaterials(): void {
+    this.importedModelParts.forEach((part) => {
+      const selected = this.selectedImportedPartIds.has(part.id);
+      const materials = Array.isArray(part.mesh.material) ? part.mesh.material : [part.mesh.material];
+      materials.forEach((material) => {
+        if (material instanceof THREE.MeshStandardMaterial) {
+          material.color.set(selected ? 0xd7ff58 : 0x7deeff);
+          material.emissive.set(selected ? 0x445000 : 0x0d2a32);
+          material.emissiveIntensity = selected ? 0.5 : 0.24;
+          material.opacity = selected ? 0.42 : 0.28;
+          material.needsUpdate = true;
+        }
+      });
+    });
+  }
+
+  generateBlocksFromImportedModel(): void {
+    const sourceParts = this.importedModelGenerationParts();
+    if (sourceParts.length === 0) {
+      this.setStatus('Load a model first');
+      return;
+    }
+
+    this.clearGeneratedModelBlocks();
+
+    const minLevel = 0;
+    const sourceBox = this.importedModelBounds(sourceParts);
+    const parts = this.importedModelBuildingParts(sourceParts, sourceBox);
+    if (parts.length === 0) {
+      this.setStatus('No building-like model parts found');
+      return;
+    }
+
+    const modelBox = this.importedModelBounds(parts);
+    const baseBlockSize = this.fitAutoModelBlockSize(parts, modelBox, minLevel);
+    const material = this.objectMaterialInput.value || 'brick-wall';
+    const health = Math.max(1, Number(this.healthInput.value) || 20);
+    const createdIds: string[] = [];
+
+    for (const part of parts) {
+      const box = new THREE.Box3().setFromObject(part.mesh);
+      if (box.isEmpty() || box.max.y <= minLevel) {
+        continue;
+      }
+
+      const plan = this.autoModelBlockPlan(box, minLevel, baseBlockSize);
+      for (let level = 0; level < plan.levelCount; level += 1) {
+        const xCenters = this.centersForBounds(box.min.x, box.max.x, plan.width, level % 2 === 1);
+        const zCenters = this.centersForBounds(box.min.z, box.max.z, plan.depth, level % 2 === 1);
+        for (const centerX of xCenters) {
+          for (const centerZ of zCenters) {
+            const topY = this.importedPartTopAt(part.mesh, centerX, centerZ, box);
+            const bottom = this.heightAt(centerX, centerZ) + level * MODEL_IMPORT_MAX_BLOCK_HEIGHT;
+            if (topY === null || topY <= bottom + EDITOR_GRID_SIZE) {
+              continue;
+            }
+
+            const blockHeight = Math.min(MODEL_IMPORT_MAX_BLOCK_HEIGHT, topY - bottom);
+            if (blockHeight < EDITOR_GRID_SIZE) {
+              continue;
+            }
+
+            if (createdIds.length >= MODEL_IMPORT_TARGET_BLOCKS) {
+              this.addGeneratedModelGroup(createdIds, part.name);
+              this.refreshWaterPreview();
+              this.setStatus(`Generated ${createdIds.length} blocks - limit reached`);
+              return;
+            }
+            createdIds.push(this.addGeneratedModelBlock({
+              centerX,
+              centerZ,
+              bottom,
+              width: plan.width,
+              depth: plan.depth,
+              height: blockHeight,
+              material,
+              health,
+              sourceName: part.name,
+            }));
+          }
+        }
+      }
+    }
+
+    this.addGeneratedModelGroup(createdIds, parts.length === 1 ? parts[0].name : 'Model import');
+    this.refreshWaterPreview();
+    const skippedParts = sourceParts.length - parts.length;
+    this.setStatus(`Generated ${createdIds.length} grounded building blocks - skipped ${skippedParts} flat parts`);
+  }
+
+  importedModelGenerationParts(): ImportedModelPart[] {
+    const selected = Array.from(this.selectedImportedPartIds)
+        .map((id) => this.importedModelParts.get(id))
+        .filter((part): part is ImportedModelPart => Boolean(part));
+    return selected.length > 0 ? selected : Array.from(this.importedModelParts.values());
+  }
+
+  importedModelBounds(parts: ImportedModelPart[]): THREE.Box3 {
+    const bounds = new THREE.Box3();
+    parts.forEach((part) => {
+      const partBox = new THREE.Box3().setFromObject(part.mesh);
+      if (!partBox.isEmpty()) {
+        bounds.union(partBox);
+      }
+    });
+
+    if (bounds.isEmpty()) {
+      bounds.set(
+          new THREE.Vector3(-MODEL_IMPORT_MAX_BLOCK_HEIGHT, 0, -MODEL_IMPORT_MAX_BLOCK_HEIGHT),
+          new THREE.Vector3(MODEL_IMPORT_MAX_BLOCK_HEIGHT, MODEL_IMPORT_MAX_BLOCK_HEIGHT, MODEL_IMPORT_MAX_BLOCK_HEIGHT),
+      );
+    }
+
+    return bounds;
+  }
+
+  importedModelBuildingParts(parts: ImportedModelPart[], modelBox: THREE.Box3): ImportedModelPart[] {
+    const modelSize = modelBox.getSize(new THREE.Vector3());
+    const modelFootprintArea = Math.max(1, modelSize.x * modelSize.z);
+    return parts.filter((part) => this.isImportedModelBuildingPart(part, modelBox, modelFootprintArea));
+  }
+
+  isImportedModelBuildingPart(part: ImportedModelPart, modelBox: THREE.Box3, modelFootprintArea: number): boolean {
+    const box = new THREE.Box3().setFromObject(part.mesh);
+    if (box.isEmpty()) {
+      return false;
+    }
+
+    const size = box.getSize(new THREE.Vector3());
+    const height = size.y;
+    const horizontalSpan = Math.max(size.x, size.z, 1);
+    const footprintArea = Math.max(0, size.x * size.z);
+    const nearGround = box.min.y <= modelBox.min.y + MODEL_IMPORT_GROUND_EPSILON;
+    const flat = height < MODEL_IMPORT_MIN_BUILDING_HEIGHT || height / horizontalSpan < MODEL_IMPORT_FLATNESS_RATIO;
+    const hugeFootprint = footprintArea > modelFootprintArea * MODEL_IMPORT_LARGE_FOOTPRINT_RATIO;
+    const groundNamed = this.importedModelPartNameLooksFlat(part.name);
+
+    if (nearGround && hugeFootprint && (flat || groundNamed)) {
+      return false;
+    }
+    if (groundNamed && flat) {
+      return false;
+    }
+
+    return height >= MODEL_IMPORT_MIN_BUILDING_HEIGHT;
+  }
+
+  importedModelPartNameLooksFlat(name: string): boolean {
+    return /ground|terrain|floor|base|plane|road|street|sidewalk|pavement|water|sea|ocean|island|land/i.test(name);
+  }
+
+  importedPartTopAt(mesh: THREE.Mesh, x: number, z: number, box: THREE.Box3): number | null {
+    const origin = new THREE.Vector3(x, box.max.y + MODEL_IMPORT_RAYCAST_PADDING, z);
+    const raycaster = new THREE.Raycaster(
+        origin,
+        new THREE.Vector3(0, -1, 0),
+        0,
+        box.max.y - box.min.y + MODEL_IMPORT_RAYCAST_PADDING * 2,
+    );
+    const [hit] = raycaster.intersectObject(mesh, false);
+    return hit?.point.y ?? null;
+  }
+
+  fitAutoModelBlockSize(parts: ImportedModelPart[], modelBox: THREE.Box3, minLevel: number): number {
+    let blockSize = this.autoModelBaseBlockSize(modelBox);
+    let estimatedBlocks = this.estimatedAutoModelBlockCount(parts, minLevel, blockSize);
+
+    while (estimatedBlocks > MODEL_IMPORT_TARGET_BLOCKS && blockSize < MODEL_IMPORT_MAX_HORIZONTAL_BLOCK_SIZE) {
+      const nextSize = Math.min(
+          MODEL_IMPORT_MAX_HORIZONTAL_BLOCK_SIZE,
+          Math.max(blockSize + 5, this.roundModelBlockSize(blockSize * 1.18)),
+      );
+      if (nextSize === blockSize) {
+        break;
+      }
+      blockSize = nextSize;
+      estimatedBlocks = this.estimatedAutoModelBlockCount(parts, minLevel, blockSize);
+    }
+
+    return blockSize;
+  }
+
+  autoModelBaseBlockSize(modelBox: THREE.Box3): number {
+    const size = modelBox.getSize(new THREE.Vector3());
+    const footprint = Math.max(size.x, size.z, EDITOR_GRID_SIZE);
+    return this.roundModelBlockSize(THREE.MathUtils.clamp(
+        footprint / 24,
+        MODEL_IMPORT_MIN_HORIZONTAL_BLOCK_SIZE,
+        MODEL_IMPORT_MAX_HORIZONTAL_BLOCK_SIZE,
+    ));
+  }
+
+  estimatedAutoModelBlockCount(parts: ImportedModelPart[], minLevel: number, baseBlockSize: number): number {
+    return parts.reduce((total, part) => {
+      const box = new THREE.Box3().setFromObject(part.mesh);
+      if (box.isEmpty() || box.max.y <= minLevel) {
+        return total;
+      }
+
+      const plan = this.autoModelBlockPlan(box, minLevel, baseBlockSize);
+      let partTotal = 0;
+      for (let level = 0; level < plan.levelCount; level += 1) {
+        const staggerOffset = level % 2 === 1 ? 1 : 0;
+        partTotal += (plan.xCount + staggerOffset) * (plan.zCount + staggerOffset);
+      }
+      return total + partTotal;
+    }, 0);
+  }
+
+  autoModelBlockPlan(box: THREE.Box3, minY: number, baseBlockSize: number): AutoModelBlockPlan {
+    const size = box.getSize(new THREE.Vector3());
+    const xCount = this.autoAxisSegmentCount(size.x, baseBlockSize);
+    const zCount = this.autoAxisSegmentCount(size.z, baseBlockSize);
+    const verticalExtent = Math.max(EDITOR_GRID_SIZE, box.max.y - minY);
+    const levelCount = Math.max(1, Math.ceil(verticalExtent / MODEL_IMPORT_MAX_BLOCK_HEIGHT));
+
+    return {
+      width: Math.max(EDITOR_GRID_SIZE, size.x / xCount),
+      depth: Math.max(EDITOR_GRID_SIZE, size.z / zCount),
+      height: verticalExtent / levelCount,
+      xCount,
+      zCount,
+      levelCount,
+    };
+  }
+
+  autoAxisSegmentCount(extent: number, baseBlockSize: number): number {
+    if (!Number.isFinite(extent) || extent <= baseBlockSize * 1.15) {
+      return 1;
+    }
+
+    return Math.max(1, Math.min(MODEL_IMPORT_MAX_AXIS_SEGMENTS, Math.ceil(extent / baseBlockSize)));
+  }
+
+  roundModelBlockSize(value: number): number {
+    return Math.round(value / 5) * 5;
+  }
+
+  centersForBounds(min: number, max: number, size: number, staggered: boolean): number[] {
+    const extent = Math.max(0, max - min);
+    if (extent <= 0) {
+      return [(min + max) / 2];
+    }
+
+    const center = (min + max) / 2;
+    const count = Math.max(1, Math.round(extent / size) + (staggered ? 1 : 0));
+    const coveredExtent = count * size;
+    const first = center - coveredExtent / 2 + size / 2;
+    return Array.from({length: count}, (_, index) => first + index * size);
+  }
+
+  addGeneratedModelBlock(settings: {
+    centerX: number;
+    centerZ: number;
+    bottom: number;
+    width: number;
+    depth: number;
+    height: number;
+    material: string;
+    health: number;
+    sourceName: string;
+  }): string {
+    const id = `model-block-${crypto.randomUUID().slice(0, 8)}`;
+    const data: GroundfireMapElement = {
+      id,
+      type: 'building',
+      position: [settings.centerX, settings.centerZ, settings.bottom],
+      rotation: [0, 0, 0],
+      size: [settings.width, settings.depth, settings.height],
+      stacking: {enabled: true, baseElementId: null},
+      destructible: {
+        enabled: true,
+        health: settings.health,
+      },
+      material: settings.material,
+      textureMapping: {
+        mode: 'single',
+        material: settings.material,
+      },
+      role: 'building',
+    };
+    const mesh = this.createElementMeshFromData(data);
+    mesh.userData.importSource = settings.sourceName;
+    mesh.userData.generatedFromImportedModel = true;
+    this.elements.set(id, {mesh, data});
+    this.scene.add(mesh);
+    return id;
+  }
+
+  clearGeneratedModelBlocks(): void {
+    const generatedIds = new Set<string>();
+    this.elements.forEach((element, id) => {
+      const generatedFromModel = element.mesh.userData.generatedFromImportedModel === true
+        || id.startsWith('model-block-')
+        || typeof element.mesh.userData.importSource === 'string';
+      if (!generatedFromModel) {
+        return;
+      }
+
+      generatedIds.add(id);
+      this.disposeMesh(element.mesh);
+      this.elements.delete(id);
+    });
+
+    if (generatedIds.size === 0) {
+      return;
+    }
+
+    this.groups = this.groups
+        .map((group) => ({...group, elementIds: group.elementIds.filter((id) => !generatedIds.has(id))}))
+        .filter((group) => group.elementIds.length > 1);
+    this.clearSelection();
+  }
+
+  addGeneratedModelGroup(ids: string[], sourceName: string): void {
+    if (ids.length < 2) {
+      return;
+    }
+    this.groups.push({
+      id: `group-${crypto.randomUUID().slice(0, 8)}`,
+      name: `Import ${sourceName}`,
+      elementIds: ids,
+    });
   }
 
   async importMapPackage(file: File): Promise<void> {
@@ -1868,6 +2601,12 @@ export class MapEditor {
     return hit ?? null;
   }
 
+  intersectImportedModelParts(): THREE.Intersection | null {
+    const meshes = Array.from(this.importedModelParts.values()).map((part) => part.mesh);
+    const [hit] = this.raycaster.intersectObjects(meshes, false);
+    return hit ?? null;
+  }
+
   intersectWater(): THREE.Intersection | null {
     const [hit] = this.raycaster.intersectObjects(this.waterMeshes, false);
     return hit ?? null;
@@ -1884,6 +2623,7 @@ export class MapEditor {
 
   selectOnly(id: string): void {
     this.selectedWaterId = null;
+    this.clearImportedModelSelection();
     this.selectedIds = new Set([id]);
     this.syncSelectionMaterials();
     this.syncWaterSelectionMaterials();
@@ -1893,6 +2633,7 @@ export class MapEditor {
   clearSelection(): void {
     this.selectedWaterId = null;
     this.clearElementSelection();
+    this.clearImportedModelSelection();
     this.syncWaterSelectionMaterials();
     this.renderWaterList();
   }
@@ -1900,6 +2641,16 @@ export class MapEditor {
   clearElementSelection(): void {
     this.selectedIds.clear();
     this.syncSelectionMaterials();
+  }
+
+  clearImportedModelSelection(): void {
+    if (this.selectedImportedPartIds.size === 0) {
+      return;
+    }
+
+    this.selectedImportedPartIds.clear();
+    this.syncImportedModelSelectionMaterials();
+    this.renderImportedModelParts();
   }
 
   syncSelectionMaterials(): void {
@@ -2042,11 +2793,16 @@ export class MapEditor {
   disposeMesh(mesh: THREE.Mesh): void {
     this.scene.remove(mesh);
     mesh.geometry.dispose();
-    if (Array.isArray(mesh.material)) {
-      mesh.material.forEach((material) => material.dispose());
-    } else {
-      mesh.material.dispose();
+    this.disposeMaterial(mesh.material);
+  }
+
+  disposeMaterial(material: THREE.Material | THREE.Material[]): void {
+    if (Array.isArray(material)) {
+      material.forEach((item) => item.dispose());
+      return;
     }
+
+    material.dispose();
   }
 
   writeElementFromMesh(element: EditorElement): void {

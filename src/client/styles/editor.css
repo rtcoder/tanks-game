@@ -134,6 +134,13 @@
   gap: 6px;
 }
 
+.editor__model-list {
+  display: grid;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
 .editor__file-input {
   display: none;
 }
@@ -172,6 +179,20 @@
   height: 28px;
   justify-content: center;
   width: 28px;
+}
+
+.editor__model-item {
+  min-height: 34px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor__model-item--selected {
+  background: rgba(215, 255, 88, 0.14);
+  border-color: rgba(215, 255, 88, 0.78);
+  color: #d7ff58;
 }
 
 .editor__empty {
