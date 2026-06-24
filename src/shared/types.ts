@@ -194,6 +194,34 @@ export type GroundfireMapGroup = {
   };
 };
 
+export type GroundfireDestructibleModelChunk = {
+  id: string;
+  name: string;
+  nodeName: string;
+  health: number;
+  collider: 'box' | 'mesh';
+  groupId?: string;
+};
+
+export type GroundfireDestructibleModel = {
+  id: string;
+  name: string;
+  asset: string;
+  position: GroundfireVector3;
+  rotation: GroundfireVector3;
+  scale: GroundfireVector3;
+  destructible: GroundfireDestructibleConfig;
+  collision: {
+    mode: 'chunk-box' | 'chunk-mesh';
+    spatialIndex: 'grid' | 'none';
+  };
+  render: {
+    mode: 'source-model';
+    preserveMaterials: boolean;
+  };
+  chunks: GroundfireDestructibleModelChunk[];
+};
+
 export type GroundfireWaterType = 'basin' | 'source' | 'drain';
 
 export type GroundfireWaterGameplay = {
@@ -238,6 +266,7 @@ export type GroundfireMap = {
   };
   elements: GroundfireMapElement[];
   groups: GroundfireMapGroup[];
+  destructibleModels: GroundfireDestructibleModel[];
   water: GroundfireWaterSource[];
   spawns: GroundfireSpawn[];
 };

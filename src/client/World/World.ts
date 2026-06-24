@@ -24,6 +24,7 @@ import {AttackPowerup} from './object/impl/Powerups/AttackPowerup';
 import {DefensePowerup} from './object/impl/Powerups/DefensePowerup';
 import {GoalPowerup} from './object/impl/powerups/GoalPowerup';
 import {HealthPowerup} from './object/impl/powerups/HealthPowerup';
+import {DestructibleModel, type DestructibleModelHit} from './object/impl/DestructibleModel';
 import {PenetrationPowerup} from './object/impl/Powerups/PenetrationPowerup';
 import {Powerup} from './object/impl/Powerups/Powerup';
 import {SpeedPowerup} from './object/impl/Powerups/SpeedPowerup';
@@ -37,6 +38,7 @@ import {Renderer} from './system/Renderer';
 import {Scene} from './system/Scene';
 import {DEFAULT_TANK_ID, getTankDefinition, TANK_DEFINITIONS} from './tank-definitions/tank-definitions';
 import {type TankDefinition} from './tank-definitions/shared/tank-definition.type';
+import {detectRuntimeAcceleration, type RuntimeAccelerationProfile} from './performance/acceleration';
 
 const DEFAULT_ARENA_SIZE = 1500;
 const DEFAULT_MAP_ID = 'default';
@@ -129,11 +131,13 @@ class World {
   skyDome!: SkyDome;
   walls: Wall[] = [];
   surrounding_walls: Wall[] = [];
+  destructibleModels: DestructibleModel[] = [];
   powerups: Powerup[] = [];
   tanks: Tank[] = [];
   remoteTanks = new Map<string, Tank>();
   bullets: Bullet[] = [];
   destroyedWallIds = new Set<string>();
+  destroyedModelChunkIds = new Set<string>();
   occludedWallIds = new Set<string>();
   sceneContainer: HTMLElement;
   menu: HTMLElement;
@@ -208,6 +212,7 @@ class World {
   tankPreviewCamera: THREE.PerspectiveCamera | null = null;
   tankPreviewModel: TankModel | null = null;
   tankPreviewRoot: THREE.Group | null = null;
+  accelerationProfile: RuntimeAccelerationProfile = detectRuntimeAcceleration();
   lastSentAt = 0;
   lastSentSnapshot = '';
 
@@ -257,6 +262,7 @@ class World {
     await this.loadMaps();
     await this.loadMapById(this.selectedMapId);
     await this.loadAssets();
+    console.info('Groundfire acceleration profile', this.accelerationProfile);
     this.scene = new Scene();
     this.skyDome = new SkyDome('main');
     this.scene.add(this.skyDome);
@@ -268,6 +274,7 @@ class World {
     this.scene.add(this.directLight);
     this.initializeWalls(this.walls, this.surrounding_walls);
     this.walls.forEach((wall) => this.scene.add(wall));
+    await this.initializeDestructibleModels();
     this.initializeWater();
     this.localTank = this.createPlayerTank('local');
     this.localTank.post_init(this.healthContainer);
@@ -351,7 +358,7 @@ class World {
 
     if (rebuildScene && this.scene) {
       this.rebuildGround();
-      this.resetArena();
+      await this.resetArena();
     }
   }
 
@@ -727,21 +734,25 @@ class World {
     return tank;
   }
 
-  resetArena(): void {
+  async resetArena(): Promise<void> {
     this.bullets.forEach((bullet) => bullet.destruct());
     this.bullets = [];
     this.walls.forEach((wall) => wall.destruct());
     this.walls = [];
     this.surrounding_walls = [];
+    this.destructibleModels.forEach((model) => model.destruct());
+    this.destructibleModels = [];
     this.disposeWaterMeshes();
     this.waterCells = [];
     this.waterCellLookup.clear();
     this.waterMinimapCells = [];
     this.waterFlowAccumulator = 0;
     this.destroyedWallIds.clear();
+    this.destroyedModelChunkIds.clear();
     this.occludedWallIds.clear();
     this.initializeWalls(this.walls, this.surrounding_walls);
     this.walls.forEach((wall) => this.scene.add(wall));
+    await this.initializeDestructibleModels();
     this.initializeWater();
     this.powerups.forEach((powerup) => powerup.destruct());
     this.powerups = [];
@@ -788,6 +799,40 @@ class World {
         }
       }
     });
+  }
+
+  async initializeDestructibleModels(): Promise<void> {
+    const models = this.mapData.destructibleModels;
+    if (models.length === 0) {
+      return;
+    }
+
+    const loadedModels = await Promise.all(models.map(async (modelData) => {
+      try {
+        const model = await DestructibleModel.load(modelData, this.mapAssetUrl(modelData.asset));
+        this.scene.scene.add(model.root);
+        return model;
+      } catch (error) {
+        console.warn(`Could not load destructible model "${modelData.id}"`, error);
+        return null;
+      }
+    }));
+
+    this.destructibleModels = loadedModels.filter((model): model is DestructibleModel => Boolean(model));
+    this.destroyedModelChunkIds.forEach((chunkId) => this.applyDestroyedModelChunk(chunkId));
+  }
+
+  mapAssetUrl(asset: string): string {
+    if (/^(data|blob|https?):/i.test(asset) || asset.startsWith('/api/')) {
+      return asset;
+    }
+
+    return `/api/maps/${encodeURIComponent(this.mapData.id)}/assets/${asset
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .split('/')
+      .map((part) => encodeURIComponent(part))
+      .join('/')}`;
   }
 
   updateStructuralGravity(delta: number): void {
@@ -1130,6 +1175,26 @@ class World {
     };
   }
 
+  destructibleModelHitAt(object: THREE.Object3D): DestructibleModelHit | null {
+    for (const model of this.destructibleModels) {
+      const hit = model.findHitForObject(object);
+      if (hit) {
+        return hit;
+      }
+    }
+
+    return null;
+  }
+
+  destructibleModelBlocksTank(tank: Tank): boolean {
+    const {width, height, depth} = tank.bboxParameter;
+    const tankBox = new THREE.Box3().setFromCenterAndSize(
+        tank.mesh.position,
+        new THREE.Vector3(width, height, depth),
+    );
+    return this.destructibleModels.some((model) => model.intersectsBox(tankBox));
+  }
+
   updateWaterSimulation(delta: number): void {
     this.waterFlowAccumulator += delta;
     if (this.waterFlowAccumulator < 1 && !this.waterRebuildPending) {
@@ -1217,6 +1282,7 @@ class World {
           this.bullets,
           delta,
           this.waterMovementAt(tank.mesh.position.x, tank.mesh.position.y),
+          (candidate) => this.destructibleModelBlocksTank(candidate),
       );
       this.snapTankToTerrain(tank);
       this.camera.updateView(false, this.ground);
@@ -1236,6 +1302,7 @@ class World {
           delta,
           (position) => this.projectileWaterHitAt(position),
           (_bullet, hit) => this.spawnWaterSplash(hit.position),
+          (object) => this.destructibleModelHitAt(object),
       );
     };
     Powerup.onTick = (powerup: Powerup) => {
@@ -2152,7 +2219,7 @@ class World {
     }
     this.applySelectedTankToLocal();
     if (!mapWasRebuilt) {
-      this.resetArena();
+      await this.resetArena();
     }
     this.camera.setMode('chase');
     this.menu.classList.add('hidden');
@@ -2225,6 +2292,7 @@ class World {
     const radius = Math.max(0, bullet.weapon?.splashRadius ?? 0);
     const minRatio = THREE.MathUtils.clamp(bullet.weapon?.splashMinDamageRatio ?? 0.2, 0, 1);
     let destroyedAnyWall = false;
+    let destroyedAnyModelChunk = false;
 
     this.walls.forEach((wall) => {
       if (this.destroyedWallIds.has(wall.id) || wall.destroyed || wall.removed) {
@@ -2243,6 +2311,23 @@ class World {
       }
     });
 
+    this.destructibleModels.forEach((model) => {
+      const destroyedChunkIds = model.applyAreaDamage(
+          center,
+          bullet.attack,
+          radius,
+          minRatio,
+          impact.destructibleModelHit?.model === model ? impact.destructibleModelHit.chunkId : undefined,
+      );
+      destroyedChunkIds.forEach((chunkId) => {
+        if (this.destroyedModelChunkIds.has(chunkId)) {
+          return;
+        }
+        this.destroyedModelChunkIds.add(chunkId);
+        destroyedAnyModelChunk = true;
+      });
+    });
+
     this.tanks.forEach((tank) => {
       const distance = tank === impact.tank ? 0 : this.distanceFromPointToObject(center, tank.mesh);
       const damage = this.areaDamageAtDistance(bullet.attack, distance, radius, minRatio);
@@ -2253,7 +2338,7 @@ class World {
       tank.GetAttacked(damage);
     });
 
-    if (destroyedAnyWall) {
+    if (destroyedAnyWall || destroyedAnyModelChunk) {
       this.syncDestroyedWalls();
     }
   }
@@ -2305,7 +2390,15 @@ class World {
 
   applyDestroyedWalls(wallIds: string[]): void {
     wallIds.forEach((wallId) => {
-      if (this.destroyedWallIds.has(wallId)) {
+      if (this.destroyedWallIds.has(wallId) || this.destroyedModelChunkIds.has(wallId)) {
+        return;
+      }
+      if (this.applyDestroyedModelChunk(wallId)) {
+        this.destroyedModelChunkIds.add(wallId);
+        return;
+      }
+      if (this.isModelChunkId(wallId)) {
+        this.destroyedModelChunkIds.add(wallId);
         return;
       }
       this.destroyedWallIds.add(wallId);
@@ -2319,13 +2412,30 @@ class World {
     });
   }
 
+  applyDestroyedModelChunk(chunkId: string): boolean {
+    for (const model of this.destructibleModels) {
+      if (model.removeChunk(chunkId)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  isModelChunkId(id: string): boolean {
+    return id.includes(':chunk-');
+  }
+
   syncDestroyedWalls(): void {
     if (!this.webSocket || this.webSocket.readyState !== WebSocket.OPEN) {
       return;
     }
     this.webSocket.send(encodeMessage({
       type: ClientMessageType.UpdateDestroyedSegments,
-      payload: {destroyedSegmentIds: Array.from(this.destroyedWallIds)},
+      payload: {destroyedSegmentIds: [
+        ...Array.from(this.destroyedWallIds),
+        ...Array.from(this.destroyedModelChunkIds),
+      ]},
     }));
   }
 

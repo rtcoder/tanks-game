@@ -5,6 +5,7 @@ import {MAP_ASSET_MANIFEST, type GroundfireElementPreset} from '../../shared/map
 import {normalizeGroundfireMap} from '../../shared/map-normalizer';
 import {createStoredZip, readStoredZipEntries} from '../../shared/zip';
 import type {
+  GroundfireDestructibleModel,
   GroundfireMap,
   GroundfireMapElement,
   GroundfireMapGroup,
@@ -35,12 +36,21 @@ type PaintShape = 'brush' | 'tile';
 type ImportedModelPart = {
   id: string;
   name: string;
+  sourceIndex: number;
   mesh: THREE.Mesh;
 };
 
 type ImportedModelSource = {
   name: string;
+  extension: string;
+  bytes?: Uint8Array;
   root: THREE.Group;
+};
+
+type EditorDestructibleModel = {
+  data: GroundfireDestructibleModel;
+  sourceBytes: Uint8Array;
+  assetName: string;
 };
 
 type AutoModelBlockPlan = {
@@ -84,8 +94,13 @@ export class MapEditor {
   surfacePatchPreviewMesh!: THREE.Mesh;
   waterMeshes: THREE.Mesh[] = [];
   importedModelRoot: THREE.Group | null = null;
+  importedModelSourceName = '';
+  importedModelSourceExtension = '';
+  importedModelSourceBytes: Uint8Array | null = null;
   importedModelParts = new Map<string, ImportedModelPart>();
   selectedImportedPartIds = new Set<string>();
+  destructibleModels: EditorDestructibleModel[] = [];
+  registeredModelPreviewRoots: THREE.Group[] = [];
   elements = new Map<string, EditorElement>();
   groups: GroundfireMapGroup[] = [];
   surfacePatches: GroundfireTerrainSurfacePatch[] = [];
@@ -200,6 +215,7 @@ export class MapEditor {
             </div>
             <div class="editor__row">
               <button id="editor-model-generate" type="button">Generate blocks</button>
+              <button id="editor-model-register" type="button">Register destructible</button>
               <button id="editor-model-select-all" type="button">Select all parts</button>
             </div>
             <div class="editor__model-list" id="editor-model-part-list"></div>
@@ -509,6 +525,7 @@ export class MapEditor {
     document.getElementById('editor-import-model')?.addEventListener('click', () => this.importModelInput.click());
     document.getElementById('editor-clear-model')?.addEventListener('click', () => this.clearImportedModel());
     document.getElementById('editor-model-generate')?.addEventListener('click', () => this.generateBlocksFromImportedModel());
+    document.getElementById('editor-model-register')?.addEventListener('click', () => void this.registerImportedModelAsDestructible());
     document.getElementById('editor-model-select-all')?.addEventListener('click', () => this.selectAllImportedModelParts());
     this.importPackageInput.addEventListener('change', () => {
       const file = this.importPackageInput.files?.[0];
@@ -1600,6 +1617,9 @@ export class MapEditor {
       this.prepareImportedModel(source.root, source.name);
       this.scene.add(source.root);
       this.importedModelRoot = source.root;
+      this.importedModelSourceName = source.name;
+      this.importedModelSourceExtension = source.extension;
+      this.importedModelSourceBytes = source.bytes ?? null;
       this.renderImportedModelParts();
       this.setStatus(`Loaded model ${source.name} - ${this.importedModelParts.size} parts`);
     } catch (error) {
@@ -1609,10 +1629,13 @@ export class MapEditor {
   }
 
   async importModelSourceFromFile(file: File, extension: string): Promise<ImportedModelSource> {
-    const url = URL.createObjectURL(file);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const url = URL.createObjectURL(new Blob([this.uint8BlobPart(bytes)], {type: this.mimeTypeForModelExtension(extension)}));
     try {
       return {
         name: file.name,
+        extension,
+        bytes: extension === 'glb' ? bytes : undefined,
         root: await this.loadModelFromUrl(url, extension),
       };
     } finally {
@@ -1636,6 +1659,7 @@ export class MapEditor {
     if (extension === 'gltf') {
       return {
         name: `${file.name}/${modelEntryName}`,
+        extension,
         root: await this.loadGltfFromZip(entries, modelEntryName, bytes),
       };
     }
@@ -1644,6 +1668,8 @@ export class MapEditor {
     try {
       return {
         name: `${file.name}/${modelEntryName}`,
+        extension,
+        bytes: extension === 'glb' ? bytes : undefined,
         root: await this.loadModelFromUrl(url, extension),
       };
     } finally {
@@ -1807,35 +1833,56 @@ export class MapEditor {
     root.position.set(-center.x * scale, -sourceBox.min.y * scale, -center.z * scale);
     root.updateMatrixWorld(true);
 
-    const referenceMaterial = new THREE.MeshStandardMaterial({
-      color: 0x7deeff,
-      emissive: 0x0d2a32,
-      emissiveIntensity: 0.24,
-      transparent: true,
-      opacity: 0.28,
-      roughness: 0.88,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-
     let index = 0;
+    const usedNodeNames = new Set<string>();
     root.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) {
         return;
       }
 
+      const sourceIndex = index;
+      const originalName = object.name.trim();
+      let nodeName = originalName || `GF_CHUNK_${sourceIndex.toString().padStart(4, '0')}`;
+      if (usedNodeNames.has(nodeName)) {
+        nodeName = `${nodeName}_${sourceIndex.toString().padStart(4, '0')}`;
+      }
+      usedNodeNames.add(nodeName);
+      object.name = nodeName;
       const partId = `model-part-${index.toString().padStart(3, '0')}-${crypto.randomUUID().slice(0, 6)}`;
       index += 1;
       object.userData.importedModelPartId = partId;
+      object.userData.importedModelSourceIndex = sourceIndex;
       object.castShadow = false;
       object.receiveShadow = true;
-      object.material = referenceMaterial.clone();
+      object.material = this.cloneImportedModelPreviewMaterial(object.material);
       this.importedModelParts.set(partId, {
         id: partId,
-        name: object.name || `Part ${index}`,
+        name: originalName || nodeName,
+        sourceIndex,
         mesh: object,
       });
     });
+  }
+
+  cloneImportedModelPreviewMaterial(material: THREE.Material | THREE.Material[]): THREE.Material | THREE.Material[] {
+    const cloneOne = (source: THREE.Material): THREE.Material => {
+      const clone = source.clone();
+      clone.transparent = true;
+      clone.opacity = Math.min(source.opacity || 1, 0.74);
+      clone.depthWrite = false;
+      clone.side = THREE.DoubleSide;
+      if (clone instanceof THREE.MeshStandardMaterial) {
+        clone.color.multiplyScalar(0.92);
+        clone.emissive.set(0x0d2a32);
+        clone.emissiveIntensity = 0.16;
+      }
+      clone.needsUpdate = true;
+      return clone;
+    };
+
+    return Array.isArray(material)
+      ? material.map((item) => cloneOne(item))
+      : cloneOne(material);
   }
 
   clearImportedModel(): void {
@@ -1849,6 +1896,9 @@ export class MapEditor {
       });
     }
     this.importedModelRoot = null;
+    this.importedModelSourceName = '';
+    this.importedModelSourceExtension = '';
+    this.importedModelSourceBytes = null;
     this.importedModelParts.clear();
     this.selectedImportedPartIds.clear();
     this.renderImportedModelParts();
@@ -1904,18 +1954,84 @@ export class MapEditor {
     this.setStatus(`Selected ${this.selectedImportedPartIds.size} model part${this.selectedImportedPartIds.size === 1 ? '' : 's'}`);
   }
 
+  async registerImportedModelAsDestructible(): Promise<boolean> {
+    if (!this.importedModelRoot || this.importedModelParts.size === 0) {
+      this.setStatus('Load a GLB model first');
+      return false;
+    }
+    if (this.importedModelSourceExtension !== 'glb' || !this.importedModelSourceBytes) {
+      this.setStatus('Destructible model export needs a packed .glb');
+      return false;
+    }
+
+    const parts = this.importedModelGenerationParts()
+        .slice()
+        .sort((left, right) => left.sourceIndex - right.sourceIndex);
+    if (parts.length === 0) {
+      this.setStatus('No model chunks selected');
+      return false;
+    }
+
+    const sourceId = this.safeIdFromFileName(this.baseName(this.importedModelSourceName)).slice(0, 32);
+    const modelId = `model-${sourceId}-${crypto.randomUUID().slice(0, 8)}`;
+    const assetName = `models/${modelId}.glb`;
+    const health = Math.max(1, Number(this.healthInput.value) || 120);
+    const root = this.importedModelRoot;
+    const model: GroundfireDestructibleModel = {
+      id: modelId,
+      name: this.importedModelSourceName,
+      asset: assetName,
+      position: [root.position.x, root.position.z, root.position.y],
+      rotation: [0, 0, root.rotation.y],
+      scale: [root.scale.x, root.scale.y, root.scale.z],
+      destructible: {
+        enabled: true,
+        health,
+      },
+      collision: {
+        mode: 'chunk-box',
+        spatialIndex: 'grid',
+      },
+      render: {
+        mode: 'source-model',
+        preserveMaterials: true,
+      },
+      chunks: parts.map((part) => ({
+        id: `${modelId}:chunk-${part.sourceIndex.toString().padStart(4, '0')}`,
+        name: part.name,
+        nodeName: part.mesh.name,
+        health,
+        collider: 'box',
+      })),
+    };
+
+    const sourceBytes = new Uint8Array(this.importedModelSourceBytes);
+    this.destructibleModels.push({
+      data: model,
+      sourceBytes,
+      assetName,
+    });
+    await this.addRegisteredModelPreview(model, sourceBytes);
+    this.clearImportedModel();
+    this.setStatus(`Registered destructible model: ${parts.length} chunks`);
+    return true;
+  }
+
   syncImportedModelSelectionMaterials(): void {
     this.importedModelParts.forEach((part) => {
       const selected = this.selectedImportedPartIds.has(part.id);
       const materials = Array.isArray(part.mesh.material) ? part.mesh.material : [part.mesh.material];
       materials.forEach((material) => {
         if (material instanceof THREE.MeshStandardMaterial) {
-          material.color.set(selected ? 0xd7ff58 : 0x7deeff);
+          material.color.set(selected ? 0xd7ff58 : 0xffffff);
           material.emissive.set(selected ? 0x445000 : 0x0d2a32);
-          material.emissiveIntensity = selected ? 0.5 : 0.24;
-          material.opacity = selected ? 0.42 : 0.28;
+          material.emissiveIntensity = selected ? 0.42 : 0.16;
+          material.opacity = selected ? 0.92 : 0.74;
           material.needsUpdate = true;
+          return;
         }
+        material.opacity = selected ? 0.92 : 0.74;
+        material.needsUpdate = true;
       });
     });
   }
@@ -2241,13 +2357,26 @@ export class MapEditor {
         terrain?: {
           heightmapAsset?: unknown;
         };
+        destructibleModels?: Array<{
+          asset?: unknown;
+        }>;
       };
       const map = normalizeGroundfireMap(rawMap, this.safeIdFromFileName(file.name));
       const heightmapEntryName = this.packageAssetName(entries, rawMap.terrain?.heightmapAsset, 'heightmap.png');
       const heightmapImageData = heightmapEntryName
         ? await this.imageDataFromBytes(entries.get(heightmapEntryName) ?? new Uint8Array(), 'image/png')
         : undefined;
-      await this.loadMapIntoEditor(map, {heightmapImageData});
+      const modelAssets = new Map<string, Uint8Array>();
+      map.destructibleModels.forEach((model) => {
+        const modelEntryName = this.packageAssetName(entries, model.asset, this.baseName(model.asset));
+        const modelBytes = modelEntryName ? entries.get(modelEntryName) : undefined;
+        if (!modelEntryName || !modelBytes) {
+          return;
+        }
+        modelAssets.set(model.asset, modelBytes);
+        modelAssets.set(modelEntryName, modelBytes);
+      });
+      await this.loadMapIntoEditor(map, {heightmapImageData, modelAssets});
       this.setStatus(`Loaded package ${file.name}`);
     } catch (error) {
       console.error('Could not import map package', error);
@@ -2257,8 +2386,9 @@ export class MapEditor {
 
   async loadMapIntoEditor(
       map: GroundfireMap,
-      options: { heightmapImageData?: ImageData } = {},
+      options: { heightmapImageData?: ImageData; modelAssets?: Map<string, Uint8Array> } = {},
   ): Promise<void> {
+    this.clearImportedModel();
     this.clearEditorContent();
     this.mapNameInput.value = map.name;
     this.terrainSize = THREE.MathUtils.clamp(map.arena.size, 400, 10000);
@@ -2331,6 +2461,18 @@ export class MapEditor {
         material: typeof waterSource.material === 'string' ? waterSource.material : 'water-clear',
       };
     });
+    for (const model of map.destructibleModels) {
+      const bytes = options.modelAssets?.get(model.asset) ?? options.modelAssets?.get(this.baseName(model.asset));
+      if (!bytes) {
+        continue;
+      }
+      this.destructibleModels.push({
+        data: model,
+        sourceBytes: new Uint8Array(bytes),
+        assetName: model.asset,
+      });
+      await this.addRegisteredModelPreview(model, bytes);
+    }
     this.clearSelection();
     this.refreshWaterPreview();
     this.renderWaterList();
@@ -2341,6 +2483,17 @@ export class MapEditor {
   clearEditorContent(): void {
     this.elements.forEach((element) => this.disposeMesh(element.mesh));
     this.elements.clear();
+    this.registeredModelPreviewRoots.forEach((root) => {
+      this.scene.remove(root);
+      root.traverse((object) => {
+        if (object instanceof THREE.Mesh) {
+          object.geometry.dispose();
+          this.disposeMaterial(object.material);
+        }
+      });
+    });
+    this.registeredModelPreviewRoots = [];
+    this.destructibleModels = [];
     this.groups = [];
     this.surfacePatches = [];
     this.waterSources = [];
@@ -2389,6 +2542,27 @@ export class MapEditor {
         : undefined,
       role: element.role,
     };
+  }
+
+  async addRegisteredModelPreview(model: GroundfireDestructibleModel, bytes: Uint8Array): Promise<void> {
+    const url = URL.createObjectURL(new Blob([this.uint8BlobPart(bytes)], {type: 'model/gltf-binary'}));
+    try {
+      const root = await this.loadModelFromUrl(url, 'glb');
+      root.name = `registered-model:${model.id}`;
+      root.position.set(model.position[0], model.position[2], model.position[1]);
+      root.rotation.set(0, model.rotation[2] ?? 0, 0);
+      root.scale.set(model.scale[0], model.scale[1], model.scale[2]);
+      root.traverse((object) => {
+        if (object instanceof THREE.Mesh) {
+          object.castShadow = true;
+          object.receiveShadow = true;
+        }
+      });
+      this.scene.add(root);
+      this.registeredModelPreviewRoots.push(root);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   }
 
   async imageDataFromBytes(bytes: Uint8Array, type: string): Promise<ImageData> {
@@ -2843,6 +3017,7 @@ export class MapEditor {
       },
       elements: Array.from(this.elements.values()).map((element) => element.data),
       groups: this.groups,
+      destructibleModels: this.destructibleModels.map((model) => model.data),
       water: this.waterSources,
       spawns: this.defaultSpawns(),
     };
@@ -2850,8 +3025,11 @@ export class MapEditor {
 
   async exportPackage(): Promise<void> {
     const id = this.safeMapId();
+    if (this.importedModelRoot && this.importedModelSourceExtension === 'glb' && this.importedModelSourceBytes) {
+      await this.registerImportedModelAsDestructible();
+    }
     const heightmapBlob = await this.heightmapBlob();
-    const zip = createStoredZip([
+    const zipEntries = [
       {
         name: 'map.json',
         bytes: new TextEncoder().encode(JSON.stringify(this.createMapDefinition('heightmap.png'), null, 2)),
@@ -2860,7 +3038,12 @@ export class MapEditor {
         name: 'heightmap.png',
         bytes: new Uint8Array(await heightmapBlob.arrayBuffer()),
       },
-    ]);
+      ...this.destructibleModels.map((model) => ({
+        name: model.assetName,
+        bytes: model.sourceBytes,
+      })),
+    ];
+    const zip = createStoredZip(zipEntries);
     this.downloadBlob(`${id}.zip`, new Blob([this.uint8BlobPart(zip)], {type: 'application/zip'}), 'application/zip');
   }
 

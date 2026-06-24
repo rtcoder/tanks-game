@@ -10,7 +10,8 @@
 ## Map Model Import Direction
 
 - Imported city/island/map models should be treated as source assets, not as one giant gameplay collision mesh.
-- Keep visual reference geometry separate from gameplay data. Generate Groundfire map elements, collision proxies, destructible blocks, and metadata from the source model.
-- Prefer GLB/glTF as the long-term model format. OBJ can be accepted as an editor import format, but should not become the runtime contract.
-- For destructible structures, split geometry into block grids. Stagger every other vertical level so upper blocks overlap lower blocks, instead of making one removable vertical column.
-- Destruction should use support/attachment rules: blocks without enough support from terrain or neighboring/lower blocks should fall or break independently.
+- Prefer pre-fractured GLB chunks from Blender or another DCC tool for complex destructible map models. Each meaningful chunk should be a separate mesh/node so the editor and runtime can assign health, collision, ownership, and destruction state per chunk.
+- Keep visual reference geometry separate from gameplay metadata. The map package should preserve the original GLB asset and store Groundfire metadata for destructible chunks, collision mode, health, and grouping.
+- Prefer GLB as the runtime contract because it can package model geometry and textures together. glTF/OBJ can be accepted as editor import/reference formats, but should not be required at runtime.
+- Use generated Groundfire blocks only as a fallback or helper workflow when a model is not already authored into useful chunks.
+- Destruction should use support/attachment rules: chunks or blocks without enough support from terrain or neighboring/lower chunks should fall or break independently.

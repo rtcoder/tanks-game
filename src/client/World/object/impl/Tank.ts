@@ -387,6 +387,7 @@ export class Tank extends MovableObject {
       tanks: Tank[],
       surrounding_walls: Wall[],
       environment: TankEnvironment = {movementMultiplier: 1, blocksMovement: false},
+      blocksDestructibleModel?: (tank: Tank) => boolean,
   ) {
     const movementMultiplier = environment.blocksMovement ? 0 : environment.movementMultiplier;
     const tank_object_tmp = new Tank('temp', null, null, null, null);
@@ -408,7 +409,8 @@ export class Tank extends MovableObject {
 
     const not_collided = (!tanks.some((tank) => (tank.name !== this.name
             && checkCollisionTankWithTank(tank_object_tmp, tank)))
-        && !walls.some((wall) => checkCollisionTankWithWall(tank_object_tmp, wall)));
+        && !walls.some((wall) => checkCollisionTankWithWall(tank_object_tmp, wall))
+        && !(blocksDestructibleModel?.(tank_object_tmp) ?? false));
 
     if (this.penetrationPermitted && not_collided_with_surrounding_walls || not_collided) {
       this.mesh.translateY(this.proceed * this.proceedSpeed * movementMultiplier);
@@ -533,13 +535,14 @@ export class Tank extends MovableObject {
       bullets: Bullet[],
       delta: number,
       environment: TankEnvironment = {movementMultiplier: 1, blocksMovement: false},
+      blocksDestructibleModel?: (tank: Tank) => boolean,
   ) {
     this._updateSpeed(keyboard, delta);
     this._updateAim(keyboard, delta);
     this._updateAimPitch(keyboard, delta);
     this._updateAimReset(delta);
     this._updateWeaponSelection(keyboard);
-    this._updatePosition(ground, walls, tanks, surrounding_walls, environment);
+    this._updatePosition(ground, walls, tanks, surrounding_walls, environment, blocksDestructibleModel);
     this._createBullets(keyboard, bullets, scene);
     this.tankModel?.update({
       aimPitch: this.aimPitch,

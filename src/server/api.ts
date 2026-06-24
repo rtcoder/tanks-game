@@ -39,7 +39,7 @@ export async function handleApiRequest(req: Request, res: Response): Promise<boo
     return true;
   }
 
-  const mapAssetMatch = requestUrl.pathname.match(/^\/api\/maps\/([^/]+)\/assets\/([^/]+)$/);
+  const mapAssetMatch = requestUrl.pathname.match(/^\/api\/maps\/([^/]+)\/assets\/(.+)$/);
   if (mapAssetMatch && req.method === 'GET') {
     const asset = await getMapAsset(mapAssetMatch[1], mapAssetMatch[2]);
     if (!asset) {

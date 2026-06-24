@@ -59,12 +59,22 @@ export async function getMapAsset(
   assetName: unknown,
 ): Promise<{ bytes: Buffer; contentType: string } | null> {
   const id = sanitizeMapId(mapId);
-  if (typeof assetName !== 'string' || !/^[a-z0-9][a-z0-9_.-]{0,120}$/i.test(assetName)) {
+  if (typeof assetName !== 'string') {
+    return null;
+  }
+
+  const decodedAssetName = safeDecodeURIComponent(assetName);
+  if (decodedAssetName === null) {
+    return null;
+  }
+
+  const normalizedAssetName = normalizePackageAssetName(decodedAssetName);
+  if (!isSafePackageAssetName(normalizedAssetName)) {
     return null;
   }
 
   try {
-    return await readMapPackageAsset(id, assetName);
+    return await readMapPackageAsset(id, normalizedAssetName);
   } catch {
     return null;
   }
@@ -158,6 +168,26 @@ function normalizePackageAssetName(assetName: string): string {
     .replace(/^\.\//, '');
 }
 
+function safeDecodeURIComponent(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+function isSafePackageAssetName(assetName: string): boolean {
+  if (!assetName || assetName.length > 220 || assetName.endsWith('/')) {
+    return false;
+  }
+  if (assetName.includes('\\') || assetName.includes('\0')) {
+    return false;
+  }
+  return assetName
+    .split('/')
+    .every((segment) => segment && segment !== '.' && segment !== '..');
+}
+
 function summarizeMap(id: string, map: unknown): GroundfireMapSummary {
   const mapFile = map as MapFileLike;
   return {
@@ -181,6 +211,12 @@ function contentTypeFor(filePath: string): string {
       return 'image/png';
     case '.webp':
       return 'image/webp';
+    case '.glb':
+      return 'model/gltf-binary';
+    case '.gltf':
+      return 'model/gltf+json';
+    case '.obj':
+      return 'text/plain; charset=utf-8';
     default:
       return 'application/octet-stream';
   }

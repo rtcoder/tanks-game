@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import type {TankWeaponDefinition} from '../../tank-definitions/shared/tank-definition.type';
+import type {DestructibleModelHit} from './DestructibleModel';
 import {checkCollisionBulletWithTank, checkCollisionBulletWithWall} from '../../utils/collision';
 import {MovableObject} from '../MovableObject';
 import {Ground} from './Ground';
@@ -11,13 +12,14 @@ export type BulletWaterHit = {
   position: THREE.Vector3;
 };
 
-export type BulletImpactReason = 'wall' | 'tank' | 'terrain' | 'water' | 'boundary';
+export type BulletImpactReason = 'wall' | 'tank' | 'terrain' | 'water' | 'boundary' | 'destructible-model';
 
 export type BulletImpact = {
   position: THREE.Vector3;
   reason: BulletImpactReason;
   wall?: Wall;
   tank?: Tank;
+  destructibleModelHit?: DestructibleModelHit;
 };
 
 export class Bullet extends MovableObject {
@@ -84,24 +86,35 @@ export class Bullet extends MovableObject {
       _delta: number,
       waterHitAt?: (position: THREE.Vector3) => BulletWaterHit | null,
       onWaterHit?: (bullet: Bullet, hit: BulletWaterHit) => void,
+      destructibleModelHitAt?: (object: THREE.Object3D) => DestructibleModelHit | null,
   ) {
     // Keep this flat projectile API ready for later ground-to-ground rockets.
     const hitWall = walls.find(wall => checkCollisionBulletWithWall(this, wall));
+    const destructibleModelHit = destructibleModelHitAt?.(this.mesh) ?? null;
     const waterHit = waterHitAt?.(this.mesh.position) ?? null;
-    if (waterHit || this.mesh.position.z < ground.heightAt(this.mesh.position.x, this.mesh.position.y) || hitWall || !ground.inBoundary(this.mesh.position)) {
+    if (
+      waterHit
+      || this.mesh.position.z < ground.heightAt(this.mesh.position.x, this.mesh.position.y)
+      || hitWall
+      || destructibleModelHit
+      || !ground.inBoundary(this.mesh.position)
+    ) {
       if (waterHit) {
         onWaterHit?.(this, waterHit);
       }
       this.finishImpact(bullets, {
-        position: (waterHit?.position ?? this.mesh.position).clone(),
+        position: (waterHit?.position ?? destructibleModelHit?.position ?? this.mesh.position).clone(),
         reason: waterHit
           ? 'water'
           : hitWall
             ? 'wall'
-            : ground.inBoundary(this.mesh.position)
-              ? 'terrain'
-              : 'boundary',
+            : destructibleModelHit
+              ? 'destructible-model'
+              : ground.inBoundary(this.mesh.position)
+                ? 'terrain'
+                : 'boundary',
         wall: hitWall,
+        destructibleModelHit: destructibleModelHit ?? undefined,
       });
       return;
     }

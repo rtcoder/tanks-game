@@ -1,5 +1,7 @@
 import type {
   GroundfireMap,
+  GroundfireDestructibleModel,
+  GroundfireDestructibleModelChunk,
   GroundfireMapElement,
   GroundfireSpawn,
   GroundfireTerrain,
@@ -40,6 +42,7 @@ type LegacyMap = {
   walls?: unknown;
   elements?: unknown;
   groups?: unknown;
+  destructibleModels?: unknown;
   water?: unknown;
   spawns?: unknown;
 };
@@ -72,6 +75,7 @@ export function normalizeGroundfireMap(source: unknown, fallbackId = 'default'):
     materials: readMaterials(map?.materials),
     elements: [...elements, ...legacyElements],
     groups: Array.isArray(map?.groups) ? map.groups as GroundfireMap['groups'] : [],
+    destructibleModels: readDestructibleModels(map?.destructibleModels),
     water: readWaterSources(map?.water),
     spawns: readSpawns(map?.spawns, arenaSize),
   };
@@ -241,6 +245,83 @@ function readTerrainSurfacePatches(source: unknown): GroundfireTerrainSurfacePat
       };
     })
     .filter((patch): patch is GroundfireTerrainSurfacePatch => Boolean(patch));
+}
+
+function readDestructibleModels(source: unknown): GroundfireDestructibleModel[] {
+  if (!Array.isArray(source)) {
+    return [];
+  }
+
+  return source
+    .map((model, index) => readDestructibleModel(model, `model-${index + 1}`))
+    .filter((model): model is GroundfireDestructibleModel => Boolean(model));
+}
+
+function readDestructibleModel(source: unknown, fallbackId: string): GroundfireDestructibleModel | null {
+  if (!source || typeof source !== 'object') {
+    return null;
+  }
+
+  const model = source as Partial<GroundfireDestructibleModel>;
+  if (typeof model.asset !== 'string' || !model.asset.trim()) {
+    return null;
+  }
+
+  const fallbackHealth = Math.max(1, readNumber(model.destructible?.health, 120));
+  return {
+    id: readId(model.id, fallbackId),
+    name: typeof model.name === 'string' && model.name.trim() ? model.name.trim() : readId(model.id, fallbackId),
+    asset: normalizeAssetReference(model.asset),
+    position: readVector3(model.position, [0, 0, 0]),
+    rotation: readVector3(model.rotation, [0, 0, 0]),
+    scale: readVector3(model.scale, [1, 1, 1]),
+    destructible: {
+      enabled: model.destructible?.enabled !== false,
+      health: fallbackHealth,
+    },
+    collision: {
+      mode: model.collision?.mode === 'chunk-mesh' ? 'chunk-mesh' : 'chunk-box',
+      spatialIndex: model.collision?.spatialIndex === 'none' ? 'none' : 'grid',
+    },
+    render: {
+      mode: 'source-model',
+      preserveMaterials: model.render?.preserveMaterials !== false,
+    },
+    chunks: readDestructibleChunks(model.chunks, fallbackHealth),
+  };
+}
+
+function readDestructibleChunks(source: unknown, fallbackHealth: number): GroundfireDestructibleModelChunk[] {
+  if (!Array.isArray(source)) {
+    return [];
+  }
+
+  return source
+    .map((chunk, index): GroundfireDestructibleModelChunk | null => {
+      if (!chunk || typeof chunk !== 'object') {
+        return null;
+      }
+
+      const data = chunk as Partial<GroundfireDestructibleModelChunk>;
+      const id = readId(data.id, `chunk-${index + 1}`);
+      return {
+        id,
+        name: typeof data.name === 'string' && data.name.trim() ? data.name.trim() : id,
+        nodeName: typeof data.nodeName === 'string' && data.nodeName.trim() ? data.nodeName.trim() : id,
+        health: Math.max(1, readNumber(data.health, fallbackHealth)),
+        collider: data.collider === 'mesh' ? 'mesh' : 'box',
+        groupId: typeof data.groupId === 'string' && data.groupId.trim() ? data.groupId.trim() : undefined,
+      };
+    })
+    .filter((chunk): chunk is GroundfireDestructibleModelChunk => Boolean(chunk));
+}
+
+function normalizeAssetReference(asset: string): string {
+  return asset
+    .replace(/\\/g, '/')
+    .replace(/^\/api\/maps\/[^/]+\/assets\//, '')
+    .replace(/^\/+/, '')
+    .replace(/^\.\//, '');
 }
 
 function readUvRect(source: unknown): [number, number, number, number] | undefined {
