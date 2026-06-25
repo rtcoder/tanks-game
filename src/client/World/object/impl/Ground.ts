@@ -38,6 +38,17 @@ export class Ground extends BaseObject {
   mesh: THREE.Mesh;
   planeSize: number;
   terrain: TerrainData;
+  private readonly terrainGeometry: THREE.PlaneGeometry;
+  private readonly terrainMaterial: THREE.MeshStandardMaterial;
+  private readonly baseMaterialMaps: {
+    map: THREE.Texture | null;
+    aoMap: THREE.Texture | null;
+    displacementMap: THREE.Texture | null;
+    metalnessMap: THREE.Texture | null;
+    normalMap: THREE.Texture | null;
+    roughnessMap: THREE.Texture | null;
+  };
+  private snowCoverage = 0;
 
   constructor(name: string, textures: { [key: string]: THREE.Texture }, planeSize: number, terrain: TerrainData) {
     super('ground', name);
@@ -78,20 +89,30 @@ export class Ground extends BaseObject {
     // Optionally, you can set other texture-related properties
     planeMaterial.displacementScale = 2; // Micro displacement only; map JSON drives playable height.
     planeMaterial.normalScale.set(3, 3); // Adjust this value to control the normal map scale
+    this.terrainMaterial = planeMaterial;
+    this.baseMaterialMaps = {
+      map: planeMaterial.map,
+      aoMap: planeMaterial.aoMap,
+      displacementMap: planeMaterial.displacementMap,
+      metalnessMap: planeMaterial.metalnessMap,
+      normalMap: planeMaterial.normalMap,
+      roughnessMap: planeMaterial.roughnessMap,
+    };
 
     this.planeSize = planeSize;
     this.terrain = terrain;
     const terrainResolution = Math.max(8, Math.min(terrain.resolution ?? 96, 256));
     const planeGeometry = new THREE.PlaneGeometry(this.planeSize, this.planeSize, terrainResolution, terrainResolution);
+    this.terrainGeometry = planeGeometry;
     const positions = planeGeometry.attributes.position;
     for (let index = 0; index < positions.count; index += 1) {
       const x = positions.getX(index);
       const y = positions.getY(index);
       positions.setZ(index, this.heightAt(x, y));
     }
-    this.applySurfacePatchColors(planeGeometry, planeMaterial);
     positions.needsUpdate = true;
     planeGeometry.computeVertexNormals();
+    this.applyTerrainColors(0);
 
     // Add your material to a mesh and add it to the scene
     this.mesh = new THREE.Mesh(planeGeometry, planeMaterial);
@@ -136,23 +157,61 @@ export class Ground extends BaseObject {
     }, 1);
   }
 
-  private applySurfacePatchColors(
-      geometry: THREE.PlaneGeometry,
-      material: THREE.MeshStandardMaterial,
-  ): void {
-    if (!this.terrain.surfacePatches?.length) {
+  destruct(): void {
+    super.destruct();
+  }
+
+  setSnowCoverage(coverage: number): void {
+    const nextCoverage = THREE.MathUtils.clamp(coverage, 0, 1);
+    if (Math.abs(nextCoverage - this.snowCoverage) < 0.01) {
       return;
     }
+    this.snowCoverage = nextCoverage;
+    const snowActive = nextCoverage > 0.02;
+    if (snowActive) {
+      this.terrainMaterial.map = null;
+      this.terrainMaterial.aoMap = null;
+      this.terrainMaterial.displacementMap = null;
+      this.terrainMaterial.metalnessMap = null;
+      this.terrainMaterial.normalMap = null;
+      this.terrainMaterial.roughnessMap = null;
+      this.terrainMaterial.color.set(0xffffff);
+      this.terrainMaterial.roughness = THREE.MathUtils.lerp(0.94, 0.82, nextCoverage);
+      this.terrainMaterial.metalness = 0;
+      this.terrainMaterial.displacementScale = 0;
+      this.terrainMaterial.normalScale.setScalar(0.65);
+    } else {
+      this.terrainMaterial.map = this.baseMaterialMaps.map;
+      this.terrainMaterial.aoMap = this.baseMaterialMaps.aoMap;
+      this.terrainMaterial.displacementMap = this.baseMaterialMaps.displacementMap;
+      this.terrainMaterial.metalnessMap = this.baseMaterialMaps.metalnessMap;
+      this.terrainMaterial.normalMap = this.baseMaterialMaps.normalMap;
+      this.terrainMaterial.roughnessMap = this.baseMaterialMaps.roughnessMap;
+      this.terrainMaterial.color.set(0xffffff);
+      this.terrainMaterial.roughness = 1;
+      this.terrainMaterial.metalness = 0;
+      this.terrainMaterial.displacementScale = 2;
+      this.terrainMaterial.normalScale.set(3, 3);
+    }
+    this.applyTerrainColors(nextCoverage);
+    this.terrainMaterial.needsUpdate = true;
+  }
 
-    const positions = geometry.attributes.position;
+  private applyTerrainColors(snowCoverage: number): void {
+    const positions = this.terrainGeometry.attributes.position;
+    const normals = this.terrainGeometry.attributes.normal;
     const colors = new Float32Array(positions.count * 3);
     const baseColor = new THREE.Color(0xffffff);
     const patchColor = new THREE.Color();
+    const snowColor = new THREE.Color(0xf4fbff);
+    const compactSnowColor = new THREE.Color(0xd6e0e4);
+    const color = new THREE.Color();
     for (let index = 0; index < positions.count; index += 1) {
       const x = positions.getX(index);
       const y = positions.getY(index);
-      const color = baseColor.clone();
-      this.terrain.surfacePatches.forEach((patch) => {
+      const height = positions.getZ(index);
+      color.copy(baseColor);
+      this.terrain.surfacePatches?.forEach((patch) => {
         const blend = this.surfacePatchBlendAt(patch, x, y);
         if (blend <= 0) {
           return;
@@ -160,13 +219,20 @@ export class Ground extends BaseObject {
         patchColor.set(this.surfacePatchColor(patch.material));
         color.lerp(patchColor, blend);
       });
+      if (snowCoverage > 0) {
+        const slopeCoverage = THREE.MathUtils.smoothstep(normals.getZ(index), 0.44, 0.92);
+        const heightCoverage = THREE.MathUtils.smoothstep(height, -18, 46);
+        const localCoverage = THREE.MathUtils.clamp((slopeCoverage * 0.74 + heightCoverage * 0.26) * snowCoverage, 0, 1);
+        patchColor.copy(compactSnowColor).lerp(snowColor, localCoverage);
+        color.lerp(patchColor, localCoverage);
+      }
       colors[index * 3] = color.r;
       colors[index * 3 + 1] = color.g;
       colors[index * 3 + 2] = color.b;
     }
 
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    material.vertexColors = true;
+    this.terrainGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    this.terrainMaterial.vertexColors = true;
   }
 
   private surfacePatchColor(materialKey: string): THREE.ColorRepresentation {

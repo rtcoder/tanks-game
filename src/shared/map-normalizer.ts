@@ -3,6 +3,8 @@ import type {
   GroundfireDestructibleModel,
   GroundfireDestructibleModelChunk,
   GroundfireDestructibleModelChunking,
+  GroundfireEnvironment,
+  GroundfireEnvironmentPreset,
   GroundfireMapElement,
   GroundfireSpawn,
   GroundfireTerrain,
@@ -12,6 +14,7 @@ import type {
   GroundfireWaterGameplay,
   GroundfireWaterSource,
 } from './types';
+import {DEFAULT_ENVIRONMENT, ENVIRONMENT_PRESET_ORDER, environmentPresetDefinition} from './environment';
 
 type LegacyWall = {
   id?: unknown;
@@ -44,6 +47,7 @@ type LegacyMap = {
   elements?: unknown;
   groups?: unknown;
   destructibleModels?: unknown;
+  environment?: unknown;
   water?: unknown;
   spawns?: unknown;
 };
@@ -73,12 +77,46 @@ export function normalizeGroundfireMap(source: unknown, fallbackId = 'default'):
       size: arenaSize,
     },
     terrain: readTerrain(map?.terrain),
+    environment: readEnvironment(map?.environment),
     materials: readMaterials(map?.materials),
     elements: [...elements, ...legacyElements],
     groups: Array.isArray(map?.groups) ? map.groups as GroundfireMap['groups'] : [],
     destructibleModels: readDestructibleModels(map?.destructibleModels),
     water: readWaterSources(map?.water),
     spawns: readSpawns(map?.spawns, arenaSize),
+  };
+}
+
+function readEnvironment(source: unknown): GroundfireEnvironment {
+  const data = source && typeof source === 'object'
+    ? source as Partial<GroundfireEnvironment>
+    : {};
+  const preset = ENVIRONMENT_PRESET_ORDER.includes(data.preset as GroundfireEnvironmentPreset)
+    ? data.preset as GroundfireEnvironmentPreset
+    : DEFAULT_ENVIRONMENT.preset;
+  const presetDefaults = environmentPresetDefinition(preset);
+  const cycle = data.cycle && typeof data.cycle === 'object' ? data.cycle as Partial<GroundfireEnvironment['cycle']> : {};
+  const weather = data.weather && typeof data.weather === 'object' ? data.weather as Partial<GroundfireEnvironment['weather']> : {};
+  const gameplay = data.gameplay && typeof data.gameplay === 'object' ? data.gameplay as Partial<GroundfireEnvironment['gameplay']> : {};
+
+  return {
+    preset,
+    timeOfDay: clamp(readNumber(data.timeOfDay, presetDefaults.timeOfDay), 0, 24),
+    cycle: {
+      enabled: Boolean(cycle.enabled),
+      minutesPerDay: clamp(readNumber(cycle.minutesPerDay, presetDefaults.cycle.minutesPerDay), 1, 120),
+    },
+    weather: {
+      intensity: clamp(readNumber(weather.intensity, presetDefaults.weather.intensity), 0, 1),
+      windDirection: normalizedDegrees(readNumber(weather.windDirection, presetDefaults.weather.windDirection)),
+      windStrength: clamp(readNumber(weather.windStrength, presetDefaults.weather.windStrength), 0, 1),
+    },
+    gameplay: {
+      tractionMultiplier: clamp(readNumber(gameplay.tractionMultiplier, presetDefaults.gameplay.tractionMultiplier), 0.25, 1.35),
+      projectileDrift: clamp(readNumber(gameplay.projectileDrift, presetDefaults.gameplay.projectileDrift), 0, 0.5),
+      visibilityMultiplier: clamp(readNumber(gameplay.visibilityMultiplier, presetDefaults.gameplay.visibilityMultiplier), 0.2, 1.2),
+      radarNoise: clamp(readNumber(gameplay.radarNoise, presetDefaults.gameplay.radarNoise), 0, 1),
+    },
   };
 }
 
@@ -506,4 +544,12 @@ function readNumber(value: unknown, fallback: number): number {
 function readOptionalNumber(value: unknown): number | undefined {
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(value, max));
+}
+
+function normalizedDegrees(value: number): number {
+  return ((value % 360) + 360) % 360;
 }

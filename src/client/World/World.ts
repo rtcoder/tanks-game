@@ -3,10 +3,12 @@ import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {MTLLoader} from 'three/examples/jsm/loaders/MTLLoader.js';
 import {OBJLoader} from 'three/examples/jsm/loaders/OBJLoader.js';
 import {normalizeGroundfireMap} from '../../shared/map-normalizer';
+import {ENVIRONMENT_PRESET_ORDER, environmentPresetDefinition} from '../../shared/environment';
 import type {
   BattleSummary,
   ClientMessage,
   GameConfig,
+  GroundfireEnvironmentPreset,
   GroundfireMap,
   GroundfireMapSummary,
   GroundfireWaterGameplay,
@@ -36,6 +38,7 @@ import {ThirdPersonViewCamera} from './system/Camera/ThirdPersonViewCamera';
 import {Loop} from './system/Loop';
 import {Renderer} from './system/Renderer';
 import {Scene} from './system/Scene';
+import {EnvironmentSystem} from './system/EnvironmentSystem';
 import {DEFAULT_TANK_ID, getTankDefinition, TANK_DEFINITIONS} from './tank-definitions/tank-definitions';
 import {type TankDefinition} from './tank-definitions/shared/tank-definition.type';
 import {detectRuntimeAcceleration, type RuntimeAccelerationProfile} from './performance/acceleration';
@@ -69,6 +72,7 @@ const STORAGE_KEYS = {
   playerId: 'tanks:player-id',
   tankModelId: 'tanks:tank-model-id',
   mapId: 'tanks:map-id',
+  weatherPreset: 'tanks:weather-preset',
 };
 
 type KeyboardState = Record<string, number>;
@@ -130,6 +134,7 @@ class World {
   hemiLight!: HemiSphereLight;
   directLight!: DirectionalLight;
   skyDome!: SkyDome;
+  environment!: EnvironmentSystem;
   walls: Wall[] = [];
   surrounding_walls: Wall[] = [];
   destructibleModels: DestructibleModel[] = [];
@@ -140,6 +145,7 @@ class World {
   destroyedWallIds = new Set<string>();
   destroyedModelChunkIds = new Set<string>();
   occludedWallIds = new Set<string>();
+  readonly windScratch = new THREE.Vector3();
   sceneContainer: HTMLElement;
   menu: HTMLElement;
   replay: HTMLElement;
@@ -147,6 +153,7 @@ class World {
   statusText: HTMLElement;
   nickInput: HTMLInputElement;
   mapSelectInput: HTMLSelectElement;
+  weatherSelectInput: HTMLSelectElement;
   battleTitleInput: HTMLInputElement;
   maxPlayersInput: HTMLInputElement;
   battleIdInput: HTMLInputElement;
@@ -182,6 +189,7 @@ class World {
   textureDict: { [key: string]: { [key: string]: THREE.Texture } } = {};
   availableMaps: GroundfireMapSummary[] = [];
   selectedMapId = localStorage.getItem(STORAGE_KEYS.mapId) || DEFAULT_MAP_ID;
+  selectedWeatherPreset = localStorage.getItem(STORAGE_KEYS.weatherPreset) || 'map';
   mapData: GroundfireMap = normalizeGroundfireMap({
     id: DEFAULT_MAP_ID,
     name: 'Default Arena',
@@ -227,6 +235,7 @@ class World {
     this.statusText = document.getElementById('battle-status-text') as HTMLElement;
     this.nickInput = document.getElementById('nick-input') as HTMLInputElement;
     this.mapSelectInput = document.getElementById('map-select-input') as HTMLSelectElement;
+    this.weatherSelectInput = document.getElementById('weather-select-input') as HTMLSelectElement;
     this.battleTitleInput = document.getElementById('battle-title-input') as HTMLInputElement;
     this.maxPlayersInput = document.getElementById('max-players-input') as HTMLInputElement;
     this.battleIdInput = document.getElementById('battle-id-input') as HTMLInputElement;
@@ -259,6 +268,7 @@ class World {
   async init(): Promise<void> {
     this.nickInput.value = localStorage.getItem(STORAGE_KEYS.nick) || '';
     this.battleIdInput.value = localStorage.getItem(STORAGE_KEYS.battleId) || '';
+    this.weatherSelectInput.value = this.selectedWeatherPreset;
     this.renderTankSelection();
     await this.loadGameConfig();
     await this.loadMaps();
@@ -293,6 +303,15 @@ class World {
     const listener = new THREE.AudioListener();
     this.camera.camera.add(listener);
     this.listeners.push(listener);
+    this.environment = new EnvironmentSystem(
+        this.scene,
+        this.skyDome,
+        this.hemiLight,
+        this.directLight,
+        this.renderer,
+        this.mapData.environment,
+        this.listeners,
+    );
     this.bgAudio = new THREE.Audio(listener);
     this.bgAudio.setBuffer(this.audioDict['Bgm']).setVolume(0.01).setLoop(true);
     this.loop = new Loop(this.scene, [this.camera], [this.renderer]);
@@ -352,16 +371,36 @@ class World {
     )).join('');
   }
 
+  mapWithSelectedWeather(map: GroundfireMap): GroundfireMap {
+    if (!ENVIRONMENT_PRESET_ORDER.includes(this.selectedWeatherPreset as GroundfireEnvironmentPreset)) {
+      return map;
+    }
+
+    const preset = this.selectedWeatherPreset as GroundfireEnvironmentPreset;
+    const definition = environmentPresetDefinition(preset);
+    return {
+      ...map,
+      environment: {
+        preset,
+        timeOfDay: definition.timeOfDay,
+        cycle: {...definition.cycle},
+        weather: {...definition.weather},
+        gameplay: {...definition.gameplay},
+      },
+    };
+  }
+
   async loadMapById(mapId: string, rebuildScene = false): Promise<void> {
     const response = await fetch(`/api/maps/${encodeURIComponent(mapId)}`).catch(() => null);
     const rawMap = response?.ok
       ? (await response.json() as { map: unknown }).map
       : null;
-    this.mapData = normalizeGroundfireMap(rawMap, mapId);
+    this.mapData = this.mapWithSelectedWeather(normalizeGroundfireMap(rawMap, mapId));
     this.selectedMapId = this.mapData.id;
     this.arenaSize = this.mapData.arena.size;
     this.arenaHalf = this.arenaSize / 2;
     this.mapTerrain = await this.resolveTerrainData(this.mapData);
+    this.environment?.setEnvironment(this.mapData.environment);
     localStorage.setItem(STORAGE_KEYS.mapId, this.selectedMapId);
     this.renderMapSelect();
 
@@ -1183,6 +1222,15 @@ class World {
     };
   }
 
+  tankEnvironmentAt(x: number, y: number): { movementMultiplier: number; blocksMovement: boolean } {
+    const water = this.waterMovementAt(x, y);
+    const weatherTraction = this.environment?.gameplay().tractionMultiplier ?? 1;
+    return {
+      movementMultiplier: water.movementMultiplier * weatherTraction,
+      blocksMovement: water.blocksMovement,
+    };
+  }
+
   projectileWaterHitAt(position: THREE.Vector3): WaterProjectileHit | null {
     const cell = this.waterCellAt(position.x, position.y);
     if (!cell || cell.gameplay.projectileImpact !== 'splash') {
@@ -1305,6 +1353,8 @@ class World {
     this.loop.updatableLists.push([this.localTank], this.powerups, this.bullets, this.walls);
     Tank.onTick = (tank: Tank, delta: number) => {
       if (tank !== this.localTank) return;
+      this.environment.tick(delta, tank.mesh.position);
+      this.ground.setSnowCoverage(this.environment.snowCoverage());
       this.updateStructuralGravity(delta);
       this.updateWaterSimulation(delta);
       tank.update(
@@ -1316,7 +1366,7 @@ class World {
           this.surrounding_walls,
           this.bullets,
           delta,
-          this.waterMovementAt(tank.mesh.position.x, tank.mesh.position.y),
+          this.tankEnvironmentAt(tank.mesh.position.x, tank.mesh.position.y),
           (candidate) => this.destructibleModelBlocksTank(candidate),
       );
       this.snapTankToTerrain(tank);
@@ -1330,6 +1380,13 @@ class World {
       this.syncLocalTank(false);
     };
     Bullet.onTick = (bullet: Bullet, delta: number) => {
+      const gameplay = this.environment?.gameplay();
+      const wind = this.environment?.windInto(this.windScratch) ?? this.windScratch.set(0, 0, 0);
+      bullet.accel.set(
+          wind.x * (gameplay?.projectileDrift ?? 0) * 180,
+          wind.y * (gameplay?.projectileDrift ?? 0) * 180,
+          0,
+      );
       bullet.update(
           this.ground,
           this.bullets,
@@ -1735,7 +1792,9 @@ class World {
     const contactRadius = radius * (isLocalTank ? 2.35 : 2);
     const hullLength = radius * (isLocalTank ? 2.9 : 2.55);
     const hullWidth = radius * (isLocalTank ? 1.7 : 1.5);
-    const lineAlpha = isLocalTank ? 0.9 : 0.62;
+    const visibility = this.environment?.visibilityMultiplier() ?? 1;
+    const contactAlpha = isLocalTank ? 1 : THREE.MathUtils.clamp(visibility, 0.18, 1);
+    const lineAlpha = (isLocalTank ? 0.9 : 0.62) * contactAlpha;
 
     context.save();
     context.translate(point.x, point.y);
@@ -1754,14 +1813,14 @@ class World {
 
     context.save();
     context.translate(point.x, point.y);
-    context.globalAlpha = isLocalTank ? 0.42 : 0.28;
+    context.globalAlpha = (isLocalTank ? 0.42 : 0.28) * contactAlpha;
     context.strokeStyle = color;
     context.lineWidth = 1;
     context.beginPath();
     context.arc(0, 0, contactRadius, 0, Math.PI * 2);
     context.stroke();
 
-    context.globalAlpha = 1;
+    context.globalAlpha = contactAlpha;
     context.rotate(heading);
     context.shadowBlur = isLocalTank ? 11 : 6;
     context.shadowColor = color;
@@ -2114,6 +2173,13 @@ class World {
       this.selectedMapId = this.mapSelectInput.value || DEFAULT_MAP_ID;
       localStorage.setItem(STORAGE_KEYS.mapId, this.selectedMapId);
     });
+    this.weatherSelectInput.addEventListener('change', () => {
+      this.selectedWeatherPreset = this.weatherSelectInput.value || 'map';
+      localStorage.setItem(STORAGE_KEYS.weatherPreset, this.selectedWeatherPreset);
+      if (this.status === 'menu') {
+        void this.loadMapById(this.selectedMapId, true);
+      }
+    });
     this.createButton.addEventListener('click', () => {
       void this.createBattle();
     });
@@ -2252,6 +2318,9 @@ class World {
     if (battleMapId !== this.mapData.id) {
       await this.loadMapById(battleMapId, true);
       mapWasRebuilt = true;
+    } else {
+      this.mapData = this.mapWithSelectedWeather(this.mapData);
+      this.environment?.setEnvironment(this.mapData.environment);
     }
     this.applySelectedTankToLocal();
     if (!mapWasRebuilt) {

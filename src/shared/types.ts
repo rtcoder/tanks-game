@@ -154,6 +154,38 @@ export type GroundfireTerrain = {
   surfacePatches?: GroundfireTerrainSurfacePatch[];
 };
 
+export enum GroundfireEnvironmentPreset {
+  Clear = 'clear',
+  Overcast = 'overcast',
+  Foggy = 'foggy',
+  GoldenHour = 'golden-hour',
+  Night = 'night',
+  Rain = 'rain',
+  Storm = 'storm',
+  Snow = 'snow',
+  Dust = 'dust',
+}
+
+export type GroundfireEnvironment = {
+  preset: GroundfireEnvironmentPreset;
+  timeOfDay: number;
+  cycle: {
+    enabled: boolean;
+    minutesPerDay: number;
+  };
+  weather: {
+    intensity: number;
+    windDirection: number;
+    windStrength: number;
+  };
+  gameplay: {
+    tractionMultiplier: number;
+    projectileDrift: number;
+    visibilityMultiplier: number;
+    radarNoise: number;
+  };
+};
+
 export type GroundfireElementType = 'wall' | 'building' | 'obstacle';
 
 export type GroundfireDestructibleConfig = {
@@ -267,6 +299,7 @@ export type GroundfireMap = {
     size: number;
   };
   terrain: GroundfireTerrain;
+  environment: GroundfireEnvironment;
   materials: {
     terrain: string;
     wall: string;

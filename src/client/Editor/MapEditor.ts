@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {OBJLoader} from 'three/examples/jsm/loaders/OBJLoader.js';
-import {MAP_ASSET_MANIFEST, type GroundfireElementPreset} from '../../shared/map-assets';
+import {ENVIRONMENT_PRESET_ORDER, environmentPresetDefinition} from '../../shared/environment';
+import {type GroundfireElementPreset, MAP_ASSET_MANIFEST} from '../../shared/map-assets';
 import {normalizeGroundfireMap} from '../../shared/map-normalizer';
-import {createStoredZip, readStoredZipEntries} from '../../shared/zip';
 import type {
   GroundfireDestructibleModel,
+  GroundfireEnvironment,
   GroundfireMap,
   GroundfireMapElement,
   GroundfireMapGroup,
@@ -13,6 +14,8 @@ import type {
   GroundfireTerrainSurfacePatch,
   GroundfireWaterSource,
 } from '../../shared/types';
+import {GroundfireEnvironmentPreset} from '../../shared/types';
+import {createStoredZip, readStoredZipEntries} from '../../shared/zip';
 
 type EditorTool = 'view' | 'raise' | 'lower' | 'smooth' | 'flatten' | 'paint' | 'place' | 'select' | 'water';
 
@@ -91,6 +94,8 @@ export class MapEditor {
   terrainGeometry!: THREE.PlaneGeometry;
   terrainMesh!: THREE.Mesh;
   terrainMaterial!: THREE.MeshStandardMaterial;
+  environmentHemiLight!: THREE.HemisphereLight;
+  environmentSunLight!: THREE.DirectionalLight;
   gridHelper: THREE.GridHelper | null = null;
   ghostMesh!: THREE.Mesh;
   surfacePatchPreviewMesh!: THREE.Mesh;
@@ -136,6 +141,17 @@ export class MapEditor {
   waterDepthBlockThresholdInput!: HTMLInputElement;
   waterProjectileImpactInput!: HTMLSelectElement;
   waterExplosionMultiplierInput!: HTMLInputElement;
+  environmentPresetInput!: HTMLSelectElement;
+  environmentTimeInput!: HTMLInputElement;
+  environmentCycleInput!: HTMLInputElement;
+  environmentCycleMinutesInput!: HTMLInputElement;
+  environmentIntensityInput!: HTMLInputElement;
+  environmentWindDirectionInput!: HTMLInputElement;
+  environmentWindStrengthInput!: HTMLInputElement;
+  environmentTractionInput!: HTMLInputElement;
+  environmentProjectileDriftInput!: HTMLInputElement;
+  environmentVisibilityInput!: HTMLInputElement;
+  environmentRadarNoiseInput!: HTMLInputElement;
   importPackageInput!: HTMLInputElement;
   importModelInput!: HTMLInputElement;
   modelPartListElement!: HTMLElement;
@@ -179,14 +195,18 @@ export class MapEditor {
 
   template(): string {
     const presetOptions = MAP_ASSET_MANIFEST.elementPresets.map((preset) => (
-      `<option value="${preset.key}">${preset.label}</option>`
+        `<option value="${preset.key}">${preset.label}</option>`
     )).join('');
     const terrainMaterialOptions = MAP_ASSET_MANIFEST.terrainTextureSets.map((material) => (
-      `<option value="${material.key}">${material.label}</option>`
+        `<option value="${material.key}">${material.label}</option>`
     )).join('');
     const objectMaterialOptions = MAP_ASSET_MANIFEST.materials.map((material) => (
-      `<option value="${material.key}">${material.label}</option>`
+        `<option value="${material.key}">${material.label}</option>`
     )).join('');
+    const environmentOptions = ENVIRONMENT_PRESET_ORDER.map((preset) => {
+      const definition = environmentPresetDefinition(preset);
+      return `<option value="${preset}">${definition.label}</option>`;
+    }).join('');
 
     return `
       <main class="editor" id="editor-root">
@@ -209,6 +229,30 @@ export class MapEditor {
               <button id="editor-import-package" type="button">Load package</button>
             </div>
             <label class="editor__check"><input id="editor-heatmap" type="checkbox"> Heatmap view</label>
+          </section>
+          <section class="editor__section">
+            <div class="editor__section-title">Environment</div>
+            <label>Sky preset
+              <select id="editor-environment-preset">${environmentOptions}</select>
+            </label>
+            <div class="editor__row">
+              <label>Time<input id="editor-environment-time" type="number" min="0" max="24" step="0.25" value="13"></label>
+              <label>Day min<input id="editor-environment-cycle-minutes" type="number" min="1" max="120" step="1" value="18"></label>
+            </div>
+            <label class="editor__check"><input id="editor-environment-cycle" type="checkbox"> Day cycle</label>
+            <div class="editor__row">
+              <label>Weather<input id="editor-environment-intensity" type="range" min="0" max="1" step="0.01" value="0"></label>
+              <label>Wind str<input id="editor-environment-wind-strength" type="range" min="0" max="1" step="0.01" value="0.05"></label>
+            </div>
+            <label>Wind dir<input id="editor-environment-wind-direction" type="range" min="0" max="359" step="1" value="35"></label>
+            <div class="editor__row">
+              <label>Traction<input id="editor-environment-traction" type="number" min="0.25" max="1.35" step="0.01" value="1"></label>
+              <label>Drift<input id="editor-environment-projectile-drift" type="number" min="0" max="0.5" step="0.01" value="0"></label>
+            </div>
+            <div class="editor__row">
+              <label>Visibility<input id="editor-environment-visibility" type="number" min="0.2" max="1.2" step="0.01" value="1"></label>
+              <label>Radar noise<input id="editor-environment-radar-noise" type="number" min="0" max="1" step="0.01" value="0"></label>
+            </div>
           </section>
           <section class="editor__section">
             <div class="editor__section-title">Model map source</div>
@@ -394,6 +438,17 @@ export class MapEditor {
     this.waterDepthBlockThresholdInput = document.getElementById('editor-water-block-depth') as HTMLInputElement;
     this.waterProjectileImpactInput = document.getElementById('editor-water-projectile') as HTMLSelectElement;
     this.waterExplosionMultiplierInput = document.getElementById('editor-water-explosion') as HTMLInputElement;
+    this.environmentPresetInput = document.getElementById('editor-environment-preset') as HTMLSelectElement;
+    this.environmentTimeInput = document.getElementById('editor-environment-time') as HTMLInputElement;
+    this.environmentCycleInput = document.getElementById('editor-environment-cycle') as HTMLInputElement;
+    this.environmentCycleMinutesInput = document.getElementById('editor-environment-cycle-minutes') as HTMLInputElement;
+    this.environmentIntensityInput = document.getElementById('editor-environment-intensity') as HTMLInputElement;
+    this.environmentWindDirectionInput = document.getElementById('editor-environment-wind-direction') as HTMLInputElement;
+    this.environmentWindStrengthInput = document.getElementById('editor-environment-wind-strength') as HTMLInputElement;
+    this.environmentTractionInput = document.getElementById('editor-environment-traction') as HTMLInputElement;
+    this.environmentProjectileDriftInput = document.getElementById('editor-environment-projectile-drift') as HTMLInputElement;
+    this.environmentVisibilityInput = document.getElementById('editor-environment-visibility') as HTMLInputElement;
+    this.environmentRadarNoiseInput = document.getElementById('editor-environment-radar-noise') as HTMLInputElement;
     this.importPackageInput = document.getElementById('editor-import-package-input') as HTMLInputElement;
     this.importModelInput = document.getElementById('editor-import-model-input') as HTMLInputElement;
     this.modelPartListElement = document.getElementById('editor-model-part-list') as HTMLElement;
@@ -410,11 +465,12 @@ export class MapEditor {
     this.renderer.shadowMap.enabled = true;
     this.viewport.appendChild(this.renderer.domElement);
 
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x334026, 2.4);
-    const sun = new THREE.DirectionalLight(0xfff1d0, 3.8);
-    sun.position.set(600, 900, 500);
-    sun.castShadow = true;
-    this.scene.add(hemi, sun);
+    this.environmentHemiLight = new THREE.HemisphereLight(0xffffff, 0x334026, 2.4);
+    this.environmentSunLight = new THREE.DirectionalLight(0xfff1d0, 3.8);
+    this.environmentSunLight.position.set(600, 900, 500);
+    this.environmentSunLight.castShadow = true;
+    this.scene.add(this.environmentHemiLight, this.environmentSunLight);
+    this.applyEnvironmentPreview();
     this.updateCamera();
   }
 
@@ -531,6 +587,25 @@ export class MapEditor {
       input.addEventListener('input', () => this.updateSelectedWaterFromControls());
       input.addEventListener('change', () => this.updateSelectedWaterFromControls());
     });
+    this.environmentPresetInput.addEventListener('change', () => {
+      this.writeEnvironmentPresetDefaults(this.environmentPresetInput.value as GroundfireEnvironmentPreset);
+      this.applyEnvironmentPreview();
+    });
+    [
+      this.environmentTimeInput,
+      this.environmentCycleInput,
+      this.environmentCycleMinutesInput,
+      this.environmentIntensityInput,
+      this.environmentWindDirectionInput,
+      this.environmentWindStrengthInput,
+      this.environmentTractionInput,
+      this.environmentProjectileDriftInput,
+      this.environmentVisibilityInput,
+      this.environmentRadarNoiseInput,
+    ].forEach((input) => {
+      input.addEventListener('input', () => this.applyEnvironmentPreview());
+      input.addEventListener('change', () => this.applyEnvironmentPreview());
+    });
     document.getElementById('editor-apply-size')?.addEventListener('click', () => this.applyTerrainSize());
     document.getElementById('editor-reset-terrain')?.addEventListener('click', () => this.resetTerrain());
     document.getElementById('editor-view-rotate-left')?.addEventListener('click', () => this.rotateView(-EDITOR_VIEW_ROTATE_STEP));
@@ -623,6 +698,89 @@ export class MapEditor {
       button.classList.toggle('editor__tool-button--active', active);
       button.setAttribute('aria-pressed', String(active));
     });
+  }
+
+  environmentFromInputs(): GroundfireEnvironment {
+    const preset = ENVIRONMENT_PRESET_ORDER.includes(this.environmentPresetInput.value as GroundfireEnvironmentPreset)
+        ? this.environmentPresetInput.value as GroundfireEnvironmentPreset
+        : GroundfireEnvironmentPreset.Clear;
+    const defaults = environmentPresetDefinition(preset);
+    return {
+      preset,
+      timeOfDay: THREE.MathUtils.clamp(Number(this.environmentTimeInput.value) || defaults.timeOfDay, 0, 24),
+      cycle: {
+        enabled: this.environmentCycleInput.checked,
+        minutesPerDay: THREE.MathUtils.clamp(Number(this.environmentCycleMinutesInput.value) || defaults.cycle.minutesPerDay, 1, 120),
+      },
+      weather: {
+        intensity: THREE.MathUtils.clamp(Number(this.environmentIntensityInput.value) || 0, 0, 1),
+        windDirection: ((Number(this.environmentWindDirectionInput.value) || defaults.weather.windDirection) % 360 + 360) % 360,
+        windStrength: THREE.MathUtils.clamp(Number(this.environmentWindStrengthInput.value) || 0, 0, 1),
+      },
+      gameplay: {
+        tractionMultiplier: THREE.MathUtils.clamp(Number(this.environmentTractionInput.value) || defaults.gameplay.tractionMultiplier, 0.25, 1.35),
+        projectileDrift: THREE.MathUtils.clamp(Number(this.environmentProjectileDriftInput.value) || 0, 0, 0.5),
+        visibilityMultiplier: THREE.MathUtils.clamp(Number(this.environmentVisibilityInput.value) || defaults.gameplay.visibilityMultiplier, 0.2, 1.2),
+        radarNoise: THREE.MathUtils.clamp(Number(this.environmentRadarNoiseInput.value) || 0, 0, 1),
+      },
+    };
+  }
+
+  writeEnvironmentToInputs(environment: GroundfireEnvironment): void {
+    this.environmentPresetInput.value = environment.preset;
+    this.environmentTimeInput.value = String(environment.timeOfDay);
+    this.environmentCycleInput.checked = environment.cycle.enabled;
+    this.environmentCycleMinutesInput.value = String(environment.cycle.minutesPerDay);
+    this.environmentIntensityInput.value = String(environment.weather.intensity);
+    this.environmentWindDirectionInput.value = String(environment.weather.windDirection);
+    this.environmentWindStrengthInput.value = String(environment.weather.windStrength);
+    this.environmentTractionInput.value = String(environment.gameplay.tractionMultiplier);
+    this.environmentProjectileDriftInput.value = String(environment.gameplay.projectileDrift);
+    this.environmentVisibilityInput.value = String(environment.gameplay.visibilityMultiplier);
+    this.environmentRadarNoiseInput.value = String(environment.gameplay.radarNoise);
+    this.applyEnvironmentPreview();
+  }
+
+  writeEnvironmentPresetDefaults(preset: GroundfireEnvironmentPreset): void {
+    const definition = environmentPresetDefinition(preset);
+    this.writeEnvironmentToInputs({
+      preset,
+      timeOfDay: definition.timeOfDay,
+      cycle: {...definition.cycle},
+      weather: {...definition.weather},
+      gameplay: {...definition.gameplay},
+    });
+  }
+
+  applyEnvironmentPreview(): void {
+    if (!this.environmentHemiLight || !this.environmentSunLight) {
+      return;
+    }
+    const environment = this.environmentFromInputs();
+    const definition = environmentPresetDefinition(environment.preset);
+    const intensity = environment.weather.intensity;
+    const fogNear = Math.max(120, definition.fog.near * (1 - intensity * 0.22));
+    const fogFar = Math.max(fogNear + 400, definition.fog.far * (1 - intensity * 0.18));
+    const sunDirection = this.editorSunDirection(definition.sun.azimuth, definition.sun.elevation);
+    this.scene.background = new THREE.Color(definition.sky.top).lerp(new THREE.Color(definition.sky.horizon), 0.45);
+    this.scene.fog = new THREE.Fog(definition.fog.color, fogNear, fogFar);
+    this.environmentHemiLight.color.set(definition.hemi.sky);
+    this.environmentHemiLight.groundColor.set(definition.hemi.ground);
+    this.environmentHemiLight.intensity = definition.hemi.intensity;
+    this.environmentSunLight.color.set(definition.sun.color);
+    this.environmentSunLight.intensity = definition.sun.intensity;
+    this.environmentSunLight.position.copy(sunDirection.multiplyScalar(760));
+    this.renderer.toneMappingExposure = definition.exposure;
+  }
+
+  editorSunDirection(azimuthDegrees: number, elevationDegrees: number): THREE.Vector3 {
+    const azimuth = THREE.MathUtils.degToRad(azimuthDegrees);
+    const elevation = THREE.MathUtils.degToRad(elevationDegrees);
+    return new THREE.Vector3(
+        Math.cos(azimuth) * Math.cos(elevation),
+        Math.sin(elevation),
+        Math.sin(azimuth) * Math.cos(elevation),
+    ).normalize();
   }
 
   onPointerDown(event: PointerEvent): void {
@@ -792,14 +950,14 @@ export class MapEditor {
     const rotation = this.normalizedRightAngle(this.paintRotation);
     const previous = this.surfacePatches[this.surfacePatches.length - 1];
     if (
-      previous?.shape === 'rect'
-      && previous.center[0] === snappedX
-      && previous.center[1] === snappedZ
-      && previous.size?.[0] === width
-      && previous.size?.[1] === depth
-      && previous.material === materialKey
-      && previous.friction === friction
-      && this.normalizedRightAngle(previous.rotation ?? 0) === rotation
+        previous?.shape === 'rect'
+        && previous.center[0] === snappedX
+        && previous.center[1] === snappedZ
+        && previous.size?.[0] === width
+        && previous.size?.[1] === depth
+        && previous.material === materialKey
+        && previous.friction === friction
+        && this.normalizedRightAngle(previous.rotation ?? 0) === rotation
     ) {
       return;
     }
@@ -875,8 +1033,8 @@ export class MapEditor {
 
   isEditableKeyboardTarget(target: EventTarget | null): boolean {
     return target instanceof HTMLInputElement
-      || target instanceof HTMLSelectElement
-      || target instanceof HTMLTextAreaElement;
+        || target instanceof HTMLSelectElement
+        || target instanceof HTMLTextAreaElement;
   }
 
   updateGhost(): void {
@@ -1116,8 +1274,8 @@ export class MapEditor {
 
       const modelPartHit = this.intersectImportedModelParts();
       const modelPartId = typeof modelPartHit?.object.userData.importedModelPartId === 'string'
-        ? modelPartHit.object.userData.importedModelPartId
-        : null;
+          ? modelPartHit.object.userData.importedModelPartId
+          : null;
       if (modelPartId) {
         this.toggleImportedModelPart(modelPartId, append);
         return;
@@ -1125,8 +1283,8 @@ export class MapEditor {
 
       const waterHit = this.intersectWater();
       const waterId = typeof waterHit?.object.userData.waterSourceId === 'string'
-        ? waterHit.object.userData.waterSourceId
-        : null;
+          ? waterHit.object.userData.waterSourceId
+          : null;
       if (waterId) {
         this.selectWater(waterId);
         return;
@@ -1414,8 +1572,8 @@ export class MapEditor {
       this.elements.delete(id);
     });
     this.groups = this.groups
-      .map((group) => ({...group, elementIds: group.elementIds.filter((id) => this.elements.has(id))}))
-      .filter((group) => group.elementIds.length > 1);
+        .map((group) => ({...group, elementIds: group.elementIds.filter((id) => this.elements.has(id))}))
+        .filter((group) => group.elementIds.length > 1);
     this.clearSelection();
     this.refreshWaterPreview();
     this.setStatus('Selection deleted');
@@ -1430,8 +1588,8 @@ export class MapEditor {
     const waterSource: GroundfireWaterSource = {
       id: `water-${crypto.randomUUID().slice(0, 8)}`,
       type: this.waterTypeInput.value === 'source' || this.waterTypeInput.value === 'drain'
-        ? this.waterTypeInput.value
-        : 'basin',
+          ? this.waterTypeInput.value
+          : 'basin',
       seedPoint: [hit.point.x, hit.point.z],
       waterLevel: Number(this.waterLevelInput.value) || hit.point.y,
       flowRate: this.optionalNumberInput(this.waterFlowRateInput),
@@ -1485,7 +1643,7 @@ export class MapEditor {
     const canFill = (column: number, row: number): boolean => {
       const center = centerFor(column, row);
       return this.heightAt(center.x, center.z) <= waterSource.waterLevel
-        && !this.waterCellBlockedByElement(center.x, center.z, waterSource.waterLevel, cellSize);
+          && !this.waterCellBlockedByElement(center.x, center.z, waterSource.waterLevel, cellSize);
     };
     if (!canFill(seedColumn, seedRow)) {
       return null;
@@ -1641,8 +1799,8 @@ export class MapEditor {
 
   selectedWater(): GroundfireWaterSource | null {
     return this.selectedWaterId
-      ? this.waterSources.find((waterSource) => waterSource.id === this.selectedWaterId) ?? null
-      : null;
+        ? this.waterSources.find((waterSource) => waterSource.id === this.selectedWaterId) ?? null
+        : null;
   }
 
   syncWaterControls(): void {
@@ -1670,8 +1828,8 @@ export class MapEditor {
 
     waterSource.waterLevel = Number(this.waterLevelInput.value) || 0;
     waterSource.type = this.waterTypeInput.value === 'source' || this.waterTypeInput.value === 'drain'
-      ? this.waterTypeInput.value
-      : 'basin';
+        ? this.waterTypeInput.value
+        : 'basin';
     waterSource.flowRate = this.optionalNumberInput(this.waterFlowRateInput);
     waterSource.maxVolume = this.optionalNumberInput(this.waterMaxVolumeInput);
     waterSource.gameplay = this.waterGameplayFromInputs();
@@ -1682,9 +1840,9 @@ export class MapEditor {
 
   waterGameplayFromInputs(): NonNullable<GroundfireWaterSource['gameplay']> {
     const projectileImpact = this.waterProjectileImpactInput.value === 'pass-through'
-      || this.waterProjectileImpactInput.value === 'none'
-      ? this.waterProjectileImpactInput.value
-      : 'splash';
+    || this.waterProjectileImpactInput.value === 'none'
+        ? this.waterProjectileImpactInput.value
+        : 'splash';
     return {
       blocksMovement: this.waterBlocksMovementInput.checked,
       speedMultiplier: THREE.MathUtils.clamp(Number(this.waterSpeedMultiplierInput.value) || 0.45, 0.05, 1),
@@ -1719,8 +1877,8 @@ export class MapEditor {
     const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
     try {
       const source = extension === 'zip'
-        ? await this.importModelSourceFromZip(file)
-        : await this.importModelSourceFromFile(file, extension);
+          ? await this.importModelSourceFromZip(file)
+          : await this.importModelSourceFromFile(file, extension);
 
       this.clearImportedModel();
       this.prepareImportedModel(source.root, source.name);
@@ -1990,8 +2148,8 @@ export class MapEditor {
     };
 
     return Array.isArray(material)
-      ? material.map((item) => cloneOne(item))
-      : cloneOne(material);
+        ? material.map((item) => cloneOne(item))
+        : cloneOne(material);
   }
 
   clearImportedModel(): void {
@@ -2036,9 +2194,9 @@ export class MapEditor {
     this.modelPartListElement.innerHTML = `
       <p class="editor__empty">${this.importedModelParts.size} parts loaded - ${selectedCount || 'all'} used for generation</p>
       ${parts.map((part) => {
-        const selectedClass = this.selectedImportedPartIds.has(part.id) ? ' editor__model-item--selected' : '';
-        return `<button class="editor__model-item${selectedClass}" type="button" data-model-part-id="${part.id}">${part.name}</button>`;
-      }).join('')}
+      const selectedClass = this.selectedImportedPartIds.has(part.id) ? ' editor__model-item--selected' : '';
+      return `<button class="editor__model-item${selectedClass}" type="button" data-model-part-id="${part.id}">${part.name}</button>`;
+    }).join('')}
     `;
   }
 
@@ -2431,8 +2589,8 @@ export class MapEditor {
     const generatedIds = new Set<string>();
     this.elements.forEach((element, id) => {
       const generatedFromModel = element.mesh.userData.generatedFromImportedModel === true
-        || id.startsWith('model-block-')
-        || typeof element.mesh.userData.importSource === 'string';
+          || id.startsWith('model-block-')
+          || typeof element.mesh.userData.importSource === 'string';
       if (!generatedFromModel) {
         return;
       }
@@ -2482,8 +2640,8 @@ export class MapEditor {
       const map = normalizeGroundfireMap(rawMap, this.safeIdFromFileName(file.name));
       const heightmapEntryName = this.packageAssetName(entries, rawMap.terrain?.heightmapAsset, 'heightmap.png');
       const heightmapImageData = heightmapEntryName
-        ? await this.imageDataFromBytes(entries.get(heightmapEntryName) ?? new Uint8Array(), 'image/png')
-        : undefined;
+          ? await this.imageDataFromBytes(entries.get(heightmapEntryName) ?? new Uint8Array(), 'image/png')
+          : undefined;
       const modelAssets = new Map<string, Uint8Array>();
       map.destructibleModels.forEach((model) => {
         const modelEntryName = this.packageAssetName(entries, model.asset, this.baseName(model.asset));
@@ -2514,6 +2672,7 @@ export class MapEditor {
     this.terrainMaterialInput.value = map.terrain.material.textureSet ?? map.materials.terrain ?? 'grassy-meadow';
     this.paintMaterialInput.value = this.terrainMaterialInput.value;
     this.surfaceFrictionInput.value = String(this.terrainMaterialDefinition(this.paintMaterialInput.value)?.friction ?? 1);
+    this.writeEnvironmentToInputs(map.environment);
     this.surfacePatches = (map.terrain.surfacePatches ?? []).map((patch) => ({
       id: patch.id,
       type: 'paint',
@@ -2542,27 +2701,27 @@ export class MapEditor {
     map.elements.forEach((element) => this.addElementFromData(this.cloneMapElement(element)));
     const existingElementIds = new Set(this.elements.keys());
     this.groups = map.groups
-      .map((group) => ({
-        id: typeof group.id === 'string' && group.id ? group.id : `group-${crypto.randomUUID().slice(0, 8)}`,
-        name: typeof group.name === 'string' && group.name ? group.name : 'Group',
-        elementIds: Array.isArray(group.elementIds)
-          ? group.elementIds.filter((id) => existingElementIds.has(id))
-          : [],
-        material: group.material,
-        textureMapping: group.textureMapping
-          ? {
-            mode: 'group-atlas' as const,
-            material: group.textureMapping.material,
-            bounds: [
-              group.textureMapping.bounds[0],
-              group.textureMapping.bounds[1],
-              group.textureMapping.bounds[2],
-              group.textureMapping.bounds[3],
-            ] as [number, number, number, number],
-          }
-          : undefined,
-      }))
-      .filter((group) => group.elementIds.length > 1);
+        .map((group) => ({
+          id: typeof group.id === 'string' && group.id ? group.id : `group-${crypto.randomUUID().slice(0, 8)}`,
+          name: typeof group.name === 'string' && group.name ? group.name : 'Group',
+          elementIds: Array.isArray(group.elementIds)
+              ? group.elementIds.filter((id) => existingElementIds.has(id))
+              : [],
+          material: group.material,
+          textureMapping: group.textureMapping
+              ? {
+                mode: 'group-atlas' as const,
+                material: group.textureMapping.material,
+                bounds: [
+                  group.textureMapping.bounds[0],
+                  group.textureMapping.bounds[1],
+                  group.textureMapping.bounds[2],
+                  group.textureMapping.bounds[3],
+                ] as [number, number, number, number],
+              }
+              : undefined,
+        }))
+        .filter((group) => group.elementIds.length > 1);
     this.waterSources = map.water.map((waterSource, index) => {
       const seedPoint = Array.isArray(waterSource.seedPoint) ? waterSource.seedPoint : [0, 0];
       return {
@@ -2631,26 +2790,26 @@ export class MapEditor {
       rotation: [...element.rotation],
       size: [...element.size],
       stacking: element.stacking
-        ? {
-          enabled: element.stacking.enabled,
-          baseElementId: element.stacking.baseElementId ?? null,
-        }
-        : undefined,
+          ? {
+            enabled: element.stacking.enabled,
+            baseElementId: element.stacking.baseElementId ?? null,
+          }
+          : undefined,
       destructible: element.destructible
-        ? {
-          enabled: element.destructible.enabled,
-          health: element.destructible.health,
-        }
-        : undefined,
+          ? {
+            enabled: element.destructible.enabled,
+            health: element.destructible.health,
+          }
+          : undefined,
       material: element.material,
       textureMapping: element.textureMapping
-        ? {
-          mode: element.textureMapping.mode,
-          material: element.textureMapping.material,
-          groupId: element.textureMapping.groupId,
-          uv: element.textureMapping.uv ? [...element.textureMapping.uv] : undefined,
-        }
-        : undefined,
+          ? {
+            mode: element.textureMapping.mode,
+            material: element.textureMapping.material,
+            groupId: element.textureMapping.groupId,
+            uv: element.textureMapping.uv ? [...element.textureMapping.uv] : undefined,
+          }
+          : undefined,
       role: element.role,
     };
   }
@@ -2886,8 +3045,8 @@ export class MapEditor {
     const localX = (x - centerX) * cos - (z - centerZ) * sin;
     const localZ = (x - centerX) * sin + (z - centerZ) * cos;
     const [radiusX, radiusZ] = Array.isArray(feature.radius)
-      ? feature.radius
-      : [feature.radius, feature.radius];
+        ? feature.radius
+        : [feature.radius, feature.radius];
     const normalizedDistance = Math.sqrt(
         (localX * localX) / (radiusX * radiusX)
         + (localZ * localZ) / (radiusZ * radiusZ),
@@ -2912,10 +3071,10 @@ export class MapEditor {
     const candidates = new Set<string>();
     if (typeof assetName === 'string' && assetName.trim()) {
       const normalized = assetName
-        .replace(/\\/g, '/')
-        .replace(/^\/api\/maps\/[^/]+\/assets\//, '')
-        .replace(/^\/+/, '')
-        .replace(/^\.\//, '');
+          .replace(/\\/g, '/')
+          .replace(/^\/api\/maps\/[^/]+\/assets\//, '')
+          .replace(/^\/+/, '')
+          .replace(/^\.\//, '');
       candidates.add(normalized);
       candidates.add(normalized.split('/').pop() ?? normalized);
     }
@@ -2932,7 +3091,7 @@ export class MapEditor {
 
   currentPreset(): GroundfireElementPreset {
     return MAP_ASSET_MANIFEST.elementPresets.find((preset) => preset.key === this.presetInput.value)
-      ?? MAP_ASSET_MANIFEST.elementPresets[0];
+        ?? MAP_ASSET_MANIFEST.elementPresets[0];
   }
 
   refreshGhost(): void {
@@ -3308,6 +3467,7 @@ export class MapEditor {
         features: [],
         surfacePatches: this.surfacePatches,
       },
+      environment: this.environmentFromInputs(),
       materials: {
         terrain: this.terrainMaterialInput.value || 'grassy-meadow',
         wall: 'brick-wall',
@@ -3331,7 +3491,7 @@ export class MapEditor {
     const heightmapBlob = await this.heightmapBlob();
     const modelAssetEntries = Array.from(
         this.destructibleModels.reduce((entries, model) => (
-          entries.has(model.assetName) ? entries : entries.set(model.assetName, model.sourceBytes)
+            entries.has(model.assetName) ? entries : entries.set(model.assetName, model.sourceBytes)
         ), new Map<string, Uint8Array>()),
     ).map(([name, bytes]) => ({name, bytes}));
     const zipEntries = [
@@ -3351,8 +3511,8 @@ export class MapEditor {
     const heightRange = heightStats.max - heightStats.min;
     this.setStatus(
         heightRange > 0.05
-          ? `Exported ${id}.zip - terrain ${heightStats.min.toFixed(1)} to ${heightStats.max.toFixed(1)}`
-          : `Exported ${id}.zip - terrain is flat`,
+            ? `Exported ${id}.zip - terrain ${heightStats.min.toFixed(1)} to ${heightStats.max.toFixed(1)}`
+            : `Exported ${id}.zip - terrain is flat`,
     );
   }
 
@@ -3424,13 +3584,13 @@ export class MapEditor {
 
   slugFromName(name: string): string {
     const normalizedName = name
-      .trim()
-      .replace(/[łŁ]/g, 'l')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+        .trim()
+        .replace(/[łŁ]/g, 'l')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/^-+|-+$/g, '');
     return (normalizedName || 'custom-map').slice(0, 64);
   }
 
