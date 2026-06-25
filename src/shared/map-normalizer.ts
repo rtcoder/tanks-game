@@ -315,11 +315,11 @@ function readDestructibleModel(source: unknown, fallbackId: string): GroundfireD
       health: fallbackHealth,
     },
     collision: {
-      mode: model.collision?.mode === 'chunk-mesh' ? 'chunk-mesh' : 'chunk-box',
+      mode: 'chunk-mesh',
       spatialIndex: model.collision?.spatialIndex === 'none' ? 'none' : 'grid',
     },
     render: {
-      mode: model.render?.mode === 'generated-blocks' ? 'generated-blocks' : 'source-model',
+      mode: 'source-model',
       preserveMaterials: model.render?.preserveMaterials !== false,
     },
     chunking: readDestructibleChunking(model.chunking),
@@ -335,7 +335,7 @@ function readDestructibleChunking(source: unknown): GroundfireDestructibleModelC
   const minBlockSize = readVector3(data.minBlockSize, [18, 18, 18]);
 
   return {
-    mode: data.mode === 'solid-blocks' ? 'solid-blocks' : 'source-nodes',
+    mode: 'source-nodes',
     fill: 'bounding-box',
     blockSize: [
       Math.max(8, blockSize[0]),

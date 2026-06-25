@@ -115,7 +115,7 @@ export class PhysXWorld {
         this.material,
         1,
     );
-    this.px.PxRigidBodyExt.setMassAndUpdateInertia(actor, Math.max(0.1, options.mass));
+    this.setBoxMassAndInertia(actor, Math.max(0.1, options.mass), options.size);
     actor.setLinearDamping(0.08);
     actor.setAngularDamping(0.18);
     actor.setMaxLinearVelocity(1800);
@@ -247,5 +247,23 @@ export class PhysXWorld {
 
   private vec3(vector: THREE.Vector3): InstanceType<PhysXRuntime['PxVec3']> {
     return new this.px.PxVec3(vector.x, vector.y, vector.z);
+  }
+
+  private setBoxMassAndInertia(actor: PhysXActor, mass: number, size: THREE.Vector3): void {
+    const rigidBodyExt = this.px.PxRigidBodyExt as unknown as {
+      prototype?: {
+        setMassAndUpdateInertia?: (body: PhysXActor, mass: number) => boolean;
+      };
+    };
+    if (rigidBodyExt.prototype?.setMassAndUpdateInertia?.(actor, mass)) {
+      return;
+    }
+
+    actor.setMass(mass);
+    actor.setMassSpaceInertiaTensor(new this.px.PxVec3(
+        mass * (size.y * size.y + size.z * size.z) / 12,
+        mass * (size.x * size.x + size.z * size.z) / 12,
+        mass * (size.x * size.x + size.y * size.y) / 12,
+    ));
   }
 }

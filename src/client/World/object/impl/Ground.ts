@@ -236,7 +236,7 @@ export class Ground extends BaseObject {
 
     const resolution = heightmap.resolution;
     const u = THREE.MathUtils.clamp((x / this.planeSize) + 0.5, 0, 1);
-    const v = THREE.MathUtils.clamp(0.5 - (y / this.planeSize), 0, 1);
+    const v = THREE.MathUtils.clamp((y / this.planeSize) + 0.5, 0, 1);
     const sampleX = u * (resolution - 1);
     const sampleY = v * (resolution - 1);
     const x0 = Math.floor(sampleX);

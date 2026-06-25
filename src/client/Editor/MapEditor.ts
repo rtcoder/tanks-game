@@ -23,7 +23,9 @@ type EditorElement = {
 
 type DragState = {
   ids: string[];
+  modelIds: string[];
   offsets: Map<string, THREE.Vector3>;
+  modelOffsets: Map<string, THREE.Vector3>;
 };
 
 type PlacementSample = {
@@ -101,6 +103,7 @@ export class MapEditor {
   selectedImportedPartIds = new Set<string>();
   destructibleModels: EditorDestructibleModel[] = [];
   registeredModelPreviewRoots: THREE.Group[] = [];
+  selectedModelIds = new Set<string>();
   elements = new Map<string, EditorElement>();
   groups: GroundfireMapGroup[] = [];
   surfacePatches: GroundfireTerrainSurfacePatch[] = [];
@@ -170,6 +173,7 @@ export class MapEditor {
     this.resize();
     this.animate();
     this.renderWaterList();
+    this.updateToolPanels();
     this.setStatus(`Editor ready - grid ${EDITOR_GRID_SIZE}`);
   }
 
@@ -214,14 +218,18 @@ export class MapEditor {
               <button id="editor-clear-model" type="button">Clear model</button>
             </div>
             <div class="editor__row">
-              <button id="editor-model-generate" type="button">Generate blocks</button>
               <button id="editor-model-register" type="button">Register destructible</button>
               <button id="editor-model-select-all" type="button">Select all parts</button>
             </div>
+            <div class="editor__row">
+              <button id="editor-model-set-terrain" type="button">Set as terrain</button>
+              <button id="editor-model-duplicate" type="button">Duplicate selected</button>
+            </div>
             <div class="editor__model-list" id="editor-model-part-list"></div>
           </section>
-          <label>Tool
-            <select id="editor-tool">
+          <section class="editor__section editor__section--tools">
+            <div class="editor__section-title">Tool</div>
+            <select class="editor__tool-select" id="editor-tool" aria-label="Editor tool">
               <option value="view">Navigate view</option>
               <option value="raise">Raise</option>
               <option value="lower">Lower</option>
@@ -232,11 +240,28 @@ export class MapEditor {
               <option value="select">Select / move</option>
               <option value="water">Pour water</option>
             </select>
-          </label>
-          <label>Brush size<input id="editor-brush-size" type="range" min="20" max="420" value="110"></label>
-          <label>Brush strength<input id="editor-brush-strength" type="range" min="1" max="80" value="18"></label>
-          <label>Flatten height<input id="editor-flatten-height" type="number" step="5" value="0"></label>
-          <section class="editor__section">
+            <div class="editor__tool-grid" role="toolbar" aria-label="Editor tools">
+              <button type="button" data-tool-button="view">View</button>
+              <button type="button" data-tool-button="select">Select</button>
+              <button type="button" data-tool-button="place">Place</button>
+              <button type="button" data-tool-button="raise">Raise</button>
+              <button type="button" data-tool-button="lower">Lower</button>
+              <button type="button" data-tool-button="smooth">Smooth</button>
+              <button type="button" data-tool-button="flatten">Flatten</button>
+              <button type="button" data-tool-button="paint">Paint</button>
+              <button type="button" data-tool-button="water">Water</button>
+            </div>
+          </section>
+          <section class="editor__section" data-tool-panel="raise lower smooth flatten">
+            <div class="editor__section-title">Terrain brush</div>
+            <label>Brush size<input id="editor-brush-size" type="range" min="20" max="420" value="110"></label>
+            <label>Brush strength<input id="editor-brush-strength" type="range" min="1" max="80" value="18"></label>
+          </section>
+          <section class="editor__section" data-tool-panel="flatten">
+            <div class="editor__section-title">Flatten</div>
+            <label>Flatten height<input id="editor-flatten-height" type="number" step="5" value="0"></label>
+          </section>
+          <section class="editor__section" data-tool-panel="view">
             <div class="editor__section-title">View</div>
             <div class="editor__row">
               <button id="editor-view-rotate-left" type="button">Turn L</button>
@@ -254,7 +279,7 @@ export class MapEditor {
               <span></span>
             </div>
           </section>
-          <section class="editor__section">
+          <section class="editor__section" data-tool-panel="paint">
             <div class="editor__section-title">Terrain materials</div>
             <label>Base terrain
               <select id="editor-terrain-material">${terrainMaterialOptions}</select>
@@ -276,10 +301,10 @@ export class MapEditor {
               <label>Tile D<input id="editor-surface-tile-depth" type="number" min="${EDITOR_GRID_SIZE}" max="1000" step="${EDITOR_GRID_SIZE}" value="40"></label>
             </div>
           </section>
-          <label>Object
+          <label data-tool-panel="place">Object
             <select id="editor-preset">${presetOptions}</select>
           </label>
-          <section class="editor__section">
+          <section class="editor__section" data-tool-panel="place select">
             <div class="editor__section-title">Object materials</div>
             <label>Texture / material
               <select id="editor-object-material">${objectMaterialOptions}</select>
@@ -289,10 +314,10 @@ export class MapEditor {
               <button id="editor-apply-group-texture" type="button">Group texture</button>
             </div>
           </section>
-          <label class="editor__check"><input id="editor-destructible" type="checkbox" checked> Destructible</label>
-          <label>Health<input id="editor-health" type="number" min="1" max="9999" value="20"></label>
-          <label>Water level<input id="editor-water-level" type="number" step="5" value="0"></label>
-          <section class="editor__section">
+          <label class="editor__check" data-tool-panel="place"><input id="editor-destructible" type="checkbox" checked> Destructible</label>
+          <label data-tool-panel="place"><span>Health</span><input id="editor-health" type="number" min="1" max="9999" value="20"></label>
+          <label data-tool-panel="water"><span>Water level</span><input id="editor-water-level" type="number" step="5" value="0"></label>
+          <section class="editor__section" data-tool-panel="water">
             <div class="editor__section-title">Water lvl 2</div>
             <label>Water type
               <select id="editor-water-type">
@@ -321,15 +346,15 @@ export class MapEditor {
               <label>Explosion mult<input id="editor-water-explosion" type="number" min="0" max="1" step="0.05" value="0.35"></label>
             </div>
           </section>
-          <section class="editor__section">
+          <section class="editor__section" data-tool-panel="water">
             <div class="editor__section-title">Water sources</div>
             <div class="editor__water-list" id="editor-water-list"></div>
           </section>
-          <div class="editor__row">
+          <div class="editor__row" data-tool-panel="place select">
             <button id="editor-rotate-left" type="button">Rotate -90</button>
             <button id="editor-rotate-right" type="button">Rotate +90</button>
           </div>
-          <div class="editor__row">
+          <div class="editor__row" data-tool-panel="select">
             <button id="editor-group" type="button">Group</button>
             <button id="editor-delete" type="button">Delete</button>
           </div>
@@ -464,9 +489,10 @@ export class MapEditor {
   bindEvents(): void {
     window.addEventListener('resize', () => this.resize());
     this.toolInput.addEventListener('change', () => {
-      this.tool = this.toolInput.value as EditorTool;
-      this.ghostMesh.visible = this.tool === 'place';
-      this.updateSurfacePatchPreview();
+      this.setTool(this.toolInput.value as EditorTool);
+    });
+    document.querySelectorAll<HTMLButtonElement>('[data-tool-button]').forEach((button) => {
+      button.addEventListener('click', () => this.setTool(button.dataset.toolButton as EditorTool));
     });
     this.brushSizeInput.addEventListener('input', () => {
       this.brushSize = Number(this.brushSizeInput.value);
@@ -527,6 +553,8 @@ export class MapEditor {
     document.getElementById('editor-model-generate')?.addEventListener('click', () => this.generateBlocksFromImportedModel());
     document.getElementById('editor-model-register')?.addEventListener('click', () => void this.registerImportedModelAsDestructible());
     document.getElementById('editor-model-select-all')?.addEventListener('click', () => this.selectAllImportedModelParts());
+    document.getElementById('editor-model-set-terrain')?.addEventListener('click', () => this.setImportedModelAsTerrain());
+    document.getElementById('editor-model-duplicate')?.addEventListener('click', () => void this.duplicateSelectedModels());
     this.importPackageInput.addEventListener('change', () => {
       const file = this.importPackageInput.files?.[0];
       this.importPackageInput.value = '';
@@ -574,6 +602,26 @@ export class MapEditor {
       if (event.key === 'Delete' || event.key === 'Backspace') {
         this.deleteSelection();
       }
+    });
+  }
+
+  setTool(tool: EditorTool): void {
+    this.tool = tool;
+    this.toolInput.value = tool;
+    this.ghostMesh.visible = tool === 'place';
+    this.updateSurfacePatchPreview();
+    this.updateToolPanels();
+  }
+
+  updateToolPanels(): void {
+    document.querySelectorAll<HTMLElement>('[data-tool-panel]').forEach((element) => {
+      const tools = (element.dataset.toolPanel ?? '').split(/\s+/).filter(Boolean);
+      element.hidden = !tools.includes(this.tool);
+    });
+    document.querySelectorAll<HTMLButtonElement>('[data-tool-button]').forEach((button) => {
+      const active = button.dataset.toolButton === this.tool;
+      button.classList.toggle('editor__tool-button--active', active);
+      button.setAttribute('aria-pressed', String(active));
     });
   }
 
@@ -772,7 +820,7 @@ export class MapEditor {
 
   averageNeighborHeight(index: number): number {
     const positions = this.terrainGeometry.attributes.position;
-    const side = HEIGHTMAP_RESOLUTION;
+    const side = TERRAIN_SEGMENTS + 1;
     const x = index % side;
     const y = Math.floor(index / side);
     let total = 0;
@@ -1055,6 +1103,17 @@ export class MapEditor {
     const hit = this.intersectObjects();
     const id = typeof hit?.object.userData.elementId === 'string' ? hit.object.userData.elementId : null;
     if (!id) {
+      const registeredModelHit = this.intersectRegisteredModels();
+      const registeredModelId = this.registeredModelIdFromObject(registeredModelHit?.object ?? null);
+      if (registeredModelId) {
+        this.toggleRegisteredModelSelection(registeredModelId, append);
+        const terrainHit = this.intersectTerrain();
+        if (terrainHit) {
+          this.dragState = this.createDragState(this.snappedTerrainPoint(terrainHit.point));
+        }
+        return;
+      }
+
       const modelPartHit = this.intersectImportedModelParts();
       const modelPartId = typeof modelPartHit?.object.userData.importedModelPartId === 'string'
         ? modelPartHit.object.userData.importedModelPartId
@@ -1090,10 +1149,12 @@ export class MapEditor {
     }
 
     this.selectedWaterId = null;
+    this.selectedModelIds.clear();
     this.selectedImportedPartIds.clear();
     this.syncImportedModelSelectionMaterials();
     this.renderImportedModelParts();
     this.syncSelectionMaterials();
+    this.syncRegisteredModelSelectionMaterials();
     this.syncWaterSelectionMaterials();
     this.renderWaterList();
     const terrainHit = this.intersectTerrain();
@@ -1105,13 +1166,21 @@ export class MapEditor {
   createDragState(anchor: THREE.Vector3): DragState {
     const ids = this.selectedGroupIds();
     const offsets = new Map<string, THREE.Vector3>();
+    const modelIds = Array.from(this.selectedModelIds);
+    const modelOffsets = new Map<string, THREE.Vector3>();
     ids.forEach((id) => {
       const element = this.elements.get(id);
       if (element) {
         offsets.set(id, element.mesh.position.clone().sub(anchor));
       }
     });
-    return {ids, offsets};
+    modelIds.forEach((id) => {
+      const root = this.registeredModelPreviewRoot(id);
+      if (root) {
+        modelOffsets.set(id, root.position.clone().sub(anchor));
+      }
+    });
+    return {ids, modelIds, offsets, modelOffsets};
   }
 
   dragSelection(): void {
@@ -1135,6 +1204,21 @@ export class MapEditor {
       );
       this.writeElementFromMesh(element);
     });
+    this.dragState.modelIds.forEach((id) => {
+      const model = this.destructibleModels.find((item) => item.data.id === id);
+      const root = this.registeredModelPreviewRoot(id);
+      const offset = this.dragState?.modelOffsets.get(id);
+      if (!model || !root || !offset) {
+        return;
+      }
+
+      root.position.set(
+          this.snapToGrid(anchor.x + offset.x),
+          anchor.y + offset.y,
+          this.snapToGrid(anchor.z + offset.z),
+      );
+      this.writeRegisteredModelFromRoot(model.data, root);
+    });
   }
 
   selectedGroupIds(): string[] {
@@ -1151,6 +1235,18 @@ export class MapEditor {
     }
 
     if (this.tool === 'place' || this.selectedIds.size === 0) {
+      if (this.tool === 'select' && this.selectedModelIds.size > 0) {
+        this.selectedModelIds.forEach((id) => {
+          const model = this.destructibleModels.find((item) => item.data.id === id);
+          const root = this.registeredModelPreviewRoot(id);
+          if (!model || !root) {
+            return;
+          }
+          root.rotation.y += delta;
+          this.writeRegisteredModelFromRoot(model.data, root);
+        });
+        return;
+      }
       this.ghostRotation += delta;
       this.updateGhost();
       return;
@@ -1292,9 +1388,21 @@ export class MapEditor {
   }
 
   deleteSelection(): void {
-    if (this.selectedWaterId && this.selectedIds.size === 0) {
+    if (this.selectedWaterId && this.selectedIds.size === 0 && this.selectedModelIds.size === 0) {
       this.removeWaterSource(this.selectedWaterId);
       return;
+    }
+
+    if (this.selectedModelIds.size > 0) {
+      const selected = new Set(this.selectedModelIds);
+      this.registeredModelPreviewRoots
+          .filter((root) => selected.has(root.userData.destructibleModelId))
+          .forEach((root) => this.disposeObject(root));
+      this.registeredModelPreviewRoots = this.registeredModelPreviewRoots
+          .filter((root) => !selected.has(root.userData.destructibleModelId));
+      this.destructibleModels = this.destructibleModels
+          .filter((model) => !selected.has(model.data.id));
+      this.selectedModelIds.clear();
     }
 
     this.selectedGroupIds().forEach((id) => {
@@ -1310,6 +1418,7 @@ export class MapEditor {
       .filter((group) => group.elementIds.length > 1);
     this.clearSelection();
     this.refreshWaterPreview();
+    this.setStatus('Selection deleted');
   }
 
   addWaterSource(): void {
@@ -1948,8 +2057,10 @@ export class MapEditor {
     }
 
     this.clearElementSelection();
+    this.selectedModelIds.clear();
     this.selectedWaterId = null;
     this.syncImportedModelSelectionMaterials();
+    this.syncRegisteredModelSelectionMaterials();
     this.renderImportedModelParts();
     this.setStatus(`Selected ${this.selectedImportedPartIds.size} model part${this.selectedImportedPartIds.size === 1 ? '' : 's'}`);
   }
@@ -1971,16 +2082,6 @@ export class MapEditor {
       this.setStatus('No model chunks selected');
       return false;
     }
-    const duplicateModel = this.destructibleModels.find((model) => (
-      model.data.name === this.importedModelSourceName
-      && model.sourceBytes.byteLength === this.importedModelSourceBytes?.byteLength
-    ));
-    if (duplicateModel) {
-      this.clearImportedModel();
-      this.setStatus(`Model already registered: ${duplicateModel.data.name}`);
-      return true;
-    }
-
     const sourceId = this.safeIdFromFileName(this.baseName(this.importedModelSourceName)).slice(0, 32);
     const modelId = `model-${sourceId}-${crypto.randomUUID().slice(0, 8)}`;
     const assetName = `models/${modelId}.glb`;
@@ -1998,15 +2099,15 @@ export class MapEditor {
         health,
       },
       collision: {
-        mode: 'chunk-box',
+        mode: 'chunk-mesh',
         spatialIndex: 'grid',
       },
       render: {
-        mode: 'generated-blocks',
+        mode: 'source-model',
         preserveMaterials: true,
       },
       chunking: {
-        mode: 'solid-blocks',
+        mode: 'source-nodes',
         fill: 'bounding-box',
         blockSize: [42, 42, 34],
         minBlockSize: [18, 18, 18],
@@ -2018,7 +2119,7 @@ export class MapEditor {
         name: part.name,
         nodeName: part.mesh.name,
         health,
-        collider: 'box',
+        collider: 'mesh',
       })),
     };
 
@@ -2500,21 +2601,14 @@ export class MapEditor {
   clearEditorContent(): void {
     this.elements.forEach((element) => this.disposeMesh(element.mesh));
     this.elements.clear();
-    this.registeredModelPreviewRoots.forEach((root) => {
-      this.scene.remove(root);
-      root.traverse((object) => {
-        if (object instanceof THREE.Mesh) {
-          object.geometry.dispose();
-          this.disposeMaterial(object.material);
-        }
-      });
-    });
+    this.registeredModelPreviewRoots.forEach((root) => this.disposeObject(root));
     this.registeredModelPreviewRoots = [];
     this.destructibleModels = [];
     this.groups = [];
     this.surfacePatches = [];
     this.waterSources = [];
     this.selectedIds.clear();
+    this.selectedModelIds.clear();
     this.selectedWaterId = null;
     if (this.surfacePatchPreviewMesh) {
       this.surfacePatchPreviewMesh.visible = false;
@@ -2566,10 +2660,12 @@ export class MapEditor {
     try {
       const root = await this.loadModelFromUrl(url, 'glb');
       root.name = `registered-model:${model.id}`;
+      root.userData.destructibleModelId = model.id;
       root.position.set(model.position[0], model.position[2], model.position[1]);
       root.rotation.set(0, model.rotation[2] ?? 0, 0);
       root.scale.set(model.scale[0], model.scale[1], model.scale[2]);
       root.traverse((object) => {
+        object.userData.destructibleModelId = model.id;
         if (object instanceof THREE.Mesh) {
           object.castShadow = true;
           object.receiveShadow = true;
@@ -2580,6 +2676,117 @@ export class MapEditor {
     } finally {
       URL.revokeObjectURL(url);
     }
+  }
+
+  writeRegisteredModelFromRoot(model: GroundfireDestructibleModel, root: THREE.Object3D): void {
+    model.position = [root.position.x, root.position.z, root.position.y];
+    model.rotation = [0, 0, root.rotation.y];
+    model.scale = [root.scale.x, root.scale.y, root.scale.z];
+  }
+
+  async duplicateSelectedModels(): Promise<void> {
+    const selected = Array.from(this.selectedModelIds)
+        .map((id) => this.destructibleModels.find((model) => model.data.id === id))
+        .filter((model): model is EditorDestructibleModel => Boolean(model));
+    if (selected.length === 0) {
+      this.setStatus('Select a registered model first');
+      return;
+    }
+
+    this.selectedModelIds.clear();
+    for (const source of selected) {
+      const cloneId = `${source.data.id}-copy-${crypto.randomUUID().slice(0, 6)}`;
+      const cloneData = this.cloneDestructibleModel(source.data, cloneId);
+      cloneData.position = [
+        this.snapToGrid(source.data.position[0] + EDITOR_GRID_SIZE * 4),
+        source.data.position[1],
+        source.data.position[2],
+      ];
+      cloneData.chunks = cloneData.chunks.map((chunk) => ({
+        ...chunk,
+        id: chunk.id.replace(source.data.id, cloneId),
+      }));
+      this.destructibleModels.push({
+        data: cloneData,
+        sourceBytes: new Uint8Array(source.sourceBytes),
+        assetName: source.assetName,
+      });
+      await this.addRegisteredModelPreview(cloneData, source.sourceBytes);
+      this.selectedModelIds.add(cloneData.id);
+    }
+
+    this.syncRegisteredModelSelectionMaterials();
+    this.setStatus(`Duplicated ${selected.length} model${selected.length === 1 ? '' : 's'}`);
+  }
+
+  cloneDestructibleModel(model: GroundfireDestructibleModel, id: string): GroundfireDestructibleModel {
+    return {
+      ...model,
+      id,
+      name: `${model.name} copy`,
+      position: [...model.position],
+      rotation: [...model.rotation],
+      scale: [...model.scale],
+      destructible: {...model.destructible},
+      collision: {...model.collision},
+      render: {...model.render},
+      chunking: {
+        ...model.chunking,
+        blockSize: [...model.chunking.blockSize],
+        minBlockSize: [...model.chunking.minBlockSize],
+      },
+      chunks: model.chunks.map((chunk) => ({...chunk})),
+    };
+  }
+
+  setImportedModelAsTerrain(): void {
+    if (!this.importedModelRoot || this.importedModelParts.size === 0) {
+      this.setStatus('Load a terrain model first');
+      return;
+    }
+
+    const terrainMeshes = Array.from(this.importedModelParts.values()).map((part) => part.mesh);
+    if (terrainMeshes.length === 0) {
+      this.setStatus('Terrain model has no mesh parts');
+      return;
+    }
+
+    this.importedModelRoot.updateMatrixWorld(true);
+    terrainMeshes.forEach((mesh) => mesh.updateMatrixWorld(true));
+    const bounds = new THREE.Box3().setFromObject(this.importedModelRoot);
+    const rayStartY = bounds.max.y + Math.max(200, bounds.getSize(new THREE.Vector3()).y + 20);
+    const rayDistance = Math.max(400, bounds.getSize(new THREE.Vector3()).y + 400);
+    const terrainRaycaster = new THREE.Raycaster(
+        new THREE.Vector3(0, rayStartY, 0),
+        new THREE.Vector3(0, -1, 0),
+        0,
+        rayDistance,
+    );
+    const positions = this.terrainGeometry.attributes.position;
+    let sampled = 0;
+    for (let index = 0; index < positions.count; index += 1) {
+      const x = positions.getX(index);
+      const z = positions.getZ(index);
+      terrainRaycaster.ray.origin.set(x, rayStartY, z);
+      const [hit] = terrainRaycaster.intersectObjects(terrainMeshes, false);
+      if (!hit) {
+        continue;
+      }
+      positions.setY(index, hit.point.y);
+      sampled += 1;
+    }
+
+    if (sampled === 0) {
+      this.setStatus('Terrain model did not overlap the editor terrain grid');
+      return;
+    }
+
+    positions.needsUpdate = true;
+    this.terrainGeometry.computeVertexNormals();
+    this.updateTerrainHeatmap();
+    this.refreshWaterPreview();
+    this.clearImportedModel();
+    this.setStatus(`Terrain generated from model - ${sampled} samples`);
   }
 
   async imageDataFromBytes(bytes: Uint8Array, type: string): Promise<ImageData> {
@@ -2769,7 +2976,7 @@ export class MapEditor {
     const z1 = Math.min(TERRAIN_SEGMENTS, z0 + 1);
     const tx = gridX - x0;
     const tz = gridZ - z0;
-    const side = HEIGHTMAP_RESOLUTION;
+    const side = TERRAIN_SEGMENTS + 1;
     const h00 = positions.getY(z0 * side + x0);
     const h10 = positions.getY(z0 * side + x1);
     const h01 = positions.getY(z1 * side + x0);
@@ -2798,6 +3005,11 @@ export class MapEditor {
     return hit ?? null;
   }
 
+  intersectRegisteredModels(): THREE.Intersection | null {
+    const [hit] = this.raycaster.intersectObjects(this.registeredModelPreviewRoots, true);
+    return hit ?? null;
+  }
+
   intersectWater(): THREE.Intersection | null {
     const [hit] = this.raycaster.intersectObjects(this.waterMeshes, false);
     return hit ?? null;
@@ -2814,17 +3026,21 @@ export class MapEditor {
 
   selectOnly(id: string): void {
     this.selectedWaterId = null;
+    this.selectedModelIds.clear();
     this.clearImportedModelSelection();
     this.selectedIds = new Set([id]);
     this.syncSelectionMaterials();
+    this.syncRegisteredModelSelectionMaterials();
     this.syncWaterSelectionMaterials();
     this.renderWaterList();
   }
 
   clearSelection(): void {
     this.selectedWaterId = null;
+    this.selectedModelIds.clear();
     this.clearElementSelection();
     this.clearImportedModelSelection();
+    this.syncRegisteredModelSelectionMaterials();
     this.syncWaterSelectionMaterials();
     this.renderWaterList();
   }
@@ -2842,6 +3058,63 @@ export class MapEditor {
     this.selectedImportedPartIds.clear();
     this.syncImportedModelSelectionMaterials();
     this.renderImportedModelParts();
+  }
+
+  registeredModelIdFromObject(object: THREE.Object3D | null): string | null {
+    let current: THREE.Object3D | null = object;
+    while (current) {
+      if (typeof current.userData.destructibleModelId === 'string') {
+        return current.userData.destructibleModelId;
+      }
+      current = current.parent;
+    }
+
+    return null;
+  }
+
+  registeredModelPreviewRoot(modelId: string): THREE.Group | null {
+    return this.registeredModelPreviewRoots.find((root) => root.userData.destructibleModelId === modelId) ?? null;
+  }
+
+  toggleRegisteredModelSelection(modelId: string, append: boolean): void {
+    if (!append) {
+      this.selectedIds.clear();
+      this.selectedImportedPartIds.clear();
+      this.selectedModelIds.clear();
+    }
+    if (append && this.selectedModelIds.has(modelId)) {
+      this.selectedModelIds.delete(modelId);
+    } else {
+      this.selectedModelIds.add(modelId);
+    }
+
+    this.selectedWaterId = null;
+    this.syncImportedModelSelectionMaterials();
+    this.renderImportedModelParts();
+    this.syncSelectionMaterials();
+    this.syncRegisteredModelSelectionMaterials();
+    this.syncWaterSelectionMaterials();
+    this.renderWaterList();
+    this.setStatus(`Selected ${this.selectedModelIds.size} model${this.selectedModelIds.size === 1 ? '' : 's'}`);
+  }
+
+  syncRegisteredModelSelectionMaterials(): void {
+    this.registeredModelPreviewRoots.forEach((root) => {
+      const selected = this.selectedModelIds.has(root.userData.destructibleModelId);
+      root.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) {
+          return;
+        }
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach((material) => {
+          if (material instanceof THREE.MeshStandardMaterial) {
+            material.emissive.set(selected ? 0x385000 : 0x000000);
+            material.emissiveIntensity = selected ? 0.55 : 0;
+            material.needsUpdate = true;
+          }
+        });
+      });
+    });
   }
 
   syncSelectionMaterials(): void {
@@ -2987,6 +3260,16 @@ export class MapEditor {
     this.disposeMaterial(mesh.material);
   }
 
+  disposeObject(object: THREE.Object3D): void {
+    this.scene.remove(object);
+    object.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        this.disposeMaterial(child.material);
+      }
+    });
+  }
+
   disposeMaterial(material: THREE.Material | THREE.Material[]): void {
     if (Array.isArray(material)) {
       material.forEach((item) => item.dispose());
@@ -3046,6 +3329,11 @@ export class MapEditor {
       await this.registerImportedModelAsDestructible();
     }
     const heightmapBlob = await this.heightmapBlob();
+    const modelAssetEntries = Array.from(
+        this.destructibleModels.reduce((entries, model) => (
+          entries.has(model.assetName) ? entries : entries.set(model.assetName, model.sourceBytes)
+        ), new Map<string, Uint8Array>()),
+    ).map(([name, bytes]) => ({name, bytes}));
     const zipEntries = [
       {
         name: 'map.json',
@@ -3055,13 +3343,17 @@ export class MapEditor {
         name: 'heightmap.png',
         bytes: new Uint8Array(await heightmapBlob.arrayBuffer()),
       },
-      ...this.destructibleModels.map((model) => ({
-        name: model.assetName,
-        bytes: model.sourceBytes,
-      })),
+      ...modelAssetEntries,
     ];
     const zip = createStoredZip(zipEntries);
     this.downloadBlob(`${id}.zip`, new Blob([this.uint8BlobPart(zip)], {type: 'application/zip'}), 'application/zip');
+    const heightStats = this.heightStats();
+    const heightRange = heightStats.max - heightStats.min;
+    this.setStatus(
+        heightRange > 0.05
+          ? `Exported ${id}.zip - terrain ${heightStats.min.toFixed(1)} to ${heightStats.max.toFixed(1)}`
+          : `Exported ${id}.zip - terrain is flat`,
+    );
   }
 
   async heightmapBlob(): Promise<Blob> {
@@ -3086,12 +3378,14 @@ export class MapEditor {
     const stats = this.heightStats();
     const range = Math.max(1, stats.max - stats.min);
     const imageData = context.createImageData(HEIGHTMAP_RESOLUTION, HEIGHTMAP_RESOLUTION);
-    const positions = this.terrainGeometry.attributes.position;
     for (let row = 0; row < HEIGHTMAP_RESOLUTION; row += 1) {
       for (let column = 0; column < HEIGHTMAP_RESOLUTION; column += 1) {
-        const sourceIndex = row * HEIGHTMAP_RESOLUTION + column;
-        const pixelIndex = sourceIndex * 4;
-        const value = Math.round(((positions.getY(sourceIndex) - stats.min) / range) * 255);
+        const u = HEIGHTMAP_RESOLUTION > 1 ? column / (HEIGHTMAP_RESOLUTION - 1) : 0;
+        const v = HEIGHTMAP_RESOLUTION > 1 ? row / (HEIGHTMAP_RESOLUTION - 1) : 0;
+        const x = THREE.MathUtils.lerp(-this.terrainSize / 2, this.terrainSize / 2, u);
+        const z = THREE.MathUtils.lerp(-this.terrainSize / 2, this.terrainSize / 2, v);
+        const pixelIndex = (row * HEIGHTMAP_RESOLUTION + column) * 4;
+        const value = Math.round(((this.heightAt(x, z) - stats.min) / range) * 255);
         imageData.data[pixelIndex] = value;
         imageData.data[pixelIndex + 1] = value;
         imageData.data[pixelIndex + 2] = value;

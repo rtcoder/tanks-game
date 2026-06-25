@@ -330,7 +330,7 @@ export class DestructibleModel {
       chunks: this.chunkOrder.length,
       batchedMeshes: this.batchedMeshes.length,
       batchedChunks,
-      solidBlocks: this.data.chunking.mode === 'solid-blocks' ? this.chunkOrder.length : 0,
+      solidBlocks: this.shouldRenderGeneratedBlocks() ? this.chunkOrder.length : 0,
       visibleBudget: DESTRUCTIBLE_VISIBLE_CHUNK_BUDGET,
     };
   }
@@ -362,7 +362,7 @@ export class DestructibleModel {
       }
     });
 
-    if (this.data.chunking.mode === 'solid-blocks') {
+    if (this.shouldRenderGeneratedBlocks()) {
       this.collectSolidBlockChunks(meshes);
       return;
     }
@@ -480,6 +480,10 @@ export class DestructibleModel {
     });
   }
 
+  private shouldRenderGeneratedBlocks(): boolean {
+    return false;
+  }
+
   private expandedSolidBox(sourceBox: THREE.Box3): THREE.Box3 {
     const center = sourceBox.getCenter(new THREE.Vector3());
     const size = sourceBox.getSize(new THREE.Vector3());
@@ -568,6 +572,9 @@ export class DestructibleModel {
   }
 
   private batchStaticChunks(): void {
+    if (this.data.render.mode === 'source-model') {
+      return;
+    }
     if (this.chunkOrder.length < DESTRUCTIBLE_BATCH_MIN_MESHES) {
       return;
     }
@@ -948,11 +955,7 @@ export class DestructibleModel {
         Math.max(size.y, DESTRUCTIBLE_DEBRIS_MIN_VISIBLE_THICKNESS),
         Math.max(size.z, DESTRUCTIBLE_DEBRIS_MIN_VISIBLE_THICKNESS),
     );
-    const geometry = new THREE.BoxGeometry(visualSize.x, visualSize.y, visualSize.z);
-    const material = this.createDebrisMaterial(chunk);
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = `${chunk.id}:falling-debris`;
-    mesh.position.copy(chunk.center);
+    const mesh = this.createDebrisMesh(chunk, visualSize);
     mesh.castShadow = false;
     mesh.receiveShadow = true;
     mesh.frustumCulled = true;
@@ -999,6 +1002,25 @@ export class DestructibleModel {
     this.fallingDebris.push(debris);
   }
 
+  private createDebrisMesh(chunk: RuntimeChunk, fallbackSize: THREE.Vector3): THREE.Mesh {
+    if (chunk.mesh && this.data.render.mode === 'source-model') {
+      const sourceMesh = chunk.mesh;
+      const geometry = sourceMesh.geometry.clone();
+      geometry.applyMatrix4(sourceMesh.matrixWorld);
+      geometry.translate(-chunk.center.x, -chunk.center.y, -chunk.center.z);
+      const mesh = new THREE.Mesh(geometry, this.createDebrisMaterial(chunk));
+      mesh.name = `${chunk.id}:falling-debris`;
+      mesh.position.copy(chunk.center);
+      return mesh;
+    }
+
+    const geometry = new THREE.BoxGeometry(fallbackSize.x, fallbackSize.y, fallbackSize.z);
+    const mesh = new THREE.Mesh(geometry, this.createDebrisMaterial(chunk));
+    mesh.name = `${chunk.id}:falling-debris`;
+    mesh.position.copy(chunk.center);
+    return mesh;
+  }
+
   private createPhysXDebris(
       chunk: RuntimeChunk,
       debris: FallingDebris,
@@ -1008,17 +1030,22 @@ export class DestructibleModel {
       return null;
     }
 
-    return this.physicsWorld.createDynamicBox({
-      id: `${chunk.id}:physx-debris`,
-      mesh: debris.mesh,
-      size: visualSize,
-      position: debris.mesh.position,
-      quaternion: debris.mesh.quaternion,
-      mass: chunk.mass,
-      linearVelocity: debris.velocity,
-      angularVelocity: debris.angularVelocity,
-      maxAge: DESTRUCTIBLE_DEBRIS_SETTLE_LIFETIME,
-    });
+    try {
+      return this.physicsWorld.createDynamicBox({
+        id: `${chunk.id}:physx-debris`,
+        mesh: debris.mesh,
+        size: visualSize,
+        position: debris.mesh.position,
+        quaternion: debris.mesh.quaternion,
+        mass: chunk.mass,
+        linearVelocity: debris.velocity,
+        angularVelocity: debris.angularVelocity,
+        maxAge: DESTRUCTIBLE_DEBRIS_SETTLE_LIFETIME,
+      });
+    } catch (error) {
+      console.warn(`Could not create PhysX debris for chunk "${chunk.id}"`, error);
+      return null;
+    }
   }
 
   private updateFallingDebris(delta: number, groundHeightAt: (x: number, y: number) => number): void {
@@ -1093,21 +1120,26 @@ export class DestructibleModel {
     }
   }
 
-  private createDebrisMaterial(chunk: RuntimeChunk): THREE.Material {
+  private createDebrisMaterial(chunk: RuntimeChunk): THREE.Material | THREE.Material[] {
     const source = Array.isArray(chunk.material)
-      ? chunk.material[0]
+      ? chunk.material
       : (chunk.material ?? (Array.isArray(chunk.batch?.material) ? chunk.batch.material[0] : chunk.batch?.material));
-    const material = source ? source.clone() : new THREE.MeshStandardMaterial({color: 0x8a755d, roughness: 0.92});
+    const material = Array.isArray(source)
+      ? source.map((item) => item.clone())
+      : (source ? source.clone() : new THREE.MeshStandardMaterial({color: 0x8a755d, roughness: 0.92}));
 
-    if (material instanceof THREE.MeshStandardMaterial) {
-      material.color.lerp(new THREE.Color(0x5b4a3a), 0.16);
-      material.roughness = Math.max(material.roughness, 0.84);
-      material.metalness = Math.min(material.metalness, 0.05);
-      material.transparent = true;
-      material.opacity = 0.96;
-      material.depthWrite = true;
-      material.needsUpdate = true;
-    }
+    const materials = Array.isArray(material) ? material : [material];
+    materials.forEach((item) => {
+      if (item instanceof THREE.MeshStandardMaterial) {
+        item.color.lerp(new THREE.Color(0x5b4a3a), 0.16);
+        item.roughness = Math.max(item.roughness, 0.84);
+        item.metalness = Math.min(item.metalness, 0.05);
+      }
+      item.transparent = true;
+      item.opacity = 0.96;
+      item.depthWrite = true;
+      item.needsUpdate = true;
+    });
 
     return material;
   }
@@ -1137,10 +1169,8 @@ export class DestructibleModel {
 
   private reserveDebrisSlot(): boolean {
     while (this.fallingDebris.length >= DESTRUCTIBLE_DEBRIS_MAX_ACTIVE) {
-      let removeIndex = this.fallingDebris.findIndex((debris) => debris.settled);
-      if (removeIndex < 0) {
-        return false;
-      }
+      let removeIndex = this.oldestSettledDebrisIndex();
+      removeIndex = removeIndex >= 0 ? removeIndex : this.oldestDebrisIndex();
       const [removed] = this.fallingDebris.splice(removeIndex, 1);
       if (removed) {
         this.disposeDebris(removed);
@@ -1148,6 +1178,25 @@ export class DestructibleModel {
     }
 
     return true;
+  }
+
+  private oldestSettledDebrisIndex(): number {
+    return this.fallingDebris.reduce((oldestIndex, debris, index) => {
+      if (!debris.settled && !debris.physicsId) {
+        return oldestIndex;
+      }
+      if (oldestIndex < 0 || debris.age > this.fallingDebris[oldestIndex].age) {
+        return index;
+      }
+
+      return oldestIndex;
+    }, -1);
+  }
+
+  private oldestDebrisIndex(): number {
+    return this.fallingDebris.reduce((oldestIndex, debris, index) => (
+      debris.age > this.fallingDebris[oldestIndex].age ? index : oldestIndex
+    ), 0);
   }
 
   private hash01(input: string, salt: number): number {
