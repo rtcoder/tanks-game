@@ -6,6 +6,7 @@ import {Camera} from './Camera.ts';
 export type TankCameraMode = 'chase' | 'gunner';
 
 export class ThirdPersonViewCamera extends Camera {
+  static readonly VIEW_DISTANCE = 9000;
   cameraDistance: number = 185;
   cameraHeight: number = 78;
   lookAheadDistance: number = 110;
@@ -25,7 +26,7 @@ export class ThirdPersonViewCamera extends Camera {
         75,
         aspect,
         0.05,
-        1000,
+        ThirdPersonViewCamera.VIEW_DISTANCE,
     );
     this._camera.up.set(0, 0, 1);
     this.updateView(true);
